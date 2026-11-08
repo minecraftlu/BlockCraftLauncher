@@ -30,6 +30,8 @@ namespace BlockCraftLauncher.Wpf
         ComboBox localResourceKind;
         ListBox localResourceList, serverList;
         TextBox serverName, serverAddress;
+        TextBox packSearchQuery;
+        ListBox packSearchResults;
         GameProfile activeProfile;
         string currentPage = "首页";
         ComboBox homeProfile, versionLoader, settingsTheme;
@@ -341,7 +343,96 @@ namespace BlockCraftLauncher.Wpf
             return Col(Txt(title, 24, true), Card(Col(Txt("迁移状态：尚未完成", 18, true),
                 Txt(details, 14, false, true), Txt("为保证存档和账户安全，此处不会运行未经迁移验证的下载/安装逻辑。", 12, false, true))));
         }
-        UIElement BuildModpacks() => MigrationPanel("整合包", "Modrinth .mrpack 安全解压、依赖索引和 CurseForge 镜像安装仍需移植。");
+        UIElement BuildModpacks()
+        {
+            var root = Col(Txt("Modrinth 整合包", 24, true),
+                Txt("支持搜索、下载和导入 .mrpack；使用独立实例，验证路径与 SHA-1 / SHA-512。", 12, false, true));
+            packSearchQuery = new TextBox { Width = 320 };
+            root.Children.Add(Card(Col(Txt("在线搜索", 18, true),
+                Row(packSearchQuery, Btn("搜索 Modrinth", async () => await SearchModpacksAsync(), true)))));
+            packSearchResults = new ListBox { Height = 270 };
+            root.Children.Add(Card(packSearchResults));
+            root.Children.Add(Card(Col(Txt("整合包安装", 18, true),
+                Row(Btn("安装选中整合包", async () => await InstallSelectedModpackAsync(), true),
+                    Btn("导入本地 .mrpack", ImportMrpackFromDisk),
+                    Btn("取消安装", () => currentOperation?.Cancel())),
+                Txt("安装新实例不会覆盖已存在的存档；如果加载器版本或下载文件不可用，安装会停止并移除未完成的新实例。", 12, false, true),
+                Txt("CurseForge 整合包直装仍未迁移。", 12, false, true))));
+            return root;
+        }
+        async Task SearchModpacksAsync()
+        {
+            try
+            {
+                Status("搜索 Modrinth 整合包...");
+                using (var client = new ModrinthClient(settings))
+                    packSearchResults.ItemsSource = await client.SearchAsync(packSearchQuery.Text, "modpack", CancellationToken.None);
+                Status("已获取整合包搜索结果");
+            }
+            catch (Exception ex) { ShowError("整合包搜索失败", ex); }
+        }
+        async Task InstallSelectedModpackAsync()
+        {
+            var hit = packSearchResults?.SelectedItem as ResourceHit;
+            if (hit == null) { MessageBox.Show("请先选择一个整合包"); return; }
+            if (currentOperation != null) { MessageBox.Show("已有安装任务正在进行"); return; }
+            string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BlockCraftLauncher", "wpf-pack-cache");
+            Directory.CreateDirectory(folder);
+            string archive = Path.Combine(folder, Guid.NewGuid().ToString("N") + ".mrpack");
+            currentOperation = new CancellationTokenSource();
+            try
+            {
+                Status("正在下载整合包：" + hit.Name);
+                using (var client = new ModrinthClient(settings))
+                    await client.DownloadModpackArchiveAsync(hit, archive, currentOperation.Token);
+                await InstallMrpackAsync(archive, currentOperation.Token);
+            }
+            catch (OperationCanceledException) { Status("整合包操作已取消"); }
+            catch (Exception ex) { ShowError("整合包安装失败", ex); }
+            finally
+            {
+                currentOperation.Dispose(); currentOperation = null;
+                if (File.Exists(archive)) File.Delete(archive);
+            }
+        }
+        void ImportMrpackFromDisk()
+        {
+            var dialog = new OpenFileDialog { Filter = "Modrinth 整合包 (*.mrpack)|*.mrpack" };
+            if (dialog.ShowDialog(this) != true) return;
+            if (currentOperation != null) { MessageBox.Show("已有安装任务正在进行"); return; }
+            var installer = new MrpackInstaller(settings);
+            try
+            {
+                var info = installer.Preview(dialog.FileName);
+                if (MessageBox.Show("整合包：" + info.Name + "\nMinecraft：" + info.Minecraft +
+                    "\n加载器：" + info.Loader + " " + info.LoaderVersion +
+                    "\n下载文件数：" + info.FileCount + "\n预计下载："
+                    + (info.DownloadBytes / 1024 / 1024) + " MiB\n\n确认安装到新实例？",
+                    "整合包安全检查", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            }
+            catch (Exception ex) { ShowError("整合包安全检查未通过", ex); return; }
+            currentOperation = new CancellationTokenSource();
+            _ = InstallLocalMrpackAndResetAsync(dialog.FileName);
+        }
+        async Task InstallLocalMrpackAndResetAsync(string archive)
+        {
+            try { await InstallMrpackAsync(archive, currentOperation.Token); }
+            catch (OperationCanceledException) { Status("整合包操作已取消"); }
+            catch (Exception ex) { ShowError("整合包安装失败", ex); }
+            finally { currentOperation.Dispose(); currentOperation = null; }
+        }
+        async Task InstallMrpackAsync(string archive, CancellationToken ct)
+        {
+            var installer = new MrpackInstaller(settings);
+            var progress = new Progress<string>(Status);
+            var profile = await installer.InstallAsync(archive, progress, ct);
+            settings.Profiles.Add(profile);
+            activeProfile = profile;
+            store.Save(settings);
+            Status("已创建整合包实例：" + profile.Name);
+            Navigate("首页");
+        }
+
 
         UIElement BuildModUpdates()
         {
