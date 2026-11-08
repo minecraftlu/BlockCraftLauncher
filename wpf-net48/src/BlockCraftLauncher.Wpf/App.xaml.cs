@@ -27,9 +27,7 @@ namespace BlockCraftLauncher.Wpf
                 string.Equals(arg, "--download-selftest", StringComparison.OrdinalIgnoreCase));
             bool downloadPageSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--download-ui-selftest", StringComparison.OrdinalIgnoreCase));
-            bool neteaseCrossplaySelfTest = e.Args.Any(arg =>
-                string.Equals(arg, "--netease-ui-selftest", StringComparison.OrdinalIgnoreCase));
-            smokeTest = authSelfTest || downloadSelfTest || downloadPageSelfTest || neteaseCrossplaySelfTest || e.Args.Any(arg =>
+            smokeTest = authSelfTest || downloadSelfTest || downloadPageSelfTest || e.Args.Any(arg =>
                 string.Equals(arg, "--smoke-test", StringComparison.OrdinalIgnoreCase));
             // The CI probe must never open a browser, download Minecraft,
             // touch account tokens, or display a GUI message. Both ordinary
@@ -102,8 +100,6 @@ namespace BlockCraftLauncher.Wpf
                     {
                         if (downloadPageSelfTest)
                             window.VerifyDownloadPageBindings();
-                        if (neteaseCrossplaySelfTest)
-                            window.VerifyNeteaseCrossplayPage();
                         Shutdown(0);
                     }
                     else

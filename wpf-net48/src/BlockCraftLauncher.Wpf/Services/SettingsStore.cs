@@ -36,7 +36,6 @@ namespace BlockCraftLauncher.Wpf.Services
                     config.Raw = data;
                     config.Root = S(data, "root", config.Root);
                     config.JavaPath = S(data, "java");
-                    config.NeteaseLauncherExe = S(data, "netease_launcher_exe");
                     config.Proxy = S(data, "proxy");
                     config.McimEnabled = S(data, "mcim_enabled", "False").Equals("True", StringComparison.OrdinalIgnoreCase);
                     config.NetworkMode = S(data, "network_mode", "auto");
@@ -66,7 +65,6 @@ namespace BlockCraftLauncher.Wpf.Services
         {
             var data = new Dictionary<string, object>(c.Raw);
             data["root"] = c.Root; data["java"] = c.JavaPath; data["proxy"] = c.Proxy;
-            data["netease_launcher_exe"] = c.NeteaseLauncherExe ?? "";
             data["mcim_enabled"] = c.McimEnabled;
             data["network_mode"] = c.NetworkMode; data["ui_mode"] = c.Theme; data["ui_accent"] = c.Accent;
             data["ui_zoom"] = c.Zoom; data["memory_mb"] = c.MemoryMb; data["download_threads"] = c.DownloadThreads;
