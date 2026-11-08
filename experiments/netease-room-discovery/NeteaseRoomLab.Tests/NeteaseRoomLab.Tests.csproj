@@ -30,6 +30,9 @@
     <Compile Include="..\NeteaseRoomLab\JoinProbeRunner.cs">
       <Link>JoinProbeRunner.cs</Link>
     </Compile>
+    <Compile Include="..\NeteaseRoomLab\Stage12OfflineBridge.cs">
+      <Link>Stage12OfflineBridge.cs</Link>
+    </Compile>
     <Compile Include="..\NeteaseRoomLab\RoomConnectionMaterial.cs">
       <Link>RoomConnectionMaterial.cs</Link>
     </Compile>
