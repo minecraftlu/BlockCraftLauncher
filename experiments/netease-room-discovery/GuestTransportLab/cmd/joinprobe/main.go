@@ -18,6 +18,7 @@ func main() {
     cookie := flag.String("cookie", "", "absolute path of your locally stored second-account cookie JSON")
     authorized := flag.Bool("host-consent", false, "I own this room or have explicit permission from the host")
     attempt := flag.Bool("try-join", false, "allow exactly one real RakNet login and room admission attempt")
+    tryWebRTC := flag.Bool("try-webrtc", false, "after real room acceptance attempt WebSocket signaling + ICE/DTLS/SCTP")
     timeout := flag.Duration("timeout", 60*time.Second, "maximum total duration (10s-120s)")
     machine := flag.Bool("machine-json", false, "emit one versioned ASCII-safe JSON record without secrets")
     ipcSelftest := flag.Bool("ipc-selftest", false, "emit synthetic IPC report without network, account or room access")
@@ -40,8 +41,8 @@ func main() {
     }
 
     if *room == "" || *helper == "" || *cookie == "" || !*authorized || !*attempt {
-        fmt.Println("BlockCraft Stage 9 genuine NetEase lobby join probe (NOT a game client)")
-        fmt.Println("Required: -room ROOM -helper ABSOLUTE_CONNECT_EXE -cookie ABSOLUTE_COOKIE_JSON -host-consent -try-join")
+        fmt.Println("BlockCraft Stage 10 genuine NetherNet/WebRTC guest probe (NOT a game client)")
+        fmt.Println("Required: -room ROOM -helper ABSOLUTE_CONNECT_EXE -cookie ABSOLUTE_COOKIE_JSON -host-consent -try-join [-try-webrtc]")
         fmt.Println("The second account must already be legitimately logged in on this PC.")
         fmt.Println("No cookies, login tokens, encryption keys or player IDs are printed.")
         fmt.Println("This tool may briefly enter the real phone room and then leave when the probe exits.")
@@ -61,6 +62,7 @@ func main() {
         CookiePath:filepath.Clean(*cookie),
         RoomID:*room,
         AuthorizedByHost:*authorized,
+        AttemptWebRTC:*tryWebRTC,
     })
     if *machine {
         emitMachine(report)
@@ -94,6 +96,8 @@ func emitMachine(report joinprobe.Report) {
         LoginAccepted bool `json:"login_accepted"`
         RoomAdmissionAccepted bool `json:"room_admission_accepted"`
         HostReadySeen bool `json:"host_ready_seen"`
+        SignalingAuthenticated bool `json:"signaling_authenticated"`
+        WebRTCTransportConnected bool `json:"webrtc_transport_connected"`
         MinecraftWorldJoined bool `json:"minecraft_world_joined"`
         ModeConfirmed bool `json:"g79_mode_confirmed"`
     }{
@@ -101,6 +105,8 @@ func emitMachine(report joinprobe.Report) {
         LoginAccepted: report.LoginAccepted,
         RoomAdmissionAccepted: report.RoomAdmissionAccepted,
         HostReadySeen: report.HostReadySeen,
+        SignalingAuthenticated: report.SignalingAuthenticated,
+        WebRTCTransportConnected: report.WebRTCTransportConnected,
         MinecraftWorldJoined: false,
         ModeConfirmed: report.ModeConfirmed,
     }
