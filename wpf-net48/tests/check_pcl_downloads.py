@@ -10,6 +10,7 @@ for symbol in (
     'settingsNetworkMode', 'settingsDownloadThreads', 'settingsDownloadRetries',
     'downloads.Enqueue("整合包"', 'downloads.Enqueue("CurseForge"',
     'downloads.Enqueue("Modrinth"', '下载管理', '资源包',
+    'YL57xq9U', 'AANobbMI', 'https://optifine.net/downloads',
 ):
     assert symbol in main, symbol
 download=(base/'Services/NetworkDownloader.cs').read_text('utf8')
@@ -19,7 +20,7 @@ for symbol in ('RangeHeaderValue', 'ContentRange', 'SHA1.Create()', 'RetryAfterM
     assert symbol in download, symbol
 game=(base/'Services/MinecraftDownloadFactory.cs').read_text('utf8')
 for symbol in ('MinecraftLauncherParameters.CreateDefault', 'ParallelGameInstaller',
-               'MinecraftRouteHandler', 'MaxConnectionsPerServer', 'BMCLAPI'):
+               'MinecraftRouteHandler', 'MaxConnectionsPerServer', 'BMCLAPI', 'PreferMirrorAsync', 'ProbeAsync'):
     assert symbol in game, symbol
 catalog=(base/'Services/MinecraftVersionCatalog.cs').read_text('utf8')
 for symbol in ('version_manifest_v2.json', '正式版', '快照版', '远古 Beta', 'releaseTime', 'LoadAsync'):
