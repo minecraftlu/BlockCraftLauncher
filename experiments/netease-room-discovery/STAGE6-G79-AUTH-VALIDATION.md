@@ -77,3 +77,22 @@ Windows 用户截图的**真实本机状态**为：
 Stage 6.2 在原四项布尔标记之外，新增**固定值分类** `mode_category`：仅为 `g79`、`x19`、`auto`、`other` 或 `missing`，永不回显第三方原始字段值。即使遇到未知文字或敏感内容，也只显示 `other`。仅当严格 `g79` 条件全部满足才显示 `G79_HELPER_LOGIN_ACCEPTED`；否则保留 `INCONCLUSIVE`。
 
 不要求用户执行会把真实 `login_token` 打印在终端的 `-dump-auth`；无需发 Cookie、用户 ID、邮箱或令牌。新增离线测试覆盖缺失字段、x19 模式、未知模式及 token 不泄漏。
+
+
+## Stage 6 实测结论：mode_category=missing（无需再重复测试）
+
+用户确认诊断字段 `mode_category=missing`，结合上一轮用户 Windows 真实截图四项状态 `uid_valid=yes`、`auth_mode_g79=no`、`platform_pe=yes`、`token_present=yes`，本实验将证据记录为：
+
+`PE_SESSION_REPORTED_MODE_UNCONFIRMED`
+
+此状态表示第三方认证程序已报告有效格式的 PE 用户会话数据，但返回的认证字段中缺乏 `auth_mode` 标签。**不宣称 G79 游戏登录得到完整验证，不宣称网易允许加入该房间。**
+
+代码把这组特殊情况从一般 `G79_CHECK_INCONCLUSIVE` 中区分出来，并明确提示**不用重新登录或重复测试账号凭据**。其他未知模式仍保持 `INCONCLUSIVE`；绝不会复制、显示或保存账户 token。
+
+### 真正进入房间的下一条阻塞链路
+
+从现有社区实现 `nemc-tan-lobby-solver/protocol/service/dial.go` 可见，发送 `TanEnterRoomRequest` 前必须通过 `bunker.Authenticator.GetAccess(roomID)` 获取 `TanLobbyLoginResponse`；其中需要合法的 RakNet 大厅地址、登录随机数、加解密密钥、房主信息，以及 WebRTC 信令地址和凭据。对照其 `bunker/auth.go`，`GetAccess` 调用的是外部 **Phoenix / Bunker 第三方认证后端** 的 `/api/phoenix/tan_lobby_login`，并非本项目已经核实的网易官方开放接口。
+
+因此有本机网易 Cookie 或 g79 游戏令牌，仍**不足以直接完成六位数本地联机房间的准入授权**。不能直接向 `srv=9366` 的公共节点尝试未授权入房，也不能以房间号 `280474` 自行合成 RakNet 密钥或信令凭据。下一阶段需要合法可验证的房间准入提供者（应遵守服务条款），将其结果作为本地认证接口输入，之后才可逐步进行授权入房和 WebRTC 连接。
+
+本项目不要求用户上传 Cookie、密码、token、实名信息。上述第三方仓库源码仅用于研究协议依赖，不代表当前运营服务可用或具有网易授权。
