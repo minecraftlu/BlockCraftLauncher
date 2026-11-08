@@ -109,13 +109,20 @@ namespace BlockCraft.NeteaseRoomLab
         private void UpdateAuthButtons()
         {
             if (EmailAuthButton == null || AuthConsentBox == null) return;
-            EmailAuthButton.IsEnabled = !joinProbeRunning && !joinProbeRunning && !livePreflightRunning && !authHelperRunning && !g79CheckRunning
+            EmailAuthButton.IsEnabled = !joinProbeRunning && !livePreflightRunning && !authHelperRunning && !g79CheckRunning
                 && AuthConsentBox.IsChecked == true
                 && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
                 && File.Exists(selectedAuthHelper);
-            if (DeleteAuthButton != null) DeleteAuthButton.IsEnabled = !joinProbeRunning && !joinProbeRunning && !livePreflightRunning && !authHelperRunning && !g79CheckRunning;
+            if (DeleteAuthButton != null) DeleteAuthButton.IsEnabled = !joinProbeRunning && !livePreflightRunning && !authHelperRunning && !g79CheckRunning;
             if (RealJoinButton != null)
                 RealJoinButton.IsEnabled = !joinProbeRunning && !livePreflightRunning
+                    && !authHelperRunning && !g79CheckRunning && JoinProbeRunner.IsEmbedded
+                    && AuthConsentBox.IsChecked == true
+                    && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
+                    && File.Exists(selectedAuthHelper)
+                    && GuestEmailAuth.CredentialFileExists();
+            if (RealWebRTCButton != null)
+                RealWebRTCButton.IsEnabled = !joinProbeRunning && !livePreflightRunning
                     && !authHelperRunning && !g79CheckRunning && JoinProbeRunner.IsEmbedded
                     && AuthConsentBox.IsChecked == true
                     && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
@@ -128,12 +135,12 @@ namespace BlockCraft.NeteaseRoomLab
                     && File.Exists(selectedAuthHelper)
                     && GuestEmailAuth.CredentialFileExists();
             if (G79VerifyButton != null)
-                G79VerifyButton.IsEnabled = !joinProbeRunning && !joinProbeRunning && !livePreflightRunning && !authHelperRunning && !g79CheckRunning
+                G79VerifyButton.IsEnabled = !joinProbeRunning && !livePreflightRunning && !authHelperRunning && !g79CheckRunning
                     && AuthConsentBox.IsChecked == true
                     && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
                     && File.Exists(selectedAuthHelper)
                     && GuestEmailAuth.CredentialFileExists();
-            if (AuthDebugButton != null) AuthDebugButton.IsEnabled = !joinProbeRunning && !joinProbeRunning && !livePreflightRunning && !authHelperRunning && !g79CheckRunning
+            if (AuthDebugButton != null) AuthDebugButton.IsEnabled = !joinProbeRunning && !livePreflightRunning && !authHelperRunning && !g79CheckRunning
                 && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
                 && File.Exists(selectedAuthHelper);
         }
@@ -320,6 +327,64 @@ namespace BlockCraft.NeteaseRoomLab
             catch (Exception)
             {
                 AuthStatusText.Text = "LOCAL_CREDENTIAL_DELETE_FAILED：删除失败，请检查当前用户权限。";
+            }
+        }
+
+        private async void RealWebRTC_Click(object sender, RoutedEventArgs e)
+        {
+            if (joinProbeRunning || livePreflightRunning || authHelperRunning
+                || g79CheckRunning || AuthConsentBox.IsChecked != true
+                || !JoinProbeRunner.IsEmbedded
+                || !GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
+                || !File.Exists(selectedAuthHelper)
+                || !GuestEmailAuth.CredentialFileExists())
+            {
+                RealWebRTCStatusText.Text = "WEBRTC_PROBE_NOT_READY："
+                    + "请使用 Stage 10 单 EXE 并选择原认证助手；请勿发送 Cookie 或 token。";
+                return;
+            }
+            string roomNumber = (RoomIdBox.Text ?? "").Trim();
+            if (!System.Text.RegularExpressions.Regex.IsMatch(roomNumber, @"^[0-9]{4,10}$"))
+            {
+                RealWebRTCStatusText.Text = "WEBRTC_PROBE_INPUT_INVALID：请输入有效数字房间号。";
+                return;
+            }
+
+            var confirmation = MessageBox.Show(
+                "此测试会使用第二账号和当前房间号，向真实网易服务器执行一次"
+                + " RakNet 大厅登录、入房请求，并在服务器接受且房主就绪后"
+                + "尝试 WebSocket 信令与 ICE/DTLS/SCTP 数据通道连接。"
+                + Environment.NewLine + Environment.NewLine
+                + "请确认这是你本人手机创建的房间或已获房主明确许可。"
+                + " 该实验使用非官方客户端协议，存在服务条款及账号限制风险。"
+                + Environment.NewLine + Environment.NewLine
+                + "探针仅测试连接，不发送 Minecraft 游戏数据包，不加载世界，"
+                + "结束后立即断开。它不会输出或上传 Cookie、token、信令票据、"
+                + "ICE 密码、网络 ID 或其他认证凭据。"
+                + Environment.NewLine + Environment.NewLine
+                + "确认开始一次真实手机房主 WebRTC 连接测试？",
+                "第十阶段 · 真实 NetherNet / WebRTC 连接确认",
+                MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (confirmation != MessageBoxResult.Yes) return;
+
+            joinProbeRunning = true;
+            UpdateAuthButtons();
+            RealWebRTCStatusText.Text = "WEBRTC_PROBE_RUNNING："
+                + "正在申请真实大厅准入并尝试建立房主游戏传输连接。";
+            try
+            {
+                RealWebRTCStatusText.Text =
+                    await JoinProbeRunner.RunAsync(roomNumber, selectedAuthHelper, true);
+            }
+            catch (Exception)
+            {
+                RealWebRTCStatusText.Text = "WEBRTC_PROBE_FAILED："
+                    + "本机连接测试异常，未输出任何原始账号或信令信息。";
+            }
+            finally
+            {
+                joinProbeRunning = false;
+                UpdateAuthButtons();
             }
         }
 
