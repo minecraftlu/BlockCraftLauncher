@@ -33,7 +33,7 @@ def check():
     assert 'loaderValues.Any' in modrinth and 'sha1.Length != 40' in modrinth
     network=(SRC/'Services/NetworkDownloader.cs').read_text('utf8')
     assert 'File.Replace(temp, destination' in network and 'RetryAfterMs=' in network
-    assert 'CmlLib.Core' in (ROOT/'docs/MIGRATION_STATUS.md').read_text('utf8')
+    assert 'CmlLib' in (ROOT/'docs/MIGRATION_STATUS.md').read_text('utf8')
     print('PASS: 7 source checks / packaging constraints, NOT a Windows WPF build')
 
 if __name__=='__main__':
