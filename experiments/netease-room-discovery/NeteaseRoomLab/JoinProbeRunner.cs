@@ -360,10 +360,19 @@ namespace BlockCraft.NeteaseRoomLab
         // On cancel it closes the child's stdin; the Go CLI then cancels its
         // context, which releases helper, RakNet, signaling and WebRTC sockets.
         // A bounded final kill is only a fallback for a stuck external helper.
-        public static async Task<string> RunAsync(
+        public static Task<string> RunAsync(
             string room, string helperPath, bool tryWebRTC,
             CancellationToken cancellationToken)
         {
+            return RunAsync(room, helperPath, tryWebRTC, 8, cancellationToken);
+        }
+
+        public static async Task<string> RunAsync(
+            string room, string helperPath, bool tryWebRTC,
+            int observationSeconds, CancellationToken cancellationToken)
+        {
+            if (observationSeconds != 8 && observationSeconds != 30 && observationSeconds != 60)
+                return "OBSERVATION_DURATION_INVALID：只允许 8、30 或 60 秒被动观察。";
             if (cancellationToken.IsCancellationRequested)
                 return "LOCAL_PROBE_CANCELLED：本机用户取消了测试。";
             if (String.IsNullOrWhiteSpace(room) || room.Length > 10)
@@ -395,9 +404,13 @@ namespace BlockCraft.NeteaseRoomLab
                     Arguments = "-room \"" + room + "\""
                         + " -helper \"" + Path.GetFullPath(helperPath) + "\""
                         + " -cookie \"" + cookie + "\""
-                        + " -host-consent -try-join -timeout 105s -machine-json"
+                        + " -host-consent -try-join -timeout "
+                        + (105 + observationSeconds - 8).ToString(
+                            System.Globalization.CultureInfo.InvariantCulture) + "s -machine-json"
                         + " -cancel-on-stdin-close"
-                        + (tryWebRTC ? " -try-webrtc" : ""),
+                        + (tryWebRTC ? " -try-webrtc -observe-seconds "
+                            + observationSeconds.ToString(
+                                System.Globalization.CultureInfo.InvariantCulture) : ""),
                     WorkingDirectory = Path.GetDirectoryName(localExecutable),
                     RedirectStandardInput = true,
                     RedirectStandardOutput = true,
@@ -419,7 +432,8 @@ namespace BlockCraft.NeteaseRoomLab
                 Task<string> stderr = Task.Run(() => ReadCapped(process.StandardError, 0));
                 Task exit = Task.Run(() => process.WaitForExit());
                 Task cancelTask = Task.Delay(Timeout.Infinite, cancellationToken);
-                Task completed = await Task.WhenAny(exit, Task.Delay(TimeoutMilliseconds), cancelTask);
+                int timeoutMs = TimeoutMilliseconds + (observationSeconds - 8) * 1000;
+                Task completed = await Task.WhenAny(exit, Task.Delay(timeoutMs), cancelTask);
                 if (completed != exit)
                 {
                     // EOF first, to let Go close the lobby and child helper
