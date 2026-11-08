@@ -1,4 +1,4 @@
-name: Publish NetEase Room Lab Stage 8 live session preflight
+name: Publish NetEase Room Lab Stage 9 actual RakNet admission
 
 on:
   push:
@@ -8,6 +8,7 @@ on:
       - '.github/workflows/netease-roomlab-download.yml'
       - 'experiments/netease-room-discovery/NeteaseRoomLab/**'
       - 'experiments/netease-room-discovery/NeteaseRoomLab.Tests/**'
+      - 'experiments/netease-room-discovery/GuestTransportLab/**'
   workflow_dispatch:
 
 permissions:
@@ -20,6 +21,30 @@ jobs:
     steps:
       - name: Checkout experimental branch
         uses: actions/checkout@v4
+
+      - name: Install Go for embedded lobby probe
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.5'
+
+      - name: Build and test genuine RakNet guest probe (no network credentials)
+        shell: pwsh
+        run: |
+          Push-Location "experiments/netease-room-discovery/GuestTransportLab"
+          try {
+            go mod tidy
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            go test -count=1 -timeout=90s ./internal/joinprobe
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            New-Item -ItemType Directory -Force "dist" | Out-Null
+            go build -trimpath -ldflags="-s -w" -o "dist/BlockCraft.JoinProbe.exe" ./cmd/joinprobe
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            if (-not (Test-Path "dist/BlockCraft.JoinProbe.exe")) {
+              throw "Embedded RakNet probe executable not found."
+            }
+          } finally {
+            Pop-Location
+          }
 
       - name: Configure MSBuild
         uses: microsoft/setup-msbuild@v2
@@ -42,32 +67,43 @@ jobs:
           msbuild "experiments/netease-room-discovery/NeteaseRoomLab/NeteaseRoomLab.csproj" /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU /v:minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Verify single WPF EXE embeds RakNet probe
+        shell: pwsh
+        run: |
+          $path = (Resolve-Path "experiments/netease-room-discovery/NeteaseRoomLab/bin/Release/BlockCraft.NeteaseRoomLab.exe").Path
+          $assembly = [System.Reflection.Assembly]::LoadFile($path)
+          $names = $assembly.GetManifestResourceNames()
+          if (-not ($names -contains "BlockCraft.JoinProbe.exe")) {
+            throw "WPF single EXE does not include embedded real join probe."
+          }
+          Add-Content $env:GITHUB_STEP_SUMMARY "Verified embedded resource BlockCraft.JoinProbe.exe in standalone WPF EXE."
+
       - name: Package stable file names and SHA-256
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force "stage8-release" | Out-Null
-          Copy-Item "experiments/netease-room-discovery/NeteaseRoomLab/bin/Release/BlockCraft.NeteaseRoomLab.exe" "stage8-release/BlockCraftRoomStage8.exe"
-          Compress-Archive -LiteralPath "stage8-release/BlockCraftRoomStage8.exe" -DestinationPath "stage8-release/BlockCraftRoomStage8.zip" -Force
-          $files = @("BlockCraftRoomStage8.exe", "BlockCraftRoomStage8.zip")
+          New-Item -ItemType Directory -Force "stage9-release" | Out-Null
+          Copy-Item "experiments/netease-room-discovery/NeteaseRoomLab/bin/Release/BlockCraft.NeteaseRoomLab.exe" "stage9-release/BlockCraftRoomStage9.exe"
+          Compress-Archive -LiteralPath "stage9-release/BlockCraftRoomStage9.exe" -DestinationPath "stage9-release/BlockCraftRoomStage9.zip" -Force
+          $files = @("BlockCraftRoomStage9.exe", "BlockCraftRoomStage9.zip")
           $lines = foreach ($f in $files) {
-            $sum = (Get-FileHash "stage8-release/$f" -Algorithm SHA256).Hash.ToLowerInvariant()
+            $sum = (Get-FileHash "stage9-release/$f" -Algorithm SHA256).Hash.ToLowerInvariant()
             "$sum  $f"
           }
-          $lines | Set-Content "stage8-release/SHA256SUMS.txt" -Encoding ascii
-          Add-Content $env:GITHUB_STEP_SUMMARY "Release output files: BlockCraftRoomStage8.exe and BlockCraftRoomStage8.zip"
+          $lines | Set-Content "stage9-release/SHA256SUMS.txt" -Encoding ascii
+          Add-Content $env:GITHUB_STEP_SUMMARY "Release output files: BlockCraftRoomStage9.exe and BlockCraftRoomStage9.zip"
 
       - name: Publish experimental GitHub pre-release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "netease-roomlab-stage8-preview"
-          $notes = "Experimental C# WPF NetEase room lab. Stage 8 adds an explicitly user-approved live second-account PE session and room metadata preflight; derives candidate key material only in memory. This is NOT RakNet room admission and sends no EnterRoom packets. Do not share credentials. No room join is implemented; do not publish credentials. UNSIGNED. Not a Minecraft client; does NOT join any NetEase room. Only run trusted programs and never share passwords or tokens."
+          $tag = "netease-roomlab-stage9-preview"
+          $notes = "Experimental C# WPF NetEase room lab. Stage 9 embeds a Windows Go RakNet lobby guest-side probe inside the single C# WPF .NET Framework 4.8 EXE. Only on explicit user confirmation and permission from the room host, it attempts one real lobby login and sends an EnterRoom request only after server accepts login. It reports genuine TanLoginResponse / TanEnterRoomResponse statuses and optional host NetherNet readiness. No Minecraft client, no game world, no login bypass. No credentials or tokens printed or uploaded. UNSIGNED. Experimental third-party protocol with account and platform terms risk."
           gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag "stage8-release/BlockCraftRoomStage8.exe" "stage8-release/BlockCraftRoomStage8.zip" "stage8-release/SHA256SUMS.txt" --clobber --repo $env:GITHUB_REPOSITORY
+            gh release upload $tag "stage9-release/BlockCraftRoomStage9.exe" "stage9-release/BlockCraftRoomStage9.zip" "stage9-release/SHA256SUMS.txt" --clobber --repo $env:GITHUB_REPOSITORY
           } else {
-            gh release create $tag "stage8-release/BlockCraftRoomStage8.exe" "stage8-release/BlockCraftRoomStage8.zip" "stage8-release/SHA256SUMS.txt" --target $env:GITHUB_SHA --title "BlockCraft 网易房间实验室 Stage 8（真实账号与房间参数预检，未入房）" --notes $notes --prerelease --repo $env:GITHUB_REPOSITORY
+            gh release create $tag "stage9-release/BlockCraftRoomStage9.exe" "stage9-release/BlockCraftRoomStage9.zip" "stage9-release/SHA256SUMS.txt" --target $env:GITHUB_SHA --title "BlockCraft 网易房间实验室 Stage 9（真实 RakNet 大厅登录与入房探针）" --notes $notes --prerelease --repo $env:GITHUB_REPOSITORY
           }
           if ($LASTEXITCODE -ne 0) { throw "GitHub preview publishing failed." }
           gh release view $tag --repo $env:GITHUB_REPOSITORY --json url,assets
@@ -75,7 +111,7 @@ jobs:
       - name: Preserve Actions artifact backup
         uses: actions/upload-artifact@v4
         with:
-          name: BlockCraft-RoomLab-Stage8-download
-          path: stage8-release/
+          name: BlockCraft-RoomLab-Stage9-download
+          path: stage9-release/
           if-no-files-found: error
           retention-days: 30
