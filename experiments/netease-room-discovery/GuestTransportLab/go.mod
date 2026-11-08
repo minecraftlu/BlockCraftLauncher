@@ -2,7 +2,7 @@ module github.com/minecraftlu/BlockCraftLauncher/experiments/netease-room-discov
 
 go 1.26.5
 
-require github.com/pion/webrtc/v4 v4.2.18
+require github.com/pion/webrtc/v4 v4.1.0
 
 require github.com/Happy2018new/nemc-tan-lobby-solver v0.2.8
 
