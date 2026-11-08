@@ -470,7 +470,7 @@ namespace BlockCraft.NeteaseRoomLab
                 + "只有服务器明确接受大厅登录后，才向指定房间发送一次真实入房请求。"
                 + Environment.NewLine + Environment.NewLine
                 + "确认该房间由你本人创建，或你已获得房主明确许可。"
-                + " 若服务器允许，账号可能短暂进入房间；探针结束后会断开。"
+                + " 若服务器允许，账号可能短暂进入房间；探针结束后会关闭本地连接，但服务器列表可能仍保留离线记录。"
                 + Environment.NewLine + Environment.NewLine
                 + "该程序还不会启动 Minecraft、建立 WebRTC 游戏连接或加载世界。"
                 + " 使用第三方协议实现可能违反网易的服务条款，存在账号限制风险。"
