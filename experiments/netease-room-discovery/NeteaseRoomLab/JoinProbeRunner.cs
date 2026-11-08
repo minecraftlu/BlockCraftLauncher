@@ -69,7 +69,10 @@ namespace BlockCraft.NeteaseRoomLab
             { "WEBRTC_ICE_CONNECT_TIMEOUT", "ICE 建连超时；即使同一个 Wi-Fi，也可能存在设备隔离或 UDP 被拦截。" },
             { "WEBRTC_DTLS_HANDSHAKE_FAILED", "ICE 阶段已推进，但 DTLS 安全握手失败。" },
             { "WEBRTC_DTLS_HANDSHAKE_TIMEOUT", "ICE 阶段已推进，但 DTLS 安全握手超时。" },
-            { "WEBRTC_SCTP_HANDSHAKE_FAILED", "ICE/DTLS 已推进，但 SCTP 数据传输握手失败。" },
+            { "WEBRTC_SCTP_HANDSHAKE_FAILED", "ICE/DTLS 已推进，但 SCTP 数据传输握手失败；需进一步核对底层关联错误。" },
+            { "WEBRTC_SCTP_INIT_ACK_NOT_RECEIVED", "SCTP INIT 重传耗尽，未收到有效 INIT ACK。确认手机房主仍在游戏中；可能存在对端 WebRTC/SCTP 协议不兼容。" },
+            { "WEBRTC_SCTP_COOKIE_ACK_NOT_RECEIVED", "SCTP COOKIE ECHO 重传耗尽，没有完成 COOKIE ACK 阶段；优先排查网易客户端 SCTP 兼容及远端主动关闭。" },
+            { "WEBRTC_SCTP_ASSOCIATION_CLOSED", "SCTP 关联建立前连接被关闭；可能是房主主动断开、DTLS 关闭或协议不兼容，不代表密码错误。" },
             { "WEBRTC_SCTP_HANDSHAKE_TIMEOUT", "SCTP 数据传输阶段超时。" },
             { "WEBRTC_DATA_CHANNEL_FAILED", "SCTP 阶段已推进，但可靠/不可靠数据通道创建失败。" },
             { "WEBRTC_REMOTE_REJECTED", "WebRTC 信令收到了远端拒绝或错误通知。" },
@@ -175,6 +178,9 @@ namespace BlockCraft.NeteaseRoomLab
                     || status == "WEBRTC_DTLS_HANDSHAKE_FAILED"
                     || status == "WEBRTC_DTLS_HANDSHAKE_TIMEOUT"
                     || status == "WEBRTC_SCTP_HANDSHAKE_FAILED"
+                    || status == "WEBRTC_SCTP_INIT_ACK_NOT_RECEIVED"
+                    || status == "WEBRTC_SCTP_COOKIE_ACK_NOT_RECEIVED"
+                    || status == "WEBRTC_SCTP_ASSOCIATION_CLOSED"
                     || status == "WEBRTC_SCTP_HANDSHAKE_TIMEOUT"
                     || status == "WEBRTC_DATA_CHANNEL_FAILED"
                     || status == "WEBRTC_REMOTE_REJECTED"
