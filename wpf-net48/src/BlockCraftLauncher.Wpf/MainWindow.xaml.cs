@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Media;
 using Microsoft.Win32;
 using BlockCraftLauncher.Wpf.Models;
@@ -22,7 +23,13 @@ namespace BlockCraftLauncher.Wpf
         MicrosoftAccountService microsoft;
         MicrosoftAccountService GetMicrosoftService() => microsoft ?? (microsoft = new MicrosoftAccountService());
         readonly ModLoaderInstaller modLoaders;
-        readonly ObservableCollection<string> gameVersions = new ObservableCollection<string>();
+        readonly ObservableCollection<MinecraftVersionEntry> gameVersions = new ObservableCollection<MinecraftVersionEntry>();
+        readonly DownloadTaskCenter downloads = new DownloadTaskCenter(3);
+        DownloadJob versionInstallJob;
+        bool installingGame;
+        ComboBox versionCategory, settingsNetworkMode;
+        TextBox settingsDownloadThreads, settingsDownloadRetries;
+        ListBox downloadList;
         readonly ObservableCollection<ResourceHit> resourceResults = new ObservableCollection<ResourceHit>();
         readonly Dictionary<string, Button> sidebarButtons = new Dictionary<string, Button>();
         readonly List<string> logs = new List<string>();
@@ -103,8 +110,8 @@ namespace BlockCraftLauncher.Wpf
         void BuildSidebar()
         {
             SideMenu.Children.Clear(); sidebarButtons.Clear();
-            AddNavSection(SideMenu, "游戏", new[] { "首页", "游戏版本" }, Navigate, sidebarButtons);
-            AddNavSection(SideMenu, "资源下载", new[] { "资源中心", "光影引擎", "整合包", "CurseForge" }, Navigate, sidebarButtons);
+            AddNavSection(SideMenu, "游戏", new[] { "首页", "游戏版本", "下载管理" }, Navigate, sidebarButtons);
+            AddNavSection(SideMenu, "资源下载", new[] { "资源中心", "光影引擎", "资源包", "整合包", "CurseForge" }, Navigate, sidebarButtons);
             AddNavSection(SideMenu, "管理与工具", new[] { "模组更新", "多人联机", "启动器更新", "设置", "运行日志" }, Navigate, sidebarButtons);
             SideMenu.Children.Add(Txt("当前账号", 12, true, true));
             SideMenu.Children.Add(Txt(settings.AccountMode == "offline" ? "离线：" + settings.OfflineName :
@@ -127,8 +134,10 @@ namespace BlockCraftLauncher.Wpf
             {
                 case "首页": PageHost.Content = BuildHome(); break;
                 case "游戏版本": PageHost.Content = BuildVersions(); break;
+                case "下载管理": PageHost.Content = BuildDownloadCenter(); break;
                 case "资源中心": PageHost.Content = BuildResources("mod"); break;
                 case "光影引擎": PageHost.Content = BuildResources("shader"); break;
+                case "资源包": PageHost.Content = BuildResources("resourcepack"); break;
                 case "整合包": PageHost.Content = BuildModpacks(); break;
                 case "CurseForge": PageHost.Content = BuildCurseForge(); break;
                 case "模组更新": PageHost.Content = BuildModUpdates(); break;
@@ -235,7 +244,17 @@ namespace BlockCraftLauncher.Wpf
             versionQuery = new TextBox { Width = 260, ToolTip = "搜索版本号" };
             versionQuery.TextChanged += (s, e) => FilterVersions();
             toolbar.Children.Add(versionQuery);
+            versionCategory = new ComboBox
+            {
+                Width = 145,
+                ItemsSource = new[] { "全部版本", "正式版", "快照版", "远古 Beta", "远古 Alpha" },
+                SelectedIndex = 0,
+                Margin = new Thickness(8, 0, 0, 0)
+            };
+            versionCategory.SelectionChanged += (sender, e) => FilterVersions();
+            toolbar.Children.Add(versionCategory);
             toolbar.Children.Add(Btn("刷新在线版本", async () => await LoadVersionsAsync(), true));
+            toolbar.Children.Add(Btn("下载任务", () => Navigate("下载管理")));
             root.Children.Add(toolbar);
             versionList = new ListBox { ItemsSource = gameVersions, Height = 350, MinWidth = 380, Margin = new Thickness(0, 10, 0, 12) };
             root.Children.Add(Card(versionList));
@@ -244,7 +263,7 @@ namespace BlockCraftLauncher.Wpf
             options.Children.Add(versionLoader);
             options.Children.Add(Txt("原版 / Fabric / Forge / NeoForge / Quilt：通过各自安装组件获取匹配的版本文件。部分新版本可能暂不兼容。", 12, false, true));
             versionInstallButton = Btn("安装所选版本", async () => await InstallSelectedVersionAsync(), true);
-            versionCancelButton = Btn("取消安装", () => currentOperation?.Cancel());
+            versionCancelButton = Btn("取消安装", () => versionInstallJob?.Cancel());
             versionCancelButton.IsEnabled = false;
             options.Children.Add(Row(versionInstallButton, versionCancelButton,
                 Btn("导入本地实例", ImportLocalGame), Btn("打开游戏目录", OpenGameFolder)));
@@ -252,9 +271,16 @@ namespace BlockCraftLauncher.Wpf
         }
         void FilterVersions()
         {
-            // This preview shows the downloaded list directly. Network refresh only happens on explicit click.
             if (versionList == null || versionQuery == null) return;
-            versionList.Items.Filter = item => item.ToString().IndexOf(versionQuery.Text ?? "", StringComparison.OrdinalIgnoreCase) >= 0;
+            string category = Convert.ToString(versionCategory?.SelectedItem) ?? "全部版本";
+            string search = (versionQuery.Text ?? "").Trim();
+            versionList.Items.Filter = raw =>
+            {
+                var item = raw as MinecraftVersionEntry;
+                return item != null &&
+                    (category == "全部版本" || item.Category == category) &&
+                    (search.Length == 0 || item.Id.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0);
+            };
         }
         async Task LoadVersionsAsync()
         {
@@ -262,7 +288,7 @@ namespace BlockCraftLauncher.Wpf
             loadingVersions = true; Status("正在获取版本列表...");
             try
             {
-                var versions = await minecraft.ListVersionsAsync();
+                var versions = await new MinecraftVersionCatalog(settings).LoadAsync(true, CancellationToken.None);
                 gameVersions.Clear(); foreach (var v in versions) gameVersions.Add(v);
                 FilterVersions(); Status("已加载版本数量：" + gameVersions.Count);
             }
@@ -271,36 +297,79 @@ namespace BlockCraftLauncher.Wpf
         }
         async Task InstallSelectedVersionAsync()
         {
-            if (versionList?.SelectedItem == null) { MessageBox.Show("请先选择版本。"); return; }
-            if (currentOperation != null) { MessageBox.Show("已有安装任务进行中。"); return; }
-            string version = Convert.ToString(versionList.SelectedItem);
+            if (!(versionList?.SelectedItem is MinecraftVersionEntry selected))
+            {
+                MessageBox.Show("请先选择 Minecraft 版本。"); return;
+            }
+            if (installingGame)
+            {
+                MessageBox.Show("已有游戏安装任务正在运行。请前往下载管理查看进度。"); return;
+            }
+            string version = selected.Id;
             string loader = Convert.ToString(versionLoader?.SelectedItem) ?? "原版";
-            // Snapshot selection before async awaits; the user may change the UI.
-            currentOperation = new CancellationTokenSource();
+            installingGame = true;
             if (versionInstallButton != null) versionInstallButton.IsEnabled = false;
             if (versionCancelButton != null) versionCancelButton.IsEnabled = true;
-            try
+
+            versionInstallJob = downloads.Enqueue("游戏", version + " · " + loader, async (token, progress, bytes) =>
             {
-                Status("开始安装 " + version + " / " + loader);
-                var profile = await modLoaders.InstallAsync(version, loader,
-                    new Progress<string>(Status), currentOperation.Token);
-                // Persist only if this exact install finished and the version JSON exists.
-                if (!settings.Profiles.Any(p => p.LaunchVersion == profile.LaunchVersion))
-                    settings.Profiles.Add(profile);
-                activeProfile = settings.Profiles.First(p => p.LaunchVersion == profile.LaunchVersion);
-                store.Save(settings);
-                Status("安装完成：" + activeProfile.Name);
-                Navigate("首页");
-            }
-            catch (OperationCanceledException) { Status("已取消本次安装（已下载文件可能作为缓存保留）。"); }
-            catch (Exception ex) { ShowError("安装游戏失败", ex); }
-            finally
-            {
-                currentOperation.Dispose(); currentOperation = null;
-                if (versionInstallButton != null) versionInstallButton.IsEnabled = true;
-                if (versionCancelButton != null) versionCancelButton.IsEnabled = false;
-            }
+                try
+                {
+                    progress.Report("开始安装游戏及依赖：" + version + " / " + loader);
+                    var profile = await modLoaders.InstallAsync(version, loader, null, progress, bytes, token);
+                    token.ThrowIfCancellationRequested();
+                    if (!settings.Profiles.Any(p => p.LaunchVersion == profile.LaunchVersion))
+                        settings.Profiles.Add(profile);
+                    activeProfile = settings.Profiles.First(p => p.LaunchVersion == profile.LaunchVersion);
+                    store.Save(settings);
+                    progress.Report("安装完成：" + activeProfile.Name);
+                    Status("安装完成：" + activeProfile.Name);
+                }
+                finally
+                {
+                    installingGame = false;
+                    if (versionInstallButton != null) versionInstallButton.IsEnabled = true;
+                    if (versionCancelButton != null) versionCancelButton.IsEnabled = false;
+                }
+            });
+            Status("已添加下载任务：" + version + " / " + loader + "，可到“下载管理”查看。");
         }
+
+        UIElement BuildDownloadCenter()
+        {
+            var root = Col(Txt("下载管理", 24, true),
+                Txt("Minecraft 下载、加载器和 Modrinth 资源使用统一任务列表。可取消任务，失败后可重试。", 12, false, true));
+            downloadList = new ListBox { ItemsSource = downloads.Jobs, Height = 335,
+                DisplayMemberPath = "Title", Margin = new Thickness(0, 8, 0, 12) };
+            root.Children.Add(Card(downloadList));
+
+            var heading = Txt("选择任务查看详细进度", 17, true);
+            var status = Txt("", 14);
+            status.SetBinding(TextBlock.TextProperty,
+                new Binding("SelectedItem.Status") { Source = downloadList, FallbackValue = "等待任务" });
+            var detail = Txt("", 12, false, true);
+            detail.SetBinding(TextBlock.TextProperty,
+                new Binding("SelectedItem.Detail") { Source = downloadList, FallbackValue = "请选择任务" });
+            var bytesLabel = Txt("", 13);
+            bytesLabel.SetBinding(TextBlock.TextProperty,
+                new Binding("SelectedItem.BytesLabel") { Source = downloadList, FallbackValue = "" });
+            var speedLabel = Txt("", 13);
+            speedLabel.SetBinding(TextBlock.TextProperty,
+                new Binding("SelectedItem.Speed") { Source = downloadList, FallbackValue = "" });
+            var bar = new ProgressBar { Minimum = 0, Maximum = 100, Height = 18,
+                Margin = new Thickness(0, 8, 0, 10) };
+            bar.SetBinding(ProgressBar.ValueProperty, new Binding("SelectedItem.Percent") { Source = downloadList });
+            bar.SetBinding(ProgressBar.IsIndeterminateProperty,
+                new Binding("SelectedItem.IsIndeterminate") { Source = downloadList });
+            root.Children.Add(Card(Col(heading, status, detail, bar,
+                Row(bytesLabel, speedLabel),
+                Row(Btn("取消选中任务", () => downloads.Cancel(downloadList.SelectedItem as DownloadJob)),
+                    Btn("重试失败任务", () => downloads.Retry(downloadList.SelectedItem as DownloadJob), true),
+                    Btn("返回游戏下载", () => Navigate("游戏版本"))),
+                Txt("资源下载支持校验和断点续传；部分第三方加载器安装步骤无法中途强制终止。", 12, false, true))));
+            return root;
+        }
+
         UIElement BuildResources(string type)
         {
             resourceType = type; resourceResults.Clear();
@@ -311,7 +380,9 @@ namespace BlockCraftLauncher.Wpf
             resourceList = new ListBox { ItemsSource = resourceResults, Height = 390 };
             root.Children.Add(Card(resourceList));
             root.Children.Add(Card(Col(Txt("资源安装", 18, true), Txt("选择资源后下载对应游戏版本文件", 12, false, true),
-                Row(Btn("安装到当前实例", async () => await InstallResourceAsync(), true), Btn("打开实例目录", OpenGameFolder)))));
+                Row(Btn("安装到当前实例", async () => await InstallResourceAsync(), true),
+                    Btn("查看下载任务", () => Navigate("下载管理")),
+                    Btn("打开实例目录", OpenGameFolder)))));
             return root;
         }
         async Task SearchResourcesAsync()
@@ -331,17 +402,20 @@ namespace BlockCraftLauncher.Wpf
         async Task InstallResourceAsync()
         {
             var hit = resourceList?.SelectedItem as ResourceHit;
-            if (activeProfile == null || hit == null) { MessageBox.Show("请先选择实例和资源。"); return; }
-            try
+            var profile = activeProfile;
+            if (profile == null || hit == null) { MessageBox.Show("请先选择实例和资源。"); return; }
+            downloads.Enqueue("Modrinth", hit.Name + " → " + profile.Name, async (token, progress, bytes) =>
             {
-                Status("下载资源：" + hit.Name);
+                progress.Report("正在查找兼容的资源版本和依赖文件...");
                 using (var client = new ModrinthClient(settings))
                 {
-                    var file = await client.DownloadLatestAsync(hit, activeProfile, CancellationToken.None);
-                    Status("下载完成：" + file);
+                    var file = await client.DownloadLatestAsync(hit, profile, token, bytes);
+                    progress.Report("已安装到：" + file);
+                    Status("资源下载完成：" + hit.Name);
                 }
-            }
-            catch (Exception ex) { ShowError("资源下载失败", ex); }
+            });
+            Status("已将资源加入任务列表：" + hit.Name);
+            await Task.CompletedTask;
         }
         UIElement MigrationPanel(string title, string details)
         {
@@ -767,6 +841,16 @@ namespace BlockCraftLauncher.Wpf
             paths.Children.Add(settingsRoot);
             paths.Children.Add(Txt("Java 可执行文件（预留，启动库可自行查找运行时）", 13, false, true));
             settingsJava = new TextBox { Text = settings.JavaPath }; paths.Children.Add(settingsJava);
+            paths.Children.Add(Txt("下载线路：自动 / 官方 / BMCLAPI 镜像（仅支持的 Mojang 文件）", 13, false, true));
+            settingsNetworkMode = new ComboBox { ItemsSource = new[] { "auto", "official", "mirror" },
+                SelectedItem = settings.NetworkMode, Width = 240, HorizontalAlignment = HorizontalAlignment.Left };
+            paths.Children.Add(settingsNetworkMode);
+            paths.Children.Add(Txt("下载文件并发连接数（2～32）", 13, false, true));
+            settingsDownloadThreads = new TextBox { Text = settings.DownloadThreads.ToString(), Width = 130 };
+            paths.Children.Add(settingsDownloadThreads);
+            paths.Children.Add(Txt("下载重试次数（1～6）", 13, false, true));
+            settingsDownloadRetries = new TextBox { Text = settings.DownloadRetries.ToString(), Width = 130 };
+            paths.Children.Add(settingsDownloadRetries);
             paths.Children.Add(Txt("HTTP/HTTPS 代理", 13, false, true));
             settingsProxy = new TextBox { Text = settings.Proxy }; paths.Children.Add(settingsProxy);
             settingsMcim = new CheckBox { IsChecked = settings.McimEnabled,
@@ -784,6 +868,11 @@ namespace BlockCraftLauncher.Wpf
         {
             settings.Root = settingsRoot?.Text ?? settings.Root;
             settings.Proxy = settingsProxy?.Text ?? settings.Proxy;
+            settings.NetworkMode = Convert.ToString(settingsNetworkMode?.SelectedItem) ?? settings.NetworkMode;
+            if (int.TryParse(settingsDownloadThreads?.Text, out var threads))
+                settings.DownloadThreads = Math.Max(2, Math.Min(32, threads));
+            if (int.TryParse(settingsDownloadRetries?.Text, out var retries))
+                settings.DownloadRetries = Math.Max(1, Math.Min(6, retries));
             settings.McimEnabled = settingsMcim?.IsChecked == true;
             settings.JavaPath = settingsJava?.Text ?? settings.JavaPath;
             settings.OfflineName = settingsPlayer?.Text ?? settings.OfflineName;
