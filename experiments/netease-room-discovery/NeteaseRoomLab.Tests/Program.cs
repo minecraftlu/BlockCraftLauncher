@@ -57,6 +57,17 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 !GuestEmailAuth.ExplainExit(1, true).Contains("WITH_ERROR"))
                 throw new InvalidOperationException("Credential state incorrectly implies authorization.");
 
+            string displayCommand = GuestEmailAuth.GetPowerShellDiagnosticCommand(
+                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "user's folder", "connect.exe"));
+            if (!displayCommand.Contains("user''s folder") ||
+                !displayCommand.Contains("-login-method email") ||
+                !displayCommand.Contains("AUTH_HELPER_EXIT_CODE=") ||
+                !displayCommand.Contains("-cookie-out") ||
+                !displayCommand.Contains("-auth-data-dir") ||
+                displayCommand.Contains("-dump-auth") ||
+                displayCommand.Contains("-password"))
+                throw new InvalidOperationException("Diagnostic command quoting or safety failed.");
+
             Console.WriteLine("PASS: email helper opt-in argument construction and unverified status handling");
         }
 
