@@ -79,7 +79,11 @@ namespace BlockCraft.NeteaseRoomLab
             { "WEBRTC_REMOTE_REJECTED", "WebRTC 信令收到了远端拒绝或错误通知。" },
             { "WEBRTC_SIGNALING_INTERRUPTED", "WebRTC 协商期间信令连接中断。" },
             { "WEBRTC_PROBE_CANCELLED", "WebRTC 连接测试已取消，不代表服务器拒绝入房。" },
-            { "WEBRTC_TRANSPORT_CONNECTED_GAME_NOT_JOINED", "已完成房主 NetherNet/WebRTC 传输连接；未进行 Minecraft 游戏握手或加载世界。" }
+            { "WEBRTC_TRANSPORT_CONNECTED_GAME_NOT_JOINED", "房主 WebRTC 传输曾建立，但此前没有检测连接存活时间；未进入 Minecraft 世界。" },
+            { "WEBRTC_TRANSPORT_STABLE_8S_GAME_NOT_JOINED", "WebRTC 传输已成功建立，8 秒被动存活检查期间未发生断开；未发送 Minecraft 游戏包或进入世界。" },
+            { "WEBRTC_EARLY_DISCONNECT_GAME_NOT_JOINED", "WebRTC 曾完成协商，但手机房主在稳定性检查期间断开；本次未判定稳定。" },
+            { "WEBRTC_STABILITY_WINDOW_INTERRUPTED", "WebRTC 协商成功，但整体时限在稳定性检查结束前到达；尚不能判定稳定。" },
+            { "LOCAL_PROBE_CANCELLED", "本机用户已取消测试，探针释放连接；这不是网易服务器拒绝入房。" }
         };
 
         public static bool IsEmbedded
@@ -153,6 +157,15 @@ namespace BlockCraft.NeteaseRoomLab
                         return "JOIN_PROBE_IPC_SCHEMA_ERROR：WebRTC 状态格式不正确。";
                     rtc = (bool)optional;
                 }
+                bool stable = false;
+                if (response.TryGetValue("transport_stable", out optional))
+                {
+                    if (!(optional is bool))
+                        return "JOIN_PROBE_IPC_SCHEMA_ERROR：稳定性状态格式不正确。";
+                    stable = (bool)optional;
+                }
+                if (stable && !rtc)
+                    return "JOIN_PROBE_IPC_INCONSISTENT：稳定性标志缺少实际 WebRTC 连接。";
                 if ((signaling && !hostReady) || (rtc && !signaling))
                     return "JOIN_PROBE_IPC_INCONSISTENT：WebRTC 状态与大厅准入不一致。";
 
@@ -187,19 +200,24 @@ namespace BlockCraft.NeteaseRoomLab
                     || status == "WEBRTC_DATA_CHANNEL_FAILED"
                     || status == "WEBRTC_REMOTE_REJECTED"
                     || status == "WEBRTC_SIGNALING_INTERRUPTED"
-                    || status == "WEBRTC_PROBE_CANCELLED";
+                    || status == "WEBRTC_PROBE_CANCELLED"
+                    || status == "WEBRTC_EARLY_DISCONNECT_GAME_NOT_JOINED"
+                    || status == "WEBRTC_STABILITY_WINDOW_INTERRUPTED";
                 bool rtcComplete = status == "WEBRTC_TRANSPORT_CONNECTED_GAME_NOT_JOINED";
+                bool rtcStable = status == "WEBRTC_TRANSPORT_STABLE_8S_GAME_NOT_JOINED";
                 bool isPostAdmission = acceptedOnly || readyOnly || signalingError
-                    || pending || negotiationFailure || rtcComplete;
+                    || pending || negotiationFailure || rtcComplete || rtcStable;
                 if ((acceptedOnly && (!login || !admitted || hostReady))
                     || (readyOnly && (!login || !admitted || !hostReady))
                     || (admitted && !isPostAdmission)
                     || (isPostAdmission && (!login || !admitted))
-                    || ((signalingError || pending || negotiationFailure || rtcComplete) && !hostReady)
+                    || ((signalingError || pending || negotiationFailure || rtcComplete || rtcStable) && !hostReady)
                     || (signalingError && (signaling || rtc))
                     || ((pending || negotiationFailure) && (!signaling || rtc))
-                    || (rtcComplete && (!signaling || !rtc))
-                    || (rtc && !rtcComplete))
+                    || (rtcComplete && (!signaling || !rtc || stable))
+                    || (rtcStable && (!signaling || !rtc || !stable))
+                    || (stable && !rtcStable)
+                    || (rtc && !rtcComplete && !rtcStable))
                     return "JOIN_PROBE_IPC_INCONSISTENT：服务器准入、信令和 WebRTC 状态不匹配。";
                 if (status == "TAN_LOGIN_ACCEPTED" && !login)
                     return "JOIN_PROBE_IPC_INCONSISTENT：服务器登录标记与状态不匹配。";
