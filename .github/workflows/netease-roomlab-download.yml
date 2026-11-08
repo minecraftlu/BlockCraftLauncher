@@ -14,6 +14,12 @@ on:
 permissions:
   contents: write
 
+# Serialise preview publications, and stop a stale SHA from overwriting a
+# newer single-EXE build after a sequence of experimental source commits.
+concurrency:
+  group: blockcraft-stage11-1-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   publish-preview:
     runs-on: windows-latest
