@@ -107,13 +107,18 @@ func TestLocalBedrockHandshakeAcrossAttachedNetherNetFraming(t *testing.T) {
     ctx,cancel := context.WithTimeout(context.Background(),8*time.Second)
     defer cancel()
     accepted := make(chan error,1)
+    releaseHost := make(chan struct{})
+    defer close(releaseHost)
     go func(){
         conn, err := listener.Accept()
-        if err == nil {
-            if conn==nil {err=errors.New("nil local host player")}
-            if conn!=nil {defer conn.Close()}
-        }
+        if err == nil && conn==nil {err=errors.New("nil local host player")}
         accepted <- err
+        if conn!=nil {
+            // Keep the host alive until the client confirms its own login:
+            // closing immediately after Accept races the client's PlayStatus.
+            <-releaseHost
+            _ = conn.Close()
+        }
     }()
     client,err := (minecraft.Dialer{}).DialContextNetwork(ctx,attached,ExistingSessionAddress)
     if err != nil {t.Fatalf("local Bedrock game login failed: %v",err)}
