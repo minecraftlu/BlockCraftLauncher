@@ -19,6 +19,7 @@ namespace BlockCraft.NeteaseRoomLab
         private bool authHelperRunning;
         private bool g79CheckRunning;
         private bool livePreflightRunning;
+        private bool joinProbeRunning;
 
         public MainWindow()
         {
@@ -108,31 +109,38 @@ namespace BlockCraft.NeteaseRoomLab
         private void UpdateAuthButtons()
         {
             if (EmailAuthButton == null || AuthConsentBox == null) return;
-            EmailAuthButton.IsEnabled = !livePreflightRunning && !authHelperRunning && !g79CheckRunning
+            EmailAuthButton.IsEnabled = !joinProbeRunning && !joinProbeRunning && !livePreflightRunning && !authHelperRunning && !g79CheckRunning
                 && AuthConsentBox.IsChecked == true
                 && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
                 && File.Exists(selectedAuthHelper);
-            if (DeleteAuthButton != null) DeleteAuthButton.IsEnabled = !livePreflightRunning && !authHelperRunning && !g79CheckRunning;
+            if (DeleteAuthButton != null) DeleteAuthButton.IsEnabled = !joinProbeRunning && !joinProbeRunning && !livePreflightRunning && !authHelperRunning && !g79CheckRunning;
+            if (RealJoinButton != null)
+                RealJoinButton.IsEnabled = !joinProbeRunning && !livePreflightRunning
+                    && !authHelperRunning && !g79CheckRunning && JoinProbeRunner.IsEmbedded
+                    && AuthConsentBox.IsChecked == true
+                    && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
+                    && File.Exists(selectedAuthHelper)
+                    && GuestEmailAuth.CredentialFileExists();
             if (LivePreflightButton != null)
-                LivePreflightButton.IsEnabled = !livePreflightRunning && !authHelperRunning
+                LivePreflightButton.IsEnabled = !joinProbeRunning && !livePreflightRunning && !authHelperRunning
                     && !g79CheckRunning && AuthConsentBox.IsChecked == true
                     && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
                     && File.Exists(selectedAuthHelper)
                     && GuestEmailAuth.CredentialFileExists();
             if (G79VerifyButton != null)
-                G79VerifyButton.IsEnabled = !livePreflightRunning && !authHelperRunning && !g79CheckRunning
+                G79VerifyButton.IsEnabled = !joinProbeRunning && !joinProbeRunning && !livePreflightRunning && !authHelperRunning && !g79CheckRunning
                     && AuthConsentBox.IsChecked == true
                     && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
                     && File.Exists(selectedAuthHelper)
                     && GuestEmailAuth.CredentialFileExists();
-            if (AuthDebugButton != null) AuthDebugButton.IsEnabled = !livePreflightRunning && !authHelperRunning && !g79CheckRunning
+            if (AuthDebugButton != null) AuthDebugButton.IsEnabled = !joinProbeRunning && !joinProbeRunning && !livePreflightRunning && !authHelperRunning && !g79CheckRunning
                 && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
                 && File.Exists(selectedAuthHelper);
         }
 
         private void ChooseAuthHelper_Click(object sender, RoutedEventArgs e)
         {
-            if (authHelperRunning || g79CheckRunning || livePreflightRunning) return;
+            if (authHelperRunning || g79CheckRunning || livePreflightRunning || joinProbeRunning) return;
             var dialog = new Microsoft.Win32.OpenFileDialog
             {
                 Title = "手动选择你已审查且信任的 Opentransfer connect.exe",
@@ -168,7 +176,7 @@ namespace BlockCraft.NeteaseRoomLab
 
         private void CopyAuthDebug_Click(object sender, RoutedEventArgs e)
         {
-            if (authHelperRunning || g79CheckRunning || livePreflightRunning || !GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
+            if (authHelperRunning || g79CheckRunning || livePreflightRunning || joinProbeRunning || !GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
                 || !File.Exists(selectedAuthHelper))
             {
                 AuthStatusText.Text = "AUTH_DIAGNOSTIC_UNAVAILABLE：请先手动选择 connect.exe。";
@@ -194,7 +202,7 @@ namespace BlockCraft.NeteaseRoomLab
 
         private async void EmailAuth_Click(object sender, RoutedEventArgs e)
         {
-            if (authHelperRunning || g79CheckRunning || livePreflightRunning || AuthConsentBox.IsChecked != true ||
+            if (authHelperRunning || g79CheckRunning || livePreflightRunning || joinProbeRunning || AuthConsentBox.IsChecked != true ||
                 !GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper) ||
                 !File.Exists(selectedAuthHelper)) return;
 
@@ -249,7 +257,7 @@ namespace BlockCraft.NeteaseRoomLab
 
         private async void G79Verify_Click(object sender, RoutedEventArgs e)
         {
-            if (g79CheckRunning || authHelperRunning || livePreflightRunning ||
+            if (g79CheckRunning || authHelperRunning || livePreflightRunning || joinProbeRunning ||
                 AuthConsentBox.IsChecked != true ||
                 !GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper) ||
                 !File.Exists(selectedAuthHelper) ||
@@ -297,7 +305,7 @@ namespace BlockCraft.NeteaseRoomLab
 
         private void DeleteAuth_Click(object sender, RoutedEventArgs e)
         {
-            if (authHelperRunning || g79CheckRunning || livePreflightRunning) return;
+            if (authHelperRunning || g79CheckRunning || livePreflightRunning || joinProbeRunning) return;
             if (MessageBox.Show(
                 "仅删除 BlockCraft 实验目录中的邮箱 Cookie 输出文件；"
                 + "第三方助手保存的设备绑定信息不会被清除。是否继续？",
@@ -315,9 +323,67 @@ namespace BlockCraft.NeteaseRoomLab
             }
         }
 
+        private async void RealJoin_Click(object sender, RoutedEventArgs e)
+        {
+            if (joinProbeRunning || livePreflightRunning || authHelperRunning
+                || g79CheckRunning || AuthConsentBox.IsChecked != true
+                || !JoinProbeRunner.IsEmbedded
+                || !GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
+                || !File.Exists(selectedAuthHelper)
+                || !GuestEmailAuth.CredentialFileExists())
+            {
+                RealJoinStatusText.Text = "JOIN_PROBE_NOT_READY："
+                    + "请使用 Stage9 专用 EXE、选择认证组件并确保第二账号本地 Cookie 已保存。";
+                return;
+            }
+            string roomNumber = (RoomIdBox.Text ?? "").Trim();
+            if (!System.Text.RegularExpressions.Regex.IsMatch(roomNumber, @"^[0-9]{4,10}$"))
+            {
+                RealJoinStatusText.Text = "JOIN_PROBE_INPUT_INVALID：请输入有效的房间号。";
+                return;
+            }
+            var confirmation = MessageBox.Show(
+                "这一次将与真实网易 RakNet 大厅通信，使用本人第二账号发送大厅登录请求。"
+                + Environment.NewLine
+                + "只有服务器明确接受大厅登录后，才向指定房间发送一次真实入房请求。"
+                + Environment.NewLine + Environment.NewLine
+                + "确认该房间由你本人创建，或你已获得房主明确许可。"
+                + " 若服务器允许，账号可能短暂进入房间；探针结束后会断开。"
+                + Environment.NewLine + Environment.NewLine
+                + "该程序还不会启动 Minecraft、建立 WebRTC 游戏连接或加载世界。"
+                + " 使用第三方协议实现可能违反网易的服务条款，存在账号限制风险。"
+                + Environment.NewLine
+                + "不会输出邮箱密码、Cookie、登录 token、加密密钥或完整玩家 ID。"
+                + Environment.NewLine + Environment.NewLine
+                + "确定只针对你自己的房间执行一次测试吗？",
+                "第九阶段 · 确认真实大厅登录和入房请求",
+                MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (confirmation != MessageBoxResult.Yes) return;
+
+            joinProbeRunning = true;
+            UpdateAuthButtons();
+            RealJoinStatusText.Text = "JOIN_PROBE_RUNNING：正在请求真实大厅登录/入房回执。"
+                + " 只尝试一次；测试期间请保持手机房间在线。";
+            try
+            {
+                RealJoinStatusText.Text =
+                    await JoinProbeRunner.RunAsync(roomNumber, selectedAuthHelper);
+            }
+            catch (Exception)
+            {
+                RealJoinStatusText.Text = "JOIN_PROBE_FAILED：本机连接测试异常。"
+                    + " 没有输出或上传任何账号凭据。";
+            }
+            finally
+            {
+                joinProbeRunning = false;
+                UpdateAuthButtons();
+            }
+        }
+
         private async void LivePreflight_Click(object sender, RoutedEventArgs e)
         {
-            if (livePreflightRunning || authHelperRunning || g79CheckRunning ||
+            if (livePreflightRunning || authHelperRunning || g79CheckRunning || joinProbeRunning ||
                 AuthConsentBox.IsChecked != true ||
                 !GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper) ||
                 !File.Exists(selectedAuthHelper) ||
