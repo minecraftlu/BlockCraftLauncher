@@ -8,6 +8,7 @@ import (
     "sync/atomic"
 
     "github.com/Happy2018new/nemc-tan-lobby-solver/core/nethernet"
+    "github.com/pion/sctp"
 )
 
 // webRTCObservation only keeps presence/phase bits. It intentionally does
@@ -107,7 +108,39 @@ func classifyWebRTCFailure(err error, o *webRTCObservation) string {
     if o.remoteErrorSeen.Load() { return "WEBRTC_REMOTE_REJECTED" }
     msg := err.Error()
 
+    // Use Pion's stable typed errors instead of displaying raw SCTP/DTLS
+    // errors. These identify which SCTP handshake message was not answered.
+    // In the prior Stage10.1 classifier the broad "start SCTP" prefix was
+    // checked first and hid the INIT ACK / COOKIE ECHO distinction.
     switch {
+    case errors.Is(err, sctp.ErrHandshakeInitAck):
+        return "WEBRTC_SCTP_INIT_ACK_NOT_RECEIVED"
+    case errors.Is(err, sctp.ErrHandshakeCookieEcho):
+        return "WEBRTC_SCTP_COOKIE_ACK_NOT_RECEIVED"
+    case errors.Is(err, sctp.ErrAssociationClosedBeforeConn),
+        errors.Is(err, sctp.ErrAssociationClosed):
+        return "WEBRTC_SCTP_ASSOCIATION_CLOSED"
+    case errors.Is(err, context.Canceled):
+        return "WEBRTC_PROBE_CANCELLED"
+    case errors.Is(err, context.DeadlineExceeded) ||
+        strings.Contains(msg, "context deadline exceeded"):
+        // Check before generic "start transports" prefixes, otherwise a
+        // timed-out SCTP Start is incorrectly classified as a non-timeout.
+        switch o.phase.Load() {
+        case 6, 5, 4:
+            return "WEBRTC_SCTP_HANDSHAKE_TIMEOUT"
+        case 3:
+            return "WEBRTC_DTLS_HANDSHAKE_TIMEOUT"
+        case 2:
+            return "WEBRTC_ICE_CONNECT_TIMEOUT"
+        }
+        if o.answerSeen.Load() && !o.remoteCandidateSeen.Load() {
+            return "WEBRTC_REMOTE_CANDIDATE_TIMEOUT"
+        }
+        if o.offerSent.Load() && !o.answerSeen.Load() {
+            return "WEBRTC_ANSWER_TIMEOUT"
+        }
+        return "WEBRTC_LOCAL_CANDIDATE_GATHER_TIMEOUT"
     case strings.Contains(msg, "obtain credentials"):
         return "WEBRTC_ICE_CREDENTIALS_FAILED"
     case strings.Contains(msg, "create ICE gatherer"), strings.Contains(msg, "gather local candidates"):
@@ -130,28 +163,6 @@ func classifyWebRTCFailure(err error, o *webRTCObservation) string {
         return "WEBRTC_DATA_CHANNEL_FAILED"
     case strings.Contains(msg, "notified error from signaling"):
         return "WEBRTC_SIGNALING_INTERRUPTED"
-    }
-
-    if errors.Is(err, context.Canceled) {
-        return "WEBRTC_PROBE_CANCELLED"
-    }
-    if errors.Is(err, context.DeadlineExceeded) ||
-        strings.Contains(msg, "context deadline exceeded") {
-        switch o.phase.Load() {
-        case 6, 5, 4:
-            return "WEBRTC_SCTP_HANDSHAKE_TIMEOUT"
-        case 3:
-            return "WEBRTC_DTLS_HANDSHAKE_TIMEOUT"
-        case 2:
-            return "WEBRTC_ICE_CONNECT_TIMEOUT"
-        }
-        if o.answerSeen.Load() && !o.remoteCandidateSeen.Load() {
-            return "WEBRTC_REMOTE_CANDIDATE_TIMEOUT"
-        }
-        if o.offerSent.Load() && !o.answerSeen.Load() {
-            return "WEBRTC_ANSWER_TIMEOUT"
-        }
-        return "WEBRTC_LOCAL_CANDIDATE_GATHER_TIMEOUT"
     }
 
     if o.answerSeen.Load() && !o.remoteCandidateSeen.Load() {
