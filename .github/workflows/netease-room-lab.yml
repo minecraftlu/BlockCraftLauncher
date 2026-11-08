@@ -1,0 +1,54 @@
+name: NetEase Room Lab - Windows experimental build
+
+on:
+  push:
+    branches:
+      - experiment/netease-room-discovery
+    paths:
+      - 'experiments/netease-room-discovery/NeteaseRoomLab/**'
+      - 'experiments/netease-room-discovery/NeteaseRoomLab.Tests/**'
+      - '.github/workflows/netease-room-lab.yml'
+  pull_request:
+    paths:
+      - 'experiments/netease-room-discovery/NeteaseRoomLab/**'
+      - 'experiments/netease-room-discovery/NeteaseRoomLab.Tests/**'
+      - '.github/workflows/netease-room-lab.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build offline parser tests (.NET Framework 4.8)
+        shell: pwsh
+        run: |
+          msbuild "experiments/netease-room-discovery/NeteaseRoomLab.Tests/NeteaseRoomLab.Tests.csproj" /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU /v:minimal
+
+      - name: Run offline tests (no NetEase network calls)
+        shell: pwsh
+        run: |
+          & "experiments/netease-room-discovery/NeteaseRoomLab.Tests/bin/Release/BlockCraft.NeteaseRoomLab.Tests.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build WPF diagnostic EXE (.NET Framework 4.8)
+        shell: pwsh
+        run: |
+          msbuild "experiments/netease-room-discovery/NeteaseRoomLab/NeteaseRoomLab.csproj" /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU /v:minimal
+
+      - name: Upload unsigned experimental executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlockCraft-NeteaseRoomLab-unsigned-win
+          path: experiments/netease-room-discovery/NeteaseRoomLab/bin/Release/BlockCraft.NeteaseRoomLab.exe
+          if-no-files-found: error
+          retention-days: 7

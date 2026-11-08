@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{DE06C36D-DB03-4ACB-95DF-FF65E2E6E425}</ProjectGuid>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>BlockCraft.NeteaseRoomLab.Tests</RootNamespace>
+    <AssemblyName>BlockCraft.NeteaseRoomLab.Tests</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <OutputPath>bin\Debug\</OutputPath>
+    <DebugSymbols>true</DebugSymbols>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <OutputPath>bin\Release\</OutputPath>
+    <Optimize>true</Optimize>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.Web.Extensions" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="..\NeteaseRoomLab\JoinProbeRunner.cs">
+      <Link>JoinProbeRunner.cs</Link>
+    </Compile>
+    <Compile Include="..\NeteaseRoomLab\RoomConnectionMaterial.cs">
+      <Link>RoomConnectionMaterial.cs</Link>
+    </Compile>
+    <Compile Include="..\NeteaseRoomLab\RoomSessionPreflight.cs">
+      <Link>RoomSessionPreflight.cs</Link>
+    </Compile>
+    <Compile Include="..\NeteaseRoomLab\RoomAdmissionSchema.cs">
+      <Link>RoomAdmissionSchema.cs</Link>
+    </Compile>
+    <Compile Include="..\NeteaseRoomLab\GuestG79Verifier.cs">
+      <Link>GuestG79Verifier.cs</Link>
+    </Compile>
+    <Compile Include="..\NeteaseRoomLab\GuestEmailAuth.cs">
+      <Link>GuestEmailAuth.cs</Link>
+    </Compile>
+    <Compile Include="..\NeteaseRoomLab\LobbyNodeClient.cs">
+      <Link>LobbyNodeClient.cs</Link>
+    </Compile>
+    <Compile Include="..\NeteaseRoomLab\RoomDiscoveryClient.cs">
+      <Link>RoomDiscoveryClient.cs</Link>
+    </Compile>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>
