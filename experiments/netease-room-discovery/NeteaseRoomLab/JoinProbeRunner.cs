@@ -56,6 +56,25 @@ namespace BlockCraft.NeteaseRoomLab
             { "SIGNALING_CONNECTION_FAILED", "大厅准入成功，但信令 WebSocket 握手或 ICE 凭据阶段没有完成。" },
             { "SIGNALING_AUTHENTICATED_WEBRTC_PENDING", "信令已返回 ICE 凭据，但 WebRTC 尚未建立。" },
             { "WEBRTC_NEGOTIATION_FAILED", "真实信令连接成功，但与房主的 ICE/DTLS/SCTP 协商失败。" },
+            { "WEBRTC_ICE_CREDENTIALS_FAILED", "信令连接成功，但无法读取或使用 ICE 服务器授权信息。" },
+            { "WEBRTC_LOCAL_CANDIDATE_GATHER_FAILED", "电脑无法收集本地 ICE 候选；检查 Windows 防火墙和网络接口。" },
+            { "WEBRTC_LOCAL_CANDIDATE_GATHER_TIMEOUT", "电脑未能及时完成 ICE 候选收集；排查网络接口和 STUN/TURN。" },
+            { "WEBRTC_OFFER_SEND_FAILED", "无法向手机房主发送 WebRTC 连接邀请。" },
+            { "WEBRTC_CANDIDATE_SEND_FAILED", "无法向手机房主发送 ICE 候选。" },
+            { "WEBRTC_ANSWER_TIMEOUT", "连接邀请已发送，但没有及时收到手机房主的有效应答；确认房间在线和手机版允许电脑版进入。" },
+            { "WEBRTC_ANSWER_INVALID", "手机房主的 WebRTC 应答格式不兼容或不符合预期。" },
+            { "WEBRTC_REMOTE_CANDIDATE_TIMEOUT", "收到房主连接应答，但未及时收到可用远端 ICE 候选。" },
+            { "WEBRTC_REMOTE_CANDIDATE_UNAVAILABLE", "房主应答后未获得可用 ICE 候选。" },
+            { "WEBRTC_ICE_CONNECT_FAILED", "收到 ICE 候选，但局域网或中继连接失败；排查路由器客户端隔离、Windows 防火墙及 TURN。" },
+            { "WEBRTC_ICE_CONNECT_TIMEOUT", "ICE 建连超时；即使同一个 Wi-Fi，也可能存在设备隔离或 UDP 被拦截。" },
+            { "WEBRTC_DTLS_HANDSHAKE_FAILED", "ICE 阶段已推进，但 DTLS 安全握手失败。" },
+            { "WEBRTC_DTLS_HANDSHAKE_TIMEOUT", "ICE 阶段已推进，但 DTLS 安全握手超时。" },
+            { "WEBRTC_SCTP_HANDSHAKE_FAILED", "ICE/DTLS 已推进，但 SCTP 数据传输握手失败。" },
+            { "WEBRTC_SCTP_HANDSHAKE_TIMEOUT", "SCTP 数据传输阶段超时。" },
+            { "WEBRTC_DATA_CHANNEL_FAILED", "SCTP 阶段已推进，但可靠/不可靠数据通道创建失败。" },
+            { "WEBRTC_REMOTE_REJECTED", "WebRTC 信令收到了远端拒绝或错误通知。" },
+            { "WEBRTC_SIGNALING_INTERRUPTED", "WebRTC 协商期间信令连接中断。" },
+            { "WEBRTC_PROBE_CANCELLED", "WebRTC 连接测试已取消，不代表服务器拒绝入房。" },
             { "WEBRTC_TRANSPORT_CONNECTED_GAME_NOT_JOINED", "已完成房主 NetherNet/WebRTC 传输连接；未进行 Minecraft 游戏握手或加载世界。" }
         };
 
@@ -141,7 +160,26 @@ namespace BlockCraft.NeteaseRoomLab
                     || status == "SIGNALING_TICKET_DERIVATION_FAILED"
                     || status == "SIGNALING_CONNECTION_FAILED";
                 bool pending = status == "SIGNALING_AUTHENTICATED_WEBRTC_PENDING";
-                bool negotiationFailure = status == "WEBRTC_NEGOTIATION_FAILED";
+                bool negotiationFailure = status == "WEBRTC_NEGOTIATION_FAILED"
+                    || status == "WEBRTC_ICE_CREDENTIALS_FAILED"
+                    || status == "WEBRTC_LOCAL_CANDIDATE_GATHER_FAILED"
+                    || status == "WEBRTC_LOCAL_CANDIDATE_GATHER_TIMEOUT"
+                    || status == "WEBRTC_OFFER_SEND_FAILED"
+                    || status == "WEBRTC_CANDIDATE_SEND_FAILED"
+                    || status == "WEBRTC_ANSWER_TIMEOUT"
+                    || status == "WEBRTC_ANSWER_INVALID"
+                    || status == "WEBRTC_REMOTE_CANDIDATE_TIMEOUT"
+                    || status == "WEBRTC_REMOTE_CANDIDATE_UNAVAILABLE"
+                    || status == "WEBRTC_ICE_CONNECT_FAILED"
+                    || status == "WEBRTC_ICE_CONNECT_TIMEOUT"
+                    || status == "WEBRTC_DTLS_HANDSHAKE_FAILED"
+                    || status == "WEBRTC_DTLS_HANDSHAKE_TIMEOUT"
+                    || status == "WEBRTC_SCTP_HANDSHAKE_FAILED"
+                    || status == "WEBRTC_SCTP_HANDSHAKE_TIMEOUT"
+                    || status == "WEBRTC_DATA_CHANNEL_FAILED"
+                    || status == "WEBRTC_REMOTE_REJECTED"
+                    || status == "WEBRTC_SIGNALING_INTERRUPTED"
+                    || status == "WEBRTC_PROBE_CANCELLED";
                 bool rtcComplete = status == "WEBRTC_TRANSPORT_CONNECTED_GAME_NOT_JOINED";
                 bool isPostAdmission = acceptedOnly || readyOnly || signalingError
                     || pending || negotiationFailure || rtcComplete;
