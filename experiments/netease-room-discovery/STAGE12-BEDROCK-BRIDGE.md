@@ -12,7 +12,7 @@
 
 - `gamebridge.NewAttachedNetwork(conn)` 实现 `minecraft.Network`，只允许以固定本地标记认领**已经存在**的单个连接；禁止 Ping、监听以及第二次/任意地址拨号。取消上下文会关闭该连接。
 - `gamebridge.DialAuthenticated(ctx, conn, dialer)` 仅提供后续接入点。如果未提供经过相应平台认证的游戏身份提供者（`TokenSource` 或 `XBLClient`），立即返回 `ErrNoGameIdentity`，不会用 PE 大厅会话、手填姓名或离线 JWT 冒充官方游戏身份。**当前 Stage 9–11 不会调用此函数**。
-- 测试在进程内利用 `net.Pipe` 验证字节级收发、消息边界、单次认领、取消关闭、拒绝隐式离线身份；并使用独立的内存消息管道与 gophertunnel 本地模拟服务端完成 `NetworkSettings → Login → PlayStatus` 登录流程。无外部网络、网易账号、房间探测或 Cookie。
+- 测试在进程内利用 `net.Pipe` 验证字节级收发、消息边界、单次认领、取消关闭、拒绝隐式离线身份；并使用独立的内存消息管道与 gophertunnel 本地模拟服务端完成 `NetworkSettings → Login → PlayStatus → ResourcePacksInfo/Stack → StartGame → PlayerSpawn` 登录及生成流程。无外部网络、网易账号、房间探测或 Cookie。
 
 ## 目前尚未打通
 
@@ -25,7 +25,7 @@
 
 ## 版本与回归
 
-基础分支为 `fix/netease-channel-state-monitor-20261108`，保留 Stage10.4 CRC32c 和 Stage11.2 稳定性修复。Stage12 游戏库必须放在 **`BedrockProtocolBridge` 独立 Go 模块**；gophertunnel v1.62.0 依赖 Pion transport/v4，而已验证的网易 fork 依赖 transport/v3，将二者直接并入 `GuestTransportLab` 会导致编译失败。Windows CI 分别执行两个模块的单元测试并检查原 Go 探针。尚未把新桥接代码嵌入真实联网探针或 WPF；不等于真实网易兼容性测试。
+基础分支为 `fix/netease-channel-state-monitor-20261108`，保留 Stage10.4 CRC32c 和 Stage11.2 稳定性修复。Stage12 游戏库必须放在 **`BedrockProtocolBridge` 独立 Go 模块**；gophertunnel v1.62.0 依赖 Pion transport/v4，而已验证的网易 fork 依赖 transport/v3，将二者直接并入 `GuestTransportLab` 会导致编译失败。Windows CI 分别执行两个模块的单元测试并检查原 Go 探针。2026-11-08 Windows CI run `42498510118` 已完成并通过独立 Bedrock 模块的 `go test`、`go vet` 和 `go build`，同时原网易探针的 SCTP/WebRTC 回归测试也通过。尚未把新桥接代码嵌入真实联网探针或 WPF；不等于真实网易兼容性测试。
 
 参考上游：
 - https://github.com/Sandertv/gophertunnel/blob/v1.62.0/minecraft/protocol/packet/transport.go
