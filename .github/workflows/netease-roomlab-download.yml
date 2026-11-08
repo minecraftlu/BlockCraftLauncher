@@ -1,4 +1,4 @@
-name: Publish NetEase Room Lab Stage 9.1 IPC encoding fix
+name: Publish NetEase Room Lab Stage 10 real NetherNet WebRTC
 
 on:
   push:
@@ -61,7 +61,7 @@ jobs:
           & "experiments/netease-room-discovery/NeteaseRoomLab.Tests/bin/Release/BlockCraft.NeteaseRoomLab.Tests.exe"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Cross-language Stage9.1 IPC integration on compiled EXEs (offline)
+      - name: Cross-language Stage10 IPC integration on compiled EXEs (offline)
         shell: pwsh
         run: |
           & "experiments/netease-room-discovery/NeteaseRoomLab.Tests/bin/Release/BlockCraft.NeteaseRoomLab.Tests.exe" --probe-ipc-exe "experiments/netease-room-discovery/GuestTransportLab/dist/BlockCraft.JoinProbe.exe"
@@ -88,29 +88,29 @@ jobs:
       - name: Package stable file names and SHA-256
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force "stage9-1-release" | Out-Null
-          Copy-Item "experiments/netease-room-discovery/NeteaseRoomLab/bin/Release/BlockCraft.NeteaseRoomLab.exe" "stage9-1-release/BlockCraftRoomStage9_1.exe"
-          Compress-Archive -LiteralPath "stage9-1-release/BlockCraftRoomStage9_1.exe" -DestinationPath "stage9-1-release/BlockCraftRoomStage9_1.zip" -Force
-          $files = @("BlockCraftRoomStage9_1.exe", "BlockCraftRoomStage9_1.zip")
+          New-Item -ItemType Directory -Force "stage10-release" | Out-Null
+          Copy-Item "experiments/netease-room-discovery/NeteaseRoomLab/bin/Release/BlockCraft.NeteaseRoomLab.exe" "stage10-release/BlockCraftRoomStage10.exe"
+          Compress-Archive -LiteralPath "stage10-release/BlockCraftRoomStage10.exe" -DestinationPath "stage10-release/BlockCraftRoomStage10.zip" -Force
+          $files = @("BlockCraftRoomStage10.exe", "BlockCraftRoomStage10.zip")
           $lines = foreach ($f in $files) {
-            $sum = (Get-FileHash "stage9-1-release/$f" -Algorithm SHA256).Hash.ToLowerInvariant()
+            $sum = (Get-FileHash "stage10-release/$f" -Algorithm SHA256).Hash.ToLowerInvariant()
             "$sum  $f"
           }
-          $lines | Set-Content "stage9-1-release/SHA256SUMS.txt" -Encoding ascii
-          Add-Content $env:GITHUB_STEP_SUMMARY "Release output files: BlockCraftRoomStage9_1.exe and BlockCraftRoomStage9_1.zip"
+          $lines | Set-Content "stage10-release/SHA256SUMS.txt" -Encoding ascii
+          Add-Content $env:GITHUB_STEP_SUMMARY "Release output files: BlockCraftRoomStage10.exe and BlockCraftRoomStage10.zip"
 
       - name: Publish experimental GitHub pre-release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "netease-roomlab-stage9-1-preview"
-          $notes = "Experimental C# WPF NetEase room lab. Stage 9 embeds a Windows Go RakNet lobby guest-side probe inside the single C# WPF .NET Framework 4.8 EXE. Only on explicit user confirmation and permission from the room host, it attempts one real lobby login and sends an EnterRoom request only after server accepts login. It reports genuine TanLoginResponse / TanEnterRoomResponse statuses and optional host NetherNet readiness. Stage9.1 fixes JOIN_PROBE_OUTPUT_INVALID: UTF-8 Windows child encoding, versioned ASCII-only one-line Go-to-WPF IPC frame, strict state verification and real compiled EXE cross-language offline CI test. No Minecraft client, no game world, no login bypass. No credentials or tokens printed or uploaded. UNSIGNED. Experimental third-party protocol with account and platform terms risk."
+          $tag = "netease-roomlab-stage10-preview"
+          $notes = "Experimental C# WPF NetEase room lab. Stage 9 embeds a Windows Go RakNet lobby guest-side probe inside the single C# WPF .NET Framework 4.8 EXE. Only on explicit user confirmation and permission from the room host, it attempts one real lobby login and sends an EnterRoom request only after server accepts login. It reports genuine TanLoginResponse / TanEnterRoomResponse statuses and optional host NetherNet readiness. Stage9.1 fixes JOIN_PROBE_OUTPUT_INVALID: UTF-8 Windows child encoding, versioned ASCII-only one-line Go-to-WPF IPC frame, strict state verification and real compiled EXE cross-language offline CI test. Stage10 adds explicitly opt-in real NetherNet signaling WebSocket and Pion ICE/DTLS/SCTP session negotiation after real host-ready notification. It never sends Minecraft game packets and never claims world join. No Minecraft client, no game world, no login bypass. No credentials or tokens printed or uploaded. UNSIGNED. Experimental third-party protocol with account and platform terms risk."
           gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag "stage9-1-release/BlockCraftRoomStage9_1.exe" "stage9-1-release/BlockCraftRoomStage9_1.zip" "stage9-1-release/SHA256SUMS.txt" --clobber --repo $env:GITHUB_REPOSITORY
+            gh release upload $tag "stage10-release/BlockCraftRoomStage10.exe" "stage10-release/BlockCraftRoomStage10.zip" "stage10-release/SHA256SUMS.txt" --clobber --repo $env:GITHUB_REPOSITORY
           } else {
-            gh release create $tag "stage9-1-release/BlockCraftRoomStage9_1.exe" "stage9-1-release/BlockCraftRoomStage9_1.zip" "stage9-1-release/SHA256SUMS.txt" --target $env:GITHUB_SHA --title "BlockCraft 网易房间实验室 Stage 9.1（修复 Go/WPF 回执解析）" --notes $notes --prerelease --repo $env:GITHUB_REPOSITORY
+            gh release create $tag "stage10-release/BlockCraftRoomStage10.exe" "stage10-release/BlockCraftRoomStage10.zip" "stage10-release/SHA256SUMS.txt" --target $env:GITHUB_SHA --title "BlockCraft 网易房间实验室 Stage 10（房主 NetherNet WebRTC 连接测试）" --notes $notes --prerelease --repo $env:GITHUB_REPOSITORY
           }
           if ($LASTEXITCODE -ne 0) { throw "GitHub preview publishing failed." }
           gh release view $tag --repo $env:GITHUB_REPOSITORY --json url,assets
@@ -118,7 +118,7 @@ jobs:
       - name: Preserve Actions artifact backup
         uses: actions/upload-artifact@v4
         with:
-          name: BlockCraft-RoomLab-Stage9_1-download
-          path: stage9-1-release/
+          name: BlockCraft-RoomLab-Stage10-download
+          path: stage10-release/
           if-no-files-found: error
           retention-days: 30
