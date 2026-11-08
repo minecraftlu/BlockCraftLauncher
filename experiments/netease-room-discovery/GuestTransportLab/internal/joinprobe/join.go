@@ -590,7 +590,7 @@ func probeWebRTC(ctx context.Context, session login, node server,
         switch observed.outcome {
         case stabilityRemoteClosed:
             result.Status="WEBRTC_CHANNELS_EARLY_CLOSED_GAME_NOT_JOINED"
-            result.Detail="远端连接在通道观察阶段断开，没有把它误报为稳定连接。"
+            result.Detail="观察期间远端连接中断或数据通道状态下降，未判定稳定连接。"
         case stabilityCancelled:
             if errors.Is(signalCtx.Err(),context.DeadlineExceeded) {
                 result.Status="WEBRTC_CHANNELS_OBSERVATION_INTERRUPTED"
