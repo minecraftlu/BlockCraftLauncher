@@ -62,7 +62,7 @@ func main() {
         fmt.Println("Required: -room ROOM -helper ABSOLUTE_CONNECT_EXE -cookie ABSOLUTE_COOKIE_JSON -host-consent -try-join [-try-webrtc]")
         fmt.Println("The second account must already be legitimately logged in on this PC.")
         fmt.Println("No cookies, login tokens, encryption keys or player IDs are printed.")
-        fmt.Println("This tool may briefly enter the real phone room and then leave when the probe exits.")
+        fmt.Println("This tool may briefly enter the room. It closes local connections on exit; the server may retain an offline roster entry.")
         fmt.Println("It never bypasses account verification, anti-cheat, real-name requirements or server admission.")
         return
     }
