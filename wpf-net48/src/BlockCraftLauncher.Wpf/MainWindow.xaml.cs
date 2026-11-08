@@ -396,6 +396,14 @@ namespace BlockCraftLauncher.Wpf
         }
         async Task LoginMicrosoftAsync()
         {
+            // Check the installed Evergreen Runtime before invoking CmlLib's
+            // embedded OAuth browser, rather than letting its native host fail.
+            if (!WebView2RuntimeSupport.IsAvailable(out _))
+            {
+                Status("微软正版登录需要安装 Microsoft Edge WebView2 Runtime。");
+                WebView2RuntimeSupport.OfferOfficialSetup(this);
+                return;
+            }
             try
             {
                 Status("正在启动 Microsoft 正版登录，请在安全登录窗口中完成授权...");
@@ -404,6 +412,12 @@ namespace BlockCraftLauncher.Wpf
                 settings.AccountName = name;
                 store.Save(settings); BuildSidebar(); Navigate("首页");
                 Status("已登录 Minecraft Java 正版账号：" + name);
+            }
+            catch (Exception ex) when (WebView2RuntimeSupport.IsRuntimeFailure(ex))
+            {
+                Log("微软登录 WebView2 运行环境异常：" + ex.GetType().Name);
+                Status("微软正版登录需要安装或修复 WebView2 Runtime。");
+                WebView2RuntimeSupport.OfferOfficialSetup(this);
             }
             catch (Exception ex) { ShowError("微软正版登录失败", ex); }
         }
