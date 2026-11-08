@@ -9,6 +9,11 @@ namespace BlockCraft.NeteaseRoomLab.Tests
         {
             try
             {
+                if (args.Length == 2 && args[0] == "--probe-ipc-exe")
+                {
+                    TestCompiledProbeIPC(args[1]);
+                    return 0;
+                }
                 Expect(true, "found by room ID",
                     "{\"code\":0,\"list\":[{\"rid\":453649,\"name\":\"example\",\"cnt\":1,\"cap\":30,\"version\":898}]}");
                 Expect(true, "found by room name",
@@ -29,6 +34,7 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 TestAdmissionResponseContract();
                 TestLiveRoomPreflightContracts();
                 TestRealJoinProbeResultRedaction();
+                TestMachineTransportParsing();
                 Console.WriteLine("Room/node parser and local email-helper safety tests passed. No network requests or credentials used.");
                 return 0;
             }
@@ -326,6 +332,92 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 throw new InvalidOperationException("Malformed probe output was not rejected.");
 
             Console.WriteLine("PASS: real RakNet join probe allowlist and user-secret redaction");
+        }
+
+        private static void TestMachineTransportParsing()
+        {
+            const string token = "DO_NOT_SHARE_PRIVATE_TOKEN";
+            const string prefix = "BLOCKCRAFT_JOIN_PROBE_V1\t";
+            const string failed = "{\"status\":\"PE_AUTH_UNAVAILABLE\",\"login_accepted\":false,"
+                + "\"room_admission_accepted\":false,\"host_ready_seen\":false,"
+                + "\"minecraft_world_joined\":false,\"g79_mode_confirmed\":false}";
+            const string admitted = "{\"status\":\"SERVER_ROOM_ADMISSION_ACCEPTED\","
+                + "\"login_accepted\":true,\"room_admission_accepted\":true,"
+                + "\"host_ready_seen\":false,\"minecraft_world_joined\":false}";
+            string fixture = JoinProbeRunner.ParseMachineOutput(prefix + failed + "\r\n");
+            if (!fixture.Contains("PE_AUTH_UNAVAILABLE"))
+                throw new InvalidOperationException("Versioned machine frame was not parsed.");
+            if (!JoinProbeRunner.ParseMachineOutput(prefix + admitted + "\n")
+                .Contains("SERVER_ROOM_ADMISSION_ACCEPTED"))
+                throw new InvalidOperationException("Verified response was incorrectly rejected.");
+
+            if (!JoinProbeRunner.ParseMachineOutput("noise\n" + prefix + failed)
+                    .Contains("JOIN_PROBE_IPC_UNEXPECTED_OUTPUT")
+                || !JoinProbeRunner.ParseMachineOutput(prefix + failed + "\n" + prefix + failed)
+                    .Contains("JOIN_PROBE_IPC_UNEXPECTED_OUTPUT")
+                || !JoinProbeRunner.ParseMachineOutput("{\"status\":\"PE_AUTH_UNAVAILABLE\"}")
+                    .Contains("JOIN_PROBE_IPC_UNEXPECTED_OUTPUT"))
+                throw new InvalidOperationException("Unsafe or legacy stdout was accepted.");
+
+            string contradictory = admitted.Replace("\"login_accepted\":true",
+                "\"login_accepted\":false");
+            if (!JoinProbeRunner.ParseMachineOutput(prefix + contradictory)
+                .Contains("JOIN_PROBE_IPC_INCONSISTENT"))
+                throw new InvalidOperationException("Unauthenticated room admission was accepted.");
+
+            string world = admitted.Replace("\"minecraft_world_joined\":false",
+                "\"minecraft_world_joined\":true");
+            if (!JoinProbeRunner.ParseMachineOutput(prefix + world)
+                .Contains("JOIN_PROBE_IPC_INCONSISTENT"))
+                throw new InvalidOperationException("Probe improperly claimed a game session.");
+
+            string secretPayload = prefix + failed.Substring(0, failed.Length - 1)
+                + ",\"detail\":\"" + token + "\"}";
+            string safe = JoinProbeRunner.ParseMachineOutput(secretPayload);
+            if (!safe.Contains("PE_AUTH_UNAVAILABLE") || safe.Contains(token))
+                throw new InvalidOperationException("IPC exposed child process private text.");
+
+            if (!JoinProbeRunner.ParseMachineOutput(prefix + "{not-json}")
+                .Contains("JOIN_PROBE_IPC_SCHEMA_ERROR"))
+                throw new InvalidOperationException("Corrupt IPC payload was accepted.");
+
+            Console.WriteLine("PASS: versioned Stage9.1 machine IPC, strict flags and redaction");
+        }
+
+        private static void TestCompiledProbeIPC(string exe)
+        {
+            if (!System.IO.File.Exists(exe))
+                throw new InvalidOperationException("Cannot locate built join-probe executable.");
+            var info = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = System.IO.Path.GetFullPath(exe),
+                Arguments = "-ipc-selftest -machine-json",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                StandardOutputEncoding = new System.Text.UTF8Encoding(false, true),
+                StandardErrorEncoding = new System.Text.UTF8Encoding(false, true),
+                CreateNoWindow = true
+            };
+            using (var process = System.Diagnostics.Process.Start(info))
+            {
+                if (process == null)
+                    throw new InvalidOperationException("Cannot execute compiled Stage9.1 probe.");
+                string output = process.StandardOutput.ReadToEnd();
+                string errorOutput = process.StandardError.ReadToEnd();
+                if (!process.WaitForExit(10000))
+                {
+                    process.Kill();
+                    throw new InvalidOperationException("Compiled probe IPC selftest timeout.");
+                }
+                if (process.ExitCode != 0 || errorOutput.Length > 0)
+                    throw new InvalidOperationException("Compiled probe IPC selftest failed.");
+                string result = JoinProbeRunner.ParseMachineOutput(output);
+                if (!result.Contains("PE_AUTH_UNAVAILABLE")
+                    || result.Contains("JOIN_PROBE_IPC_"))
+                    throw new InvalidOperationException("Actual Go stdout failed C# IPC parser.");
+            }
+            Console.WriteLine("PASS: actual compiled Go EXE to .NET Framework UTF-8 Stage9.1 IPC");
         }
 
         private static void ExpectNode(bool shouldFind, string testName, string json)
