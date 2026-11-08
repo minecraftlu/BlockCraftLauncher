@@ -104,7 +104,31 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                     .Contains("ACCEPTED"))
                 throw new InvalidOperationException("Invalid G79 status promoted to success.");
 
-            Console.WriteLine("PASS: safe G79 config, successful simulation and zero credential disclosure");
+            string partial = GuestG79Verifier.ClassifyResult(
+                0,
+                "uid = 10001\r\nlogin_token = MOCK_SECRET_DO_NOT_PRINT\r\n"
+                + "auth_mode = x19\r\nplatform = 1\r\n",
+                false);
+            if (!partial.Contains("G79_CHECK_INCONCLUSIVE") ||
+                !partial.Contains("uid_valid=yes") ||
+                !partial.Contains("auth_mode_g79=no") ||
+                !partial.Contains("platform_pe=no") ||
+                !partial.Contains("token_present=yes") ||
+                partial.Contains("10001") ||
+                partial.Contains("MOCK_SECRET_DO_NOT_PRINT"))
+                throw new InvalidOperationException("Safe G79 field diagnostics missing or leaking secrets.");
+
+            string flexible = GuestG79Verifier.ClassifyResult(
+                0,
+                "\uFEFF UID = 10001\r\n LOGIN_TOKEN = REDACTED_MOCK_SECRET\r\n"
+                + " Auth_Mode = G79\r\nPlatform = 2\r\n",
+                false);
+            if (!flexible.Contains("G79_HELPER_LOGIN_ACCEPTED") ||
+                flexible.Contains("REDACTED_MOCK_SECRET") ||
+                flexible.Contains("10001"))
+                throw new InvalidOperationException("G79 label normalization or secrecy failed.");
+
+            Console.WriteLine("PASS: safe G79 config, field diagnostics and zero credential disclosure");
         }
 
         private static void ExpectNode(bool shouldFind, string testName, string json)
