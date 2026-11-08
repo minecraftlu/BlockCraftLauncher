@@ -112,6 +112,41 @@ func TestStage11PassiveChannelObservation(t *testing.T) {
     })
 }
 
+// A DataChannel can close while ReadPacket is still waiting for a reliable
+// message. Polling must classify this as an early close, never as 60s stable.
+func TestStage11DetectsChannelDropWithoutReliableReadError(t *testing.T) {
+    conn := newTestChannelConn()
+    go func() {
+        time.Sleep(150 * time.Millisecond)
+        conn.unreliable.Store(false)
+    }()
+    started := time.Now()
+    observed := observeDataChannels(context.Background(), conn, 750*time.Millisecond)
+    if observed.outcome != stabilityRemoteClosed {
+        t.Fatalf("mid-window unreliable channel drop reported stable: %+v", observed)
+    }
+    if time.Since(started) > 650*time.Millisecond {
+        t.Fatal("channel-state drop was not detected before observation deadline")
+    }
+}
+
+// Allow the channels to open after Dial, but once both have been observed OPEN
+// a later close must invalidate the remaining observation window.
+func TestStage11DetectsLateOpenThenClose(t *testing.T) {
+    conn := newTestChannelConn()
+    conn.unreliable.Store(false)
+    go func() {
+        time.Sleep(60 * time.Millisecond)
+        conn.unreliable.Store(true)
+        time.Sleep(250 * time.Millisecond)
+        conn.unreliable.Store(false)
+    }()
+    observed := observeDataChannels(context.Background(), conn, 900*time.Millisecond)
+    if observed.outcome != stabilityRemoteClosed {
+        t.Fatalf("opened-then-closed channel reported stable: %+v", observed)
+    }
+}
+
 func TestStage11ObservationSecondsRejectedBeforeAnyNetwork(t *testing.T) {
     result:=Run(context.Background(),Request{
         RoomID:"643871",

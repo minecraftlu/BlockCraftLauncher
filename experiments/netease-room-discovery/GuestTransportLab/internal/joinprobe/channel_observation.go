@@ -74,28 +74,57 @@ func observeDataChannels(ctx context.Context, conn channelObservationSource, dur
     }()
     timer := time.NewTimer(duration)
     defer timer.Stop()
-    select {
-    case <-ctx.Done():
-        obs.outcome = stabilityCancelled
-    case <-closed:
-        obs.outcome = stabilityRemoteClosed
-    case <-timer.C:
-        if ctx.Err() != nil {
+
+    // A final OPEN snapshot cannot prove that the data channels remained OPEN
+    // throughout the window. Poll their read-only states while the packet
+    // reader is blocked; this catches persistent mid-window drops without
+    // sending Minecraft packets or recording any channel payload.
+    pollEvery := 100 * time.Millisecond
+    if duration/4 < pollEvery { pollEvery = duration/4 }
+    if pollEvery < time.Millisecond { pollEvery = time.Millisecond }
+    poll := time.NewTicker(pollEvery)
+    defer poll.Stop()
+    reliableOpen, unreliableOpen := conn.BlockCraftChannelStates()
+    bothOpenSeen := reliableOpen && unreliableOpen
+    for {
+        select {
+        case <-ctx.Done():
             obs.outcome = stabilityCancelled
-        } else {
-            select {
-            case <-closed:
+        case <-closed:
+            obs.outcome = stabilityRemoteClosed
+        case <-poll.C:
+            if ctx.Err() != nil {
+                obs.outcome = stabilityCancelled
+                break
+            }
+            reliableOpen, unreliableOpen = conn.BlockCraftChannelStates()
+            if bothOpenSeen && (!reliableOpen || !unreliableOpen) {
                 obs.outcome = stabilityRemoteClosed
-            default:
-                obs.outcome = stabilityWindowComplete
+                break
+            }
+            if reliableOpen && unreliableOpen { bothOpenSeen = true }
+            continue
+        case <-timer.C:
+            if ctx.Err() != nil {
+                obs.outcome = stabilityCancelled
+            } else {
+                select {
+                case <-closed:
+                    obs.outcome = stabilityRemoteClosed
+                default:
+                    obs.outcome = stabilityWindowComplete
+                }
             }
         }
+        break
     }
-    // Snapshot only after timer/read outcome; channels can report CONNECTING
-    // despite the SCTP transport being established. Never equate SCTP
-    // handshake success with both Pion data channels actually being OPEN.
     if obs.outcome == stabilityWindowComplete {
         obs.reliableOpen, obs.unreliableOpen = conn.BlockCraftChannelStates()
+        // A close racing with the final poll is still a failed observation.
+        // Sampling cannot prove continuous OPEN between polls.
+        if bothOpenSeen && (!obs.reliableOpen || !obs.unreliableOpen) {
+            obs.outcome = stabilityRemoteClosed
+        }
     }
     obs.reliableMessages = min(counters.reliableMessages.Load(), maxReportedPassiveMessages)
     obs.unreliableMessages = min(counters.unreliableMessages.Load(), maxReportedPassiveMessages)
