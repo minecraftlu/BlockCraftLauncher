@@ -9,7 +9,7 @@ import (
     "testing"
     "time"
 
-    "github.com/pion/sctp"
+    "github.com/Happy2018new/nemc-tan-lobby-solver/core/sctp"
 )
 
 func TestWebRTCPhaseClassifierUsesOnlyFixedLabels(t *testing.T) {
