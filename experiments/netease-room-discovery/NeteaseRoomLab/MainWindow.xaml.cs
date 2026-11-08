@@ -111,6 +111,9 @@ namespace BlockCraft.NeteaseRoomLab
                 && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
                 && File.Exists(selectedAuthHelper);
             if (DeleteAuthButton != null) DeleteAuthButton.IsEnabled = !authHelperRunning;
+            if (AuthDebugButton != null) AuthDebugButton.IsEnabled = !authHelperRunning
+                && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
+                && File.Exists(selectedAuthHelper);
         }
 
         private void ChooseAuthHelper_Click(object sender, RoutedEventArgs e)
@@ -146,6 +149,32 @@ namespace BlockCraft.NeteaseRoomLab
             finally
             {
                 UpdateAuthButtons();
+            }
+        }
+
+        private void CopyAuthDebug_Click(object sender, RoutedEventArgs e)
+        {
+            if (authHelperRunning || !GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
+                || !File.Exists(selectedAuthHelper))
+            {
+                AuthStatusText.Text = "AUTH_DIAGNOSTIC_UNAVAILABLE：请先手动选择 connect.exe。";
+                return;
+            }
+
+            try
+            {
+                string cmd = GuestEmailAuth.GetPowerShellDiagnosticCommand(selectedAuthHelper);
+                Clipboard.SetText(cmd);
+                AuthStatusText.Text = "AUTH_DIAGNOSTIC_COMMAND_COPIED：已复制不含密码的 PowerShell 命令。"
+                    + " 请自己打开 PowerShell 粘贴执行；这样程序退出后错误信息不会自动消失。"
+                    + " 注意输出可能包含敏感信息，分享截图前请遮挡邮箱、验证码、Cookie、"
+                    + " token、sessionid 和身份证信息。";
+            }
+            catch (Exception)
+            {
+                AuthStatusText.Text = "AUTH_DIAGNOSTIC_COPY_FAILED：无法复制诊断命令。"
+                    + " 请在 connect.exe 所在文件夹手动打开 PowerShell 执行"
+                    + " .\\connect.exe -login -login-method email。";
             }
         }
 
