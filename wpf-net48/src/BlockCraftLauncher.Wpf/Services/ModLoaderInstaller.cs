@@ -38,7 +38,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 throw new ArgumentException("不支持的加载器：" + loader);
             token.ThrowIfCancellationRequested();
             var path = new MinecraftPath(settings.Root);
-            var launcher = new MinecraftLauncher(path);
+            var launcher = MinecraftDownloadFactory.Create(path, settings);
             launcher.ByteProgressChanged += (sender, e) =>
                 bytes?.Report(new DownloadBytes(e.ProgressedBytes, e.TotalBytes));
             launcher.FileProgressChanged += (sender, e) =>
