@@ -19,7 +19,8 @@ namespace BlockCraftLauncher.Wpf
         readonly SettingsStore store = new SettingsStore();
         readonly LauncherConfig settings;
         readonly MinecraftBackend minecraft;
-        readonly MicrosoftAccountService microsoft;
+        MicrosoftAccountService microsoft;
+        MicrosoftAccountService GetMicrosoftService() => microsoft ?? (microsoft = new MicrosoftAccountService());
         readonly ModLoaderInstaller modLoaders;
         readonly ObservableCollection<string> gameVersions = new ObservableCollection<string>();
         readonly ObservableCollection<ResourceHit> resourceResults = new ObservableCollection<ResourceHit>();
@@ -42,7 +43,6 @@ namespace BlockCraftLauncher.Wpf
             InitializeComponent();
             settings = store.Load();
             minecraft = new MinecraftBackend(settings);
-            microsoft = new MicrosoftAccountService();
             modLoaders = new ModLoaderInstaller(settings);
             activeProfile = settings.Profiles.FirstOrDefault();
             ApplyTheme(); ApplyZoom(); BuildSidebar(); Navigate("首页");
@@ -133,7 +133,9 @@ namespace BlockCraftLauncher.Wpf
         void ApplyTheme()
         {
             bool light = settings.Theme == "浅色";
-            void Set(string key, string value) { ((SolidColorBrush)Application.Current.Resources[key]).Color = (Color)ColorConverter.ConvertFromString(value); }
+            // XAML Freezable resources may be frozen after loading. Replace the brush so
+            // DynamicResource consumers update without mutating a frozen object.
+            void Set(string key, string value) { Application.Current.Resources[key] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(value)); }
             Set("WindowBrush", light ? "#EFF3F8" : "#141414");
             Set("PanelBrush", light ? "#FFFFFF" : "#202020");
             Set("PanelAltBrush", light ? "#F2F7FD" : "#292929");
@@ -186,7 +188,7 @@ namespace BlockCraftLauncher.Wpf
             var account = Col(Txt("♙  玩家账户", 19, true));
             accountText = Txt(settings.AccountMode == "offline" ? "离线：" + settings.OfflineName :
                 (settings.AccountMode == "microsoft" ?
-                    (microsoft.HasSession ? "微软正版：" + settings.AccountName : "微软正版：需要重新验证登录") : "未登录正版账号"));
+                    ((microsoft != null && microsoft.HasSession) ? "微软正版：" + settings.AccountName : "微软正版：需要重新验证登录") : "未登录正版账号"));
             account.Children.Add(accountText);
             account.Children.Add(Txt("正版 / 离线登录", 12, false, true));
             account.Children.Add(Row(Btn("离线登录", EditOfflineAccount), Btn("微软正版", async () => await LoginMicrosoftAsync()),
@@ -397,7 +399,7 @@ namespace BlockCraftLauncher.Wpf
             try
             {
                 Status("正在启动 Microsoft 正版登录，请在安全登录窗口中完成授权...");
-                string name = await microsoft.SignInAsync();
+                string name = await GetMicrosoftService().SignInAsync();
                 settings.AccountMode = "microsoft";
                 settings.AccountName = name;
                 store.Save(settings); BuildSidebar(); Navigate("首页");
@@ -410,7 +412,7 @@ namespace BlockCraftLauncher.Wpf
             try
             {
                 if (settings.AccountMode == "microsoft")
-                    await microsoft.SignOutAsync(); // WPF preview token store and browser session
+                    await GetMicrosoftService().SignOutAsync(); // WPF preview token store and browser session
                 settings.AccountMode = "signed_out"; settings.AccountName = "";
                 store.Save(settings); BuildSidebar(); Navigate("首页");
             }
@@ -425,7 +427,7 @@ namespace BlockCraftLauncher.Wpf
                 if (settings.AccountMode == "microsoft")
                 {
                     // Never substitute an offline player for an expired premium session.
-                    var session = await microsoft.GetSessionAsync();
+                    var session = await GetMicrosoftService().GetSessionAsync();
                     await minecraft.LaunchMicrosoftAsync(activeProfile, session);
                 }
                 else if (settings.AccountMode == "offline")
