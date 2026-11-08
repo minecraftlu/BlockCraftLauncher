@@ -1,4 +1,4 @@
-name: Publish NetEase Room Lab Stage 6.2 G79 mode diagnostics
+name: Publish NetEase Room Lab Stage 7 admission schema
 
 on:
   push:
@@ -45,29 +45,29 @@ jobs:
       - name: Package stable file names and SHA-256
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force "stage6-2-release" | Out-Null
-          Copy-Item "experiments/netease-room-discovery/NeteaseRoomLab/bin/Release/BlockCraft.NeteaseRoomLab.exe" "stage6-2-release/BlockCraftRoomStage6_2.exe"
-          Compress-Archive -LiteralPath "stage6-2-release/BlockCraftRoomStage6_2.exe" -DestinationPath "stage6-2-release/BlockCraftRoomStage6_2.zip" -Force
-          $files = @("BlockCraftRoomStage6_2.exe", "BlockCraftRoomStage6_2.zip")
+          New-Item -ItemType Directory -Force "stage7-release" | Out-Null
+          Copy-Item "experiments/netease-room-discovery/NeteaseRoomLab/bin/Release/BlockCraft.NeteaseRoomLab.exe" "stage7-release/BlockCraftRoomStage7.exe"
+          Compress-Archive -LiteralPath "stage7-release/BlockCraftRoomStage7.exe" -DestinationPath "stage7-release/BlockCraftRoomStage7.zip" -Force
+          $files = @("BlockCraftRoomStage7.exe", "BlockCraftRoomStage7.zip")
           $lines = foreach ($f in $files) {
-            $sum = (Get-FileHash "stage6-2-release/$f" -Algorithm SHA256).Hash.ToLowerInvariant()
+            $sum = (Get-FileHash "stage7-release/$f" -Algorithm SHA256).Hash.ToLowerInvariant()
             "$sum  $f"
           }
-          $lines | Set-Content "stage6-2-release/SHA256SUMS.txt" -Encoding ascii
-          Add-Content $env:GITHUB_STEP_SUMMARY "Release output files: BlockCraftRoomStage6_2.exe and BlockCraftRoomStage6_2.zip"
+          $lines | Set-Content "stage7-release/SHA256SUMS.txt" -Encoding ascii
+          Add-Content $env:GITHUB_STEP_SUMMARY "Release output files: BlockCraftRoomStage7.exe and BlockCraftRoomStage7.zip"
 
       - name: Publish experimental GitHub pre-release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "netease-roomlab-stage6-2-preview"
-          $notes = "Experimental C# WPF NetEase room lab. Stage 6.2 adds safe auth_mode category diagnostics (missing/x19/auto/other/g79) after an inconclusive game-login verification. Sensitive helper values and tokens are never shown or stored. No room join is implemented; do not publish credentials. UNSIGNED. Not a Minecraft client; does NOT join any NetEase room. Only run trusted programs and never share passwords or tokens."
+          $tag = "netease-roomlab-stage7-preview"
+          $notes = "Experimental C# WPF NetEase room lab. Stage 7 adds offline TanLobby admission-envelope schema validation and a reserved authorized provider interface; synthetic data only. No live room admission or game session. No credential upload. No room join is implemented; do not publish credentials. UNSIGNED. Not a Minecraft client; does NOT join any NetEase room. Only run trusted programs and never share passwords or tokens."
           gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag "stage6-2-release/BlockCraftRoomStage6_2.exe" "stage6-2-release/BlockCraftRoomStage6_2.zip" "stage6-2-release/SHA256SUMS.txt" --clobber --repo $env:GITHUB_REPOSITORY
+            gh release upload $tag "stage7-release/BlockCraftRoomStage7.exe" "stage7-release/BlockCraftRoomStage7.zip" "stage7-release/SHA256SUMS.txt" --clobber --repo $env:GITHUB_REPOSITORY
           } else {
-            gh release create $tag "stage6-2-release/BlockCraftRoomStage6_2.exe" "stage6-2-release/BlockCraftRoomStage6_2.zip" "stage6-2-release/SHA256SUMS.txt" --target $env:GITHUB_SHA --title "BlockCraft 网易房间实验室 Stage 6.2（G79登录模式诊断版）" --notes $notes --prerelease --repo $env:GITHUB_REPOSITORY
+            gh release create $tag "stage7-release/BlockCraftRoomStage7.exe" "stage7-release/BlockCraftRoomStage7.zip" "stage7-release/SHA256SUMS.txt" --target $env:GITHUB_SHA --title "BlockCraft 网易房间实验室 Stage 7（本地联机准入结构实验）" --notes $notes --prerelease --repo $env:GITHUB_REPOSITORY
           }
           if ($LASTEXITCODE -ne 0) { throw "GitHub preview publishing failed." }
           gh release view $tag --repo $env:GITHUB_REPOSITORY --json url,assets
@@ -75,7 +75,7 @@ jobs:
       - name: Preserve Actions artifact backup
         uses: actions/upload-artifact@v4
         with:
-          name: BlockCraft-RoomLab-Stage6_2-download
-          path: stage6-2-release/
+          name: BlockCraft-RoomLab-Stage7-download
+          path: stage7-release/
           if-no-files-found: error
           retention-days: 30
