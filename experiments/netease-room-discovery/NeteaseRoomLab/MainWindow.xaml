@@ -52,7 +52,7 @@
     <Border Grid.Row="1" Background="#18283A" BorderBrush="#35506F" BorderThickness="1"
             CornerRadius="8" Padding="15" Margin="0,0,0,17">
       <StackPanel>
-        <TextBlock Text="第5–8阶段 · 第二账号、真实房间预检与准入协议研究（非游戏客户端）" Foreground="#80B7FF" FontWeight="SemiBold" FontSize="14" />
+        <TextBlock Text="第5–9阶段 · 第二账号、真实 RakNet 大厅入房验证（非游戏客户端）" Foreground="#80B7FF" FontWeight="SemiBold" FontSize="14" />
         <TextBlock TextWrapping="Wrap" Foreground="#CAD6E7" Margin="0,6,0,0"
                    Text="房间发现与节点查询是只读实验。邮箱认证将由你明确选择的外部助手在本机独立进行；BlockCraft 不读取、上传或打印密码和 Cookie。第三方助手有账号安全与平台条款风险，当前仍无法加入真实世界。" />
       </StackPanel>
@@ -135,6 +135,16 @@
                   Style="{StaticResource PrimaryButton}" Click="LivePreflight_Click"
                   Content="第八阶段 · 用第二账号预检真实房间连接参数（不入房）" />
         </StackPanel>
+        <StackPanel Orientation="Horizontal" Margin="0,11,0,0">
+          <Button x:Name="RealJoinButton" IsEnabled="False"
+                  Style="{StaticResource PrimaryButton}" Click="RealJoin_Click"
+                  Content="第九阶段 · 真实 RakNet 大厅登录并申请入房（一次）" />
+        </StackPanel>
+        <TextBlock TextWrapping="Wrap" Foreground="#D5B682" Margin="0,5,0,0"
+                   Text="此按钮会向网易服务器发送真实登录与入房请求。只对自己创建或已获得房主许可的房间使用；探针退出时会离开房间，尚不能加载游戏世界。" />
+        <TextBlock x:Name="RealJoinStatusText" Foreground="#BFD5F4" TextWrapping="Wrap"
+                   Margin="0,8,0,0"
+                   Text="JOIN_PROBE_NOT_RUN：还没有进行真实大厅登录或入房验证。" />
         <TextBlock x:Name="LivePreflightStatusText" Foreground="#BFD5F4"
                    TextWrapping="Wrap" Margin="0,8,0,0"
                    Text="LIVE_PREFLIGHT_NOT_RUN：尚未用第二账号查询当前真实房间及构造临时连接材料。" />
