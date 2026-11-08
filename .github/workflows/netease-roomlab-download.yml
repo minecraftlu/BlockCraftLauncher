@@ -68,7 +68,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Verify single WPF EXE embeds RakNet probe
-        shell: pwsh
+        shell: powershell
         run: |
           $path = (Resolve-Path "experiments/netease-room-discovery/NeteaseRoomLab/bin/Release/BlockCraft.NeteaseRoomLab.exe").Path
           $assembly = [System.Reflection.Assembly]::LoadFile($path)
