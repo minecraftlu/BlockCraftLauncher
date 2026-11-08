@@ -17,6 +17,7 @@ namespace BlockCraft.NeteaseRoomLab
         private string lastRoomReport = "";
         private string selectedAuthHelper = "";
         private bool authHelperRunning;
+        private bool g79CheckRunning;
 
         public MainWindow()
         {
@@ -106,19 +107,25 @@ namespace BlockCraft.NeteaseRoomLab
         private void UpdateAuthButtons()
         {
             if (EmailAuthButton == null || AuthConsentBox == null) return;
-            EmailAuthButton.IsEnabled = !authHelperRunning
+            EmailAuthButton.IsEnabled = !authHelperRunning && !g79CheckRunning
                 && AuthConsentBox.IsChecked == true
                 && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
                 && File.Exists(selectedAuthHelper);
-            if (DeleteAuthButton != null) DeleteAuthButton.IsEnabled = !authHelperRunning;
-            if (AuthDebugButton != null) AuthDebugButton.IsEnabled = !authHelperRunning
+            if (DeleteAuthButton != null) DeleteAuthButton.IsEnabled = !authHelperRunning && !g79CheckRunning;
+            if (G79VerifyButton != null)
+                G79VerifyButton.IsEnabled = !authHelperRunning && !g79CheckRunning
+                    && AuthConsentBox.IsChecked == true
+                    && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
+                    && File.Exists(selectedAuthHelper)
+                    && GuestEmailAuth.CredentialFileExists();
+            if (AuthDebugButton != null) AuthDebugButton.IsEnabled = !authHelperRunning && !g79CheckRunning
                 && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
                 && File.Exists(selectedAuthHelper);
         }
 
         private void ChooseAuthHelper_Click(object sender, RoutedEventArgs e)
         {
-            if (authHelperRunning) return;
+            if (authHelperRunning || g79CheckRunning) return;
             var dialog = new Microsoft.Win32.OpenFileDialog
             {
                 Title = "手动选择你已审查且信任的 Opentransfer connect.exe",
@@ -154,7 +161,7 @@ namespace BlockCraft.NeteaseRoomLab
 
         private void CopyAuthDebug_Click(object sender, RoutedEventArgs e)
         {
-            if (authHelperRunning || !GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
+            if (authHelperRunning || g79CheckRunning || !GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
                 || !File.Exists(selectedAuthHelper))
             {
                 AuthStatusText.Text = "AUTH_DIAGNOSTIC_UNAVAILABLE：请先手动选择 connect.exe。";
@@ -180,7 +187,7 @@ namespace BlockCraft.NeteaseRoomLab
 
         private async void EmailAuth_Click(object sender, RoutedEventArgs e)
         {
-            if (authHelperRunning || AuthConsentBox.IsChecked != true ||
+            if (authHelperRunning || g79CheckRunning || AuthConsentBox.IsChecked != true ||
                 !GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper) ||
                 !File.Exists(selectedAuthHelper)) return;
 
@@ -233,9 +240,57 @@ namespace BlockCraft.NeteaseRoomLab
             }
         }
 
+        private async void G79Verify_Click(object sender, RoutedEventArgs e)
+        {
+            if (g79CheckRunning || authHelperRunning ||
+                AuthConsentBox.IsChecked != true ||
+                !GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper) ||
+                !File.Exists(selectedAuthHelper) ||
+                !GuestEmailAuth.CredentialFileExists())
+            {
+                AuthStatusText.Text = "G79_CHECK_BLOCKED：请先完成第二邮箱账号登录并选择认证组件。";
+                return;
+            }
+
+            if (MessageBox.Show(
+                "将使用本机已保存的第二账号 Cookie，调用你选定的第三方 connect.exe "
+                + "向网易服务发起一次 g79 移动端游戏登录验证。"
+                + Environment.NewLine
+                + Environment.NewLine
+                + "该组件可能返回敏感的游戏 token；BlockCraft 只在进程内临时读取并判断"
+                + "状态，不会打印、保存到日志、复制或上传它。"
+                + Environment.NewLine
+                + "这一步不会向你的手机房间发送入房请求，也不保证网易许可第三方客户端。"
+                + Environment.NewLine
+                + Environment.NewLine
+                + "仅在理解账号风险且为本人账号时继续。",
+                "确认执行真实 g79 游戏授权验证",
+                MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                return;
+
+            g79CheckRunning = true;
+            UpdateAuthButtons();
+            AuthStatusText.Text = "G79_CHECK_RUNNING：正在本地通过第三方组件验证 g79 游戏会话。"
+                + " 最多等待 90 秒。账号与 token 不会显示在界面。";
+            try
+            {
+                AuthStatusText.Text = await GuestG79Verifier.VerifyAsync(selectedAuthHelper);
+            }
+            catch (Exception)
+            {
+                AuthStatusText.Text = "G79_CHECK_FAILED：本地授权检查遇到异常，"
+                    + "未收集任何游戏 token 或认证详细日志。";
+            }
+            finally
+            {
+                g79CheckRunning = false;
+                UpdateAuthButtons();
+            }
+        }
+
         private void DeleteAuth_Click(object sender, RoutedEventArgs e)
         {
-            if (authHelperRunning) return;
+            if (authHelperRunning || g79CheckRunning) return;
             if (MessageBox.Show(
                 "仅删除 BlockCraft 实验目录中的邮箱 Cookie 输出文件；"
                 + "第三方助手保存的设备绑定信息不会被清除。是否继续？",
