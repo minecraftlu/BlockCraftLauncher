@@ -73,7 +73,8 @@ namespace BlockCraft.NeteaseRoomLab
             { "WEBRTC_SCTP_INIT_ACK_NOT_RECEIVED", "SCTP INIT 重传耗尽，未收到有效 INIT ACK。确认手机房主仍在游戏中；可能存在对端 WebRTC/SCTP 协议不兼容。" },
             { "WEBRTC_SCTP_COOKIE_ACK_NOT_RECEIVED", "SCTP COOKIE ECHO 重传耗尽，没有完成 COOKIE ACK 阶段；优先排查网易客户端 SCTP 兼容及远端主动关闭。" },
             { "WEBRTC_SCTP_ASSOCIATION_CLOSED", "SCTP 关联建立前连接被关闭；可能是房主主动断开、DTLS 关闭或协议不兼容，不代表密码错误。" },
-            { "WEBRTC_SCTP_HANDSHAKE_TIMEOUT", "SCTP 数据传输阶段超时。" },
+            { "WEBRTC_SCTP_HANDSHAKE_TIMEOUT", "SCTP 数据传输阶段超时（旧版诊断状态）。" },
+            { "WEBRTC_SCTP_PROBE_DEADLINE", "外部 WebRTC 测试时限已到，SCTP 仍未完成；这不等于手机未发送 INIT ACK 或 COOKIE ACK。" },
             { "WEBRTC_DATA_CHANNEL_FAILED", "SCTP 阶段已推进，但可靠/不可靠数据通道创建失败。" },
             { "WEBRTC_REMOTE_REJECTED", "WebRTC 信令收到了远端拒绝或错误通知。" },
             { "WEBRTC_SIGNALING_INTERRUPTED", "WebRTC 协商期间信令连接中断。" },
@@ -182,6 +183,7 @@ namespace BlockCraft.NeteaseRoomLab
                     || status == "WEBRTC_SCTP_COOKIE_ACK_NOT_RECEIVED"
                     || status == "WEBRTC_SCTP_ASSOCIATION_CLOSED"
                     || status == "WEBRTC_SCTP_HANDSHAKE_TIMEOUT"
+                    || status == "WEBRTC_SCTP_PROBE_DEADLINE"
                     || status == "WEBRTC_DATA_CHANNEL_FAILED"
                     || status == "WEBRTC_REMOTE_REJECTED"
                     || status == "WEBRTC_SIGNALING_INTERRUPTED"
