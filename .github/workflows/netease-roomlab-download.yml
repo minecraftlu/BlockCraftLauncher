@@ -1,4 +1,4 @@
-name: Publish NetEase Room Lab Stage 10.5 stable transport and cancellation
+name: Publish NetEase Room Lab Stage 11.1 passive dual-channel observations
 
 on:
   push:
@@ -67,7 +67,7 @@ jobs:
           & "experiments/netease-room-discovery/NeteaseRoomLab.Tests/bin/Release/BlockCraft.NeteaseRoomLab.Tests.exe"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Cross-language Stage10.5 IPC integration on compiled EXEs (offline)
+      - name: Cross-language Stage11.1 IPC integration on compiled EXEs (offline)
         shell: pwsh
         run: |
           & "experiments/netease-room-discovery/NeteaseRoomLab.Tests/bin/Release/BlockCraft.NeteaseRoomLab.Tests.exe" --probe-ipc-exe "experiments/netease-room-discovery/GuestTransportLab/dist/BlockCraft.JoinProbe.exe"
@@ -94,29 +94,29 @@ jobs:
       - name: Package stable file names and SHA-256
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force "stage10-5-release" | Out-Null
-          Copy-Item "experiments/netease-room-discovery/NeteaseRoomLab/bin/Release/BlockCraft.NeteaseRoomLab.exe" "stage10-5-release/BlockCraftRoomStage10_5.exe"
-          Compress-Archive -LiteralPath "stage10-5-release/BlockCraftRoomStage10_5.exe" -DestinationPath "stage10-5-release/BlockCraftRoomStage10_5.zip" -Force
-          $files = @("BlockCraftRoomStage10_5.exe", "BlockCraftRoomStage10_5.zip")
+          New-Item -ItemType Directory -Force "stage11-1-release" | Out-Null
+          Copy-Item "experiments/netease-room-discovery/NeteaseRoomLab/bin/Release/BlockCraft.NeteaseRoomLab.exe" "stage11-1-release/BlockCraftRoomStage11_1.exe"
+          Compress-Archive -LiteralPath "stage11-1-release/BlockCraftRoomStage11_1.exe" -DestinationPath "stage11-1-release/BlockCraftRoomStage11_1.zip" -Force
+          $files = @("BlockCraftRoomStage11_1.exe", "BlockCraftRoomStage11_1.zip")
           $lines = foreach ($f in $files) {
-            $sum = (Get-FileHash "stage10-5-release/$f" -Algorithm SHA256).Hash.ToLowerInvariant()
+            $sum = (Get-FileHash "stage11-1-release/$f" -Algorithm SHA256).Hash.ToLowerInvariant()
             "$sum  $f"
           }
-          $lines | Set-Content "stage10-5-release/SHA256SUMS.txt" -Encoding ascii
-          Add-Content $env:GITHUB_STEP_SUMMARY "Release output files: BlockCraftRoomStage10_5.exe and BlockCraftRoomStage10_5.zip"
+          $lines | Set-Content "stage11-1-release/SHA256SUMS.txt" -Encoding ascii
+          Add-Content $env:GITHUB_STEP_SUMMARY "Release output files: BlockCraftRoomStage11_1.exe and BlockCraftRoomStage11_1.zip"
 
       - name: Publish experimental GitHub pre-release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "netease-roomlab-stage10-5-preview"
-          $notes = "Experimental C# WPF NetEase room lab. Stage 9 embeds a Windows Go RakNet lobby guest-side probe inside the single C# WPF .NET Framework 4.8 EXE. Only on explicit user confirmation and permission from the room host, it attempts one real lobby login and sends an EnterRoom request only after server accepts login. It reports genuine TanLoginResponse / TanEnterRoomResponse statuses and optional host NetherNet readiness. Stage9.1 fixes JOIN_PROBE_OUTPUT_INVALID: UTF-8 Windows child encoding, versioned ASCII-only one-line Go-to-WPF IPC frame, strict state verification and real compiled EXE cross-language offline CI test. Stage10 adds explicitly opt-in real NetherNet signaling WebSocket and Pion ICE/DTLS/SCTP session negotiation after real host-ready notification. Stage10.1 diagnoses host answer and ICE candidate timeouts, ICE connect, DTLS, SCTP and data channel failures from fixed stage labels only; no private candidate IPs, SDP, ICE passwords, tokens or raw errors are recorded. Stage10.2 separates typed SCTP INIT ACK retransmission exhaustion, COOKIE ACK retransmission exhaustion, premature association close, and SCTP timeouts; no unverified protocol parameters modified. Stage10.3 corrects previous Pion SCTP error-type mismatch: the NetEase fork uses core/sctp, not github.com/pion/sctp. It caps forked SCTP retry backoff at 3 seconds (8 retry limit unchanged), extends bounded signaling/ICE/DTLS/SCTP test to 70s with 105s overall, and labels outer probe expiration separately from actual SCTP handshake failure. Stage10.4 repairs the pinned NetherNet fork's SCTP CRC32 error: it mistakenly used IEEE polynomial and big-endian checksum whereas RFC4960 requires CRC32c Castagnoli and little-endian wire representation. The Windows build applies a locked build-only Go source overlay and proves the actual SCTP INIT bytes fail the test unpatched and pass patched; does not alter account authorization or attempt to bypass protections. Stage10.4 fixed WebRTC SCTP CRC32c was confirmed by the user's Windows phone-room test as WEBRTC_TRANSPORT_CONNECTED_GAME_NOT_JOINED. Stage10.5 preserves this known-good transport, adds a passive 8s stability observation window (not Minecraft world join), stdin-EOF cooperative cancellation, WPF explicit Stop button and on-window-close cancellation, bounded 4s shutdown then kill fallback, fixed status invariants and offline Go-to-C# cancel IPC tests. No credentials or ICE data logged. Real phone-world success is not claimed. It never sends Minecraft game packets and never claims world join. No Minecraft client, no game world, no login bypass. No credentials or tokens printed or uploaded. UNSIGNED. Experimental third-party protocol with account and platform terms risk."
+          $tag = "netease-roomlab-stage11-1-preview"
+          $notes = "Experimental C# WPF NetEase room lab. Stage 9 embeds a Windows Go RakNet lobby guest-side probe inside the single C# WPF .NET Framework 4.8 EXE. Only on explicit user confirmation and permission from the room host, it attempts one real lobby login and sends an EnterRoom request only after server accepts login. It reports genuine TanLoginResponse / TanEnterRoomResponse statuses and optional host NetherNet readiness. Stage9.1 fixes JOIN_PROBE_OUTPUT_INVALID: UTF-8 Windows child encoding, versioned ASCII-only one-line Go-to-WPF IPC frame, strict state verification and real compiled EXE cross-language offline CI test. Stage10 adds explicitly opt-in real NetherNet signaling WebSocket and Pion ICE/DTLS/SCTP session negotiation after real host-ready notification. Stage10.1 diagnoses host answer and ICE candidate timeouts, ICE connect, DTLS, SCTP and data channel failures from fixed stage labels only; no private candidate IPs, SDP, ICE passwords, tokens or raw errors are recorded. Stage10.2 separates typed SCTP INIT ACK retransmission exhaustion, COOKIE ACK retransmission exhaustion, premature association close, and SCTP timeouts; no unverified protocol parameters modified. Stage10.3 corrects previous Pion SCTP error-type mismatch: the NetEase fork uses core/sctp, not github.com/pion/sctp. It caps forked SCTP retry backoff at 3 seconds (8 retry limit unchanged), extends bounded signaling/ICE/DTLS/SCTP test to 70s with 105s overall, and labels outer probe expiration separately from actual SCTP handshake failure. Stage10.4 repairs the pinned NetherNet fork's SCTP CRC32 error: it mistakenly used IEEE polynomial and big-endian checksum whereas RFC4960 requires CRC32c Castagnoli and little-endian wire representation. The Windows build applies a locked build-only Go source overlay and proves the actual SCTP INIT bytes fail the test unpatched and pass patched; does not alter account authorization or attempt to bypass protections. Stage10.4 fixed WebRTC SCTP CRC32c was confirmed by the user's Windows phone-room test as WEBRTC_TRANSPORT_CONNECTED_GAME_NOT_JOINED. Stage10.5 preserves this known-good transport, adds a passive 8s stability observation window (not Minecraft world join), stdin-EOF cooperative cancellation, WPF explicit Stop button and on-window-close cancellation, bounded 4s shutdown then kill fallback, fixed status invariants and offline Go-to-C# cancel IPC tests. No credentials or ICE data logged. User confirmed Stage10.5 WEBRTC_TRANSPORT_STABLE_8S_GAME_NOT_JOINED on Windows. Stage11.1 adds optional passive 30s/60s post-WebRTC dual reliable/unreliable DataChannel OPEN checks and bounded received-message count and byte-length metrics, using an isolated local fork read-only observer; never logs/transmits/decodes gameplay content or declares Minecraft world joined. Only Stage10.4/10.5 transport success was tested on a real phone; new Stage11.1 observation is CI offline-tested and requires user verification. It never sends Minecraft game packets and never claims world join. No Minecraft client, no game world, no login bypass. No credentials or tokens printed or uploaded. UNSIGNED. Experimental third-party protocol with account and platform terms risk."
           gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag "stage10-5-release/BlockCraftRoomStage10_5.exe" "stage10-5-release/BlockCraftRoomStage10_5.zip" "stage10-5-release/SHA256SUMS.txt" --clobber --repo $env:GITHUB_REPOSITORY
+            gh release upload $tag "stage11-1-release/BlockCraftRoomStage11_1.exe" "stage11-1-release/BlockCraftRoomStage11_1.zip" "stage11-1-release/SHA256SUMS.txt" --clobber --repo $env:GITHUB_REPOSITORY
           } else {
-            gh release create $tag "stage10-5-release/BlockCraftRoomStage10_5.exe" "stage10-5-release/BlockCraftRoomStage10_5.zip" "stage10-5-release/SHA256SUMS.txt" --target $env:GITHUB_SHA --title "BlockCraft 网易房间实验室 Stage 10.5（WebRTC 稳定性与安全取消）" --notes $notes --prerelease --repo $env:GITHUB_REPOSITORY
+            gh release create $tag "stage11-1-release/BlockCraftRoomStage11_1.exe" "stage11-1-release/BlockCraftRoomStage11_1.zip" "stage11-1-release/SHA256SUMS.txt" --target $env:GITHUB_SHA --title "BlockCraft 网易房间实验室 Stage 11.1（数据通道只读诊断与 30/60 秒观察）" --notes $notes --prerelease --repo $env:GITHUB_REPOSITORY
           }
           if ($LASTEXITCODE -ne 0) { throw "GitHub preview publishing failed." }
           gh release view $tag --repo $env:GITHUB_REPOSITORY --json url,assets
@@ -124,7 +124,7 @@ jobs:
       - name: Preserve Actions artifact backup
         uses: actions/upload-artifact@v4
         with:
-          name: BlockCraft-RoomLab-Stage10_5-download
-          path: stage10-5-release/
+          name: BlockCraft-RoomLab-Stage11_1-download
+          path: stage11-1-release/
           if-no-files-found: error
           retention-days: 30
