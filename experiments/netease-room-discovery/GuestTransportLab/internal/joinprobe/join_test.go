@@ -2,6 +2,7 @@ package joinprobe
 
 import (
     "bytes"
+    "crypto/aes"
     "encoding/json"
     "strings"
     "testing"
@@ -55,7 +56,7 @@ func TestReadRoomAndServerWithoutCredentials(t *testing.T) {
     nodeJSON:=[]byte(`[{"id":9366,"ip":"42.186.165.240","ports":[19132,19133],"SignalWebPort":8900}]`)
     node,err:=parseServerJSON(nodeJSON,9366)
     if err!=nil {t.Fatal(err)}
-    if node.host!="42.186.165.240" || node.port!=19132 {t.Fatal("bad public node port")}
+    if node.host!="42.186.165.240" || node.port!=19132 || node.signalingPort!=8900 {t.Fatal("bad public node or signaling port")}
     if _,err:=parseServerJSON(nodeJSON,99);err==nil {t.Fatal("wrong server accepted")}
 }
 
@@ -72,6 +73,40 @@ func TestLegacyWireMaterialAndDisposal(t *testing.T) {
         for _,value:=range field {if value!=0 {t.Fatal("key material not cleared")}}
     }
     if _,err:=derive([]byte("not16"));err==nil {t.Fatal("bad token length accepted")}
+}
+
+func TestSignalingTicketLegacyCipherAndZeroization(t *testing.T) {
+    for _,size := range []int{16,24,32} {
+        token:=[]byte(strings.Repeat("K",size))
+        seed,ticket,err:=deriveSignalingCredential(token)
+        if err!=nil || len(seed)!=16 || len(ticket)!=32 {
+            t.Fatal("cannot derive signaling ticket from valid AES session key")
+        }
+        expected:=make([]byte,32)
+        copy(expected,seed)
+        for i:=16;i<32;i++ { expected[i]=16 }
+        block,err:=aes.NewCipher(token)
+        if err!=nil {t.Fatal("invalid AES key")}
+        for offset:=0;offset<32;offset+=16 {
+            block.Decrypt(expected[offset:offset+16],ticket[offset:offset+16])
+        }
+        for i:=0;i<16;i++ {if expected[i]!=seed[i] {t.Fatal("wrong signaling ticket nonce")}}
+        for i:=16;i<32;i++ {if expected[i]!=16 {t.Fatal("wrong PKCS7 padding")}}
+        clear(seed);clear(ticket)
+        for _,v:=range ticket {if v!=0 {t.Fatal("signaling secret not cleared")}}
+    }
+    if _,_,err:=deriveSignalingCredential([]byte("short"));err==nil {
+        t.Fatal("invalid ticket AES key length accepted")
+    }
+}
+
+func TestRoomNodeWithoutSignalingPortDoesNotInventOne(t *testing.T) {
+    data:=[]byte(`[{"id":9370,"ip":"42.186.165.240","ports":[19132]}]`)
+    node,err:=parseServerJSON(data,9370)
+    if err!=nil || node.signalingPort!=0 {t.Fatal("missing signaling port invented")}
+    data=[]byte(`[{"id":9370,"ip":"42.186.165.240","ports":[19132],"SignalWebPort":8900}]`)
+    node,err=parseServerJSON(data,9370)
+    if err!=nil || node.signalingPort!=8900 {t.Fatal("signal node mapping failed")}
 }
 
 func TestStatusNeverClaimsMinecraftWorld(t *testing.T) {
