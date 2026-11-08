@@ -35,6 +35,7 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 TestLiveRoomPreflightContracts();
                 TestRealJoinProbeResultRedaction();
                 TestMachineTransportParsing();
+                TestStage12OfflineResultContract();
                 Console.WriteLine("Room/node parser and local email-helper safety tests passed. No network requests or credentials used.");
                 return 0;
             }
@@ -43,6 +44,29 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 Console.Error.WriteLine(error.Message);
                 return 1;
             }
+        }
+
+        private static void TestStage12OfflineResultContract()
+        {
+            var expected = Stage12OfflineBridge.ClassifyResult(0,
+                "LOCAL_BRIDGE_IPC_OK_GAME_NOT_JOINED\r\n");
+            if (!expected.Contains("STAGE12_OFFLINE_BRIDGE_OK_GAME_NOT_JOINED")
+                || !expected.Contains("未连接网易服务器")
+                || expected.Contains("GAME_JOINED"))
+                throw new InvalidOperationException("Stage 12 offline result incorrectly claimed gameplay.");
+
+            string sensitive = "LOCAL_BRIDGE_IPC_OK_GAME_NOT_JOINED\n"
+                + "PRIVATE_TOKEN_SHOULD_NOT_LEAK";
+            string failed = Stage12OfflineBridge.ClassifyResult(0, sensitive);
+            if (!failed.Contains("FAILED_GAME_NOT_JOINED")
+                || failed.Contains("PRIVATE_TOKEN"))
+                throw new InvalidOperationException("Stage12 child output not strictly validated.");
+
+            if (!Stage12OfflineBridge.ClassifyResult(1,
+                    "LOCAL_BRIDGE_IPC_OK_GAME_NOT_JOINED")
+                    .Contains("FAILED_GAME_NOT_JOINED"))
+                throw new InvalidOperationException("Nonzero child exit incorrectly marked OK.");
+            Console.WriteLine("PASS: Stage12 offline-only IPC output verification and redaction");
         }
 
         private static void TestEmailAuthLaunchContract()
