@@ -1074,8 +1074,36 @@ namespace BlockCraftLauncher.Wpf
                 Status("准备启动 " + activeProfile.Name);
                 if (settings.AccountMode == "microsoft")
                 {
-                    // Never substitute an offline player for an expired premium session.
-                    var session = await GetMicrosoftService().GetSessionAsync();
+                    // Never silently use an offline identity for a Microsoft
+                    // premium account, or expose OAuth provider exceptions.
+                    CmlLib.Core.Auth.MSession session;
+                    try
+                    {
+                        session = await GetMicrosoftService().GetSessionAsync();
+                    }
+                    catch (MicrosoftReauthenticationRequiredException)
+                    {
+                        Status("微软正版登录凭据已失效，需要重新授权。");
+                        var answer = MessageBox.Show(this,
+                            "当前 Microsoft 账号没有可用于静默续期的登录令牌。\n\n" +
+                            "这通常发生在首次切换到 WPF 启动器、缓存缺失或登录过期后。\n" +
+                            "Minecraft 游戏和存档不受影响。\n\n" +
+                            "是否现在打开微软正版登录窗口？完成授权后将继续启动游戏。",
+                            "需要重新登录微软账号",
+                            MessageBoxButton.YesNo, MessageBoxImage.Information);
+                        if (answer != MessageBoxResult.Yes)
+                        {
+                            Status("已取消启动。可以在玩家账户区域重新登录微软正版。");
+                            return;
+                        }
+                        await LoginMicrosoftAsync();
+                        if (!GetMicrosoftService().HasSession)
+                        {
+                            Status("微软正版重新登录未完成，游戏尚未启动。");
+                            return;
+                        }
+                        session = await GetMicrosoftService().GetSessionAsync();
+                    }
                     await minecraft.LaunchMicrosoftAsync(activeProfile, session, serverAddress);
                 }
                 else if (settings.AccountMode == "offline")
