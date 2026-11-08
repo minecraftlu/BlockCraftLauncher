@@ -55,6 +55,44 @@ foreach ($change in $changes) {
 [System.IO.File]::WriteAllText($patchedFile, $patched,
     [System.Text.UTF8Encoding]::new($false))
 
+# Stage11.1 adds read-only channel state diagnostics to the TEMPORARY fork,
+# not to the pinned upstream repository or any installed Minecraft client.
+# It does not send application payloads or log any inbound bytes.
+$observerPath = [System.IO.Path]::Combine($copyDir, "core", "nethernet",
+    "blockcraft_channel_observer.go")
+if (Test-Path -LiteralPath $observerPath) {
+    throw "Unexpected read-only channel observer already exists in locked module."
+}
+$observerCode = @'
+package nethernet
+
+import "github.com/Happy2018new/nemc-tan-lobby-solver/core/webrtc"
+
+// BlockCraftChannelStates returns only whether each existing local channel
+// reports OPEN. It exposes no candidate addresses or SDP credentials.
+func (c *Conn) BlockCraftChannelStates() (reliableOpen, unreliableOpen bool) {
+    if c == nil || c.reliable == nil || c.unreliable == nil {
+        return false, false
+    }
+    return c.reliable.ReadyState() == webrtc.DataChannelStateOpen,
+        c.unreliable.ReadyState() == webrtc.DataChannelStateOpen
+}
+
+// BlockCraftObserveUnreliableLengths installs one read-only callback on the
+// channel unused by Conn.ReadPacket. Never retain, log, copy or forward bytes.
+// Only called by a single isolated, explicitly approved guest probe.
+func (c *Conn) BlockCraftObserveUnreliableLengths(onLength func(int)) {
+    if c == nil || c.unreliable == nil || onLength == nil {
+        return
+    }
+    c.unreliable.OnMessage(func(m webrtc.DataChannelMessage) {
+        onLength(len(m.Data))
+    })
+}
+'@
+[System.IO.File]::WriteAllText($observerPath, $observerCode,
+    [System.Text.UTF8Encoding]::new($false))
+
 # Source project go.mod is changed only within GitHub Actions' disposable
 # checkout. Relative path resolves from GuestTransportLab/go.mod directory.
 go mod edit -replace="github.com/Happy2018new/nemc-tan-lobby-solver=./.blockcraft/nethernet-fork"
