@@ -1,4 +1,4 @@
-name: BlockCraft Guest Transport - isolated Windows test
+name: BlockCraft Guest Transport and Stage9 lobby join probe
 
 on:
   push:
@@ -45,6 +45,9 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force "dist" | Out-Null
           go build -trimpath -ldflags="-s -w" -o "dist/BlockCraft.GuestTransportLab.exe" ./cmd/guestlab
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -ldflags="-s -w" -o "dist/BlockCraft.JoinProbe.exe" ./cmd/joinprobe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Smoke test unsigned EXE (loopback only)
         shell: pwsh
@@ -53,6 +56,20 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & "dist/BlockCraft.GuestTransportLab.exe" -protocol-selftest
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Stage9 join probe safe no-credentials smoke test
+        shell: pwsh
+        run: |
+          & "dist/BlockCraft.JoinProbe.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload Stage9 lobby join probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlockCraft-Stage9-JoinProbe-win
+          path: experiments/netease-room-discovery/GuestTransportLab/dist/BlockCraft.JoinProbe.exe
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload Windows transport lab
         uses: actions/upload-artifact@v4
