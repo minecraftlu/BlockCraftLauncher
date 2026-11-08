@@ -14,6 +14,7 @@ import (
     "errors"
     "fmt"
     "io"
+    "log/slog"
     "net"
     "net/http"
     "os"
@@ -23,9 +24,11 @@ import (
     "strings"
     "time"
 
+    "github.com/Happy2018new/nemc-tan-lobby-solver/core/nethernet"
     "github.com/Happy2018new/nemc-tan-lobby-solver/core/raknet"
     protoencoding "github.com/Happy2018new/nemc-tan-lobby-solver/protocol/encoding"
     "github.com/Happy2018new/nemc-tan-lobby-solver/protocol/packet"
+    "github.com/Happy2018new/nemc-tan-lobby-solver/protocol/service/signaling"
 )
 
 const (
@@ -41,6 +44,8 @@ type Request struct {
     RoomID string
     // The room is owned or the host has explicitly invited the tester.
     AuthorizedByHost bool
+    // AttemptWebRTC requires real lobby admission and a host-ready event.
+    AttemptWebRTC bool
 }
 
 type Report struct {
@@ -49,6 +54,8 @@ type Report struct {
     LoginAccepted bool `json:"login_accepted"`
     RoomAdmissionAccepted bool `json:"room_admission_accepted"`
     HostReadySeen bool `json:"host_ready_seen"`
+    SignalingAuthenticated bool `json:"signaling_authenticated"`
+    WebRTCTransportConnected bool `json:"webrtc_transport_connected"`
     MinecraftWorldJoined bool `json:"minecraft_world_joined"`
     ModeConfirmed bool `json:"g79_mode_confirmed"`
     Detail string `json:"detail"`
@@ -224,6 +231,7 @@ type room struct {
 type server struct {
     host string
     port uint16
+    signalingPort uint16
 }
 
 func parseRoomJSON(data []byte, target string) (room, error) {
@@ -286,7 +294,12 @@ func parseServerJSON(data []byte, srv uint64) (server, error) {
         if !ok || len(ports) == 0 { return server{}, errors.New("missing RakNet port") }
         port, ok := asUint(ports[0])
         if !ok || port < 1 || port > 65535 { return server{}, errors.New("invalid RakNet port") }
-        return server{host:host,port:uint16(port)},nil
+        var signalPort uint64
+        if signal, exists := row["SignalWebPort"]; exists {
+            value,valid := asUint(signal)
+            if valid && value >= 1 && value <= 65535 { signalPort = value }
+        }
+        return server{host:host,port:uint16(port),signalingPort:uint16(signalPort)},nil
     }
     return server{}, errors.New("no matching lobby server")
 }
@@ -357,7 +370,7 @@ func receivePacket(ctx context.Context, conn *raknet.Conn, dec *packet.Decoder) 
     }
 }
 
-func probeLobby(ctx context.Context, loginSession login, roomInfo room, node server) Report {
+func probeLobby(ctx context.Context, loginSession login, roomInfo room, node server, attemptWebRTC bool) Report {
     address:=net.JoinHostPort(node.host,strconv.Itoa(int(node.port)))
     dialCtx,cancel:=context.WithTimeout(ctx,12*time.Second)
     defer cancel()
@@ -432,9 +445,97 @@ func probeLobby(ctx context.Context, loginSession login, roomInfo room, node ser
     if ready,ok:=resp.(*packet.TanNotifyServerReady);ok && ready.NetherNetID!="" {
         report.HostReadySeen=true
         report.Status="HOST_NETHERNET_READY_GAME_NOT_CONNECTED"
-        report.Detail="网易大厅允许入房，且收到了房主 NetherNet 就绪通知。未执行 WebRTC 游戏协商，也没有进入世界。"
+        report.Detail="网易大厅允许入房，且收到了房主 NetherNet 就绪通知。尚未连接游戏。"
+        if !attemptWebRTC { return report }
+        hostNetherID, parseErr := strconv.ParseUint(ready.NetherNetID,10,64)
+        if parseErr!=nil || hostNetherID==0 {
+            report.Status="HOST_NETHERNET_ID_INVALID"
+            report.Detail="房主连接标识格式无法用于 NetherNet 协商。"
+            return report
+        }
+        return probeWebRTC(ctx, loginSession, node, clientID, hostNetherID, report)
     }
     return report
+}
+
+// deriveSignalingCredential prepares the legacy NetherNet signaling ticket.
+// The ticket and seed remain only in memory until the WebSocket closes.
+// The cipher format is required by the existing peer protocol, not a
+// recommendation for new encryption designs.
+func deriveSignalingCredential(token []byte) (seed []byte, ticket []byte, err error) {
+    if len(token)!=16 && len(token)!=24 && len(token)!=32 {
+        return nil,nil,errors.New("unsupported signaling session key")
+    }
+    seed=make([]byte,16)
+    if _,err=cryptorand.Read(seed);err!=nil {
+        clear(seed);return nil,nil,err
+    }
+    cipher,err:=aes.NewCipher(token)
+    if err!=nil {clear(seed);return nil,nil,err}
+    padded:=make([]byte,32)
+    copy(padded,seed)
+    for i:=16;i<32;i++ {padded[i]=16}
+    ticket=make([]byte,32)
+    cipher.Encrypt(ticket[:16],padded[:16])
+    cipher.Encrypt(ticket[16:],padded[16:])
+    clear(padded)
+    return seed,ticket,nil
+}
+
+// probeWebRTC only runs after a real server TanEnterRoomResponse success and
+// TanNotifyServerReady. It uses the original local client NetherNetID, never
+// a synthetic room grant. No Minecraft gameplay packets are sent.
+func probeWebRTC(ctx context.Context, session login, node server,
+    clientNetherID uint64, hostNetherID uint64, result Report) Report {
+    if node.signalingPort==0 {
+        result.Status="SIGNALING_NODE_UNAVAILABLE"
+        result.Detail="当前公开大厅节点列表没有可靠的 WebSocket 信令端口。"
+        return result
+    }
+    seed,ticket,err:=deriveSignalingCredential(session.token)
+    if err!=nil {
+        result.Status="SIGNALING_TICKET_DERIVATION_FAILED"
+        result.Detail="当前登录会话无法生成有效信令票据。"
+        return result
+    }
+    defer clear(seed)
+    defer clear(ticket)
+
+    // Use a bounded session; the lobby RakNet connection stays active until
+    // this function returns. Do not print ticket, seed, ICE credentials,
+    // signaling URL, peer network ID or user/room identifiers.
+    signalCtx,cancel:=context.WithTimeout(ctx,45*time.Second)
+    defer cancel()
+    serverAddress:=net.JoinHostPort(node.host,strconv.Itoa(int(node.signalingPort)))
+    signalConn,err:= (signaling.Dialer{
+        RefreshTime:signaling.RefreshTimeDisbale,
+        NetherNetID:clientNetherID,
+    }).DialContext(signalCtx,serverAddress,session.uid,seed,ticket)
+    if err!=nil {
+        result.Status="SIGNALING_CONNECTION_FAILED"
+        result.Detail="真实信令 WebSocket 握手或 ICE 服务器凭据阶段未完成。"
+        return result
+    }
+    defer signalConn.Close(errors.New("BlockCraft stage10 probe complete"))
+    result.SignalingAuthenticated=true
+    result.Status="SIGNALING_AUTHENTICATED_WEBRTC_PENDING"
+    result.Detail="信令服务器提供了 ICE 凭据，正在尝试与房主协商数据连接。"
+
+    // Pion ICE/DTLS/SCTP negotiation. Suppress any library log strings that
+    // might contain candidates, SDP fingerprints or private networking data.
+    rtc,err:=(nethernet.Dialer{
+        Log:slog.New(slog.NewTextHandler(io.Discard,nil)),
+    }).DialContext(signalCtx,hostNetherID,signalConn)
+    if err!=nil {
+        result.Status="WEBRTC_NEGOTIATION_FAILED"
+        result.Detail="真实信令已认证，但房主 ICE/DTLS/SCTP 协商未完成。"
+        return result
+    }
+    defer rtc.Close()
+    result.WebRTCTransportConnected=true
+    result.Status="WEBRTC_TRANSPORT_CONNECTED_GAME_NOT_JOINED"
+    result.Detail="NetherNet 协商已完成，WebRTC 传输已建立；未发送 Minecraft 游戏握手或加载世界。"
+    return result
 }
 
 func Run(ctx context.Context, req Request) Report {
@@ -459,5 +560,5 @@ func Run(ctx context.Context, req Request) Report {
     if err!=nil{return makeReport("LOBBY_NODE_LOOKUP_FAILED","无法读取网易公开大厅节点列表。")}
     node,err:=parseServerJSON(data,roomInfo.srv)
     if err!=nil{return makeReport("LOBBY_NODE_MAPPING_FAILED","无法可靠匹配当前房间的 RakNet 大厅节点。")}
-    return probeLobby(ctx,session,roomInfo,node)
+    return probeLobby(ctx,session,roomInfo,node,req.AttemptWebRTC)
 }
