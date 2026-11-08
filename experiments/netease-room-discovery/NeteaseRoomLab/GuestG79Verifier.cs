@@ -64,6 +64,9 @@ namespace BlockCraft.NeteaseRoomLab
             // third-party helper may be private; never echo them into the UI,
             // logs, exception messages or a diagnostics report.
             bool uid = false, mode = false, platform = false, hasTokenLine = false;
+            // Keep a bounded, non-secret classification of the mode field.
+            // Never echo arbitrary values supplied by the helper.
+            string modeCategory = "missing";
             foreach (string sourceLine in stdout.Split('\n'))
             {
                 string line = sourceLine.Trim().TrimStart('\uFEFF');
@@ -77,7 +80,15 @@ namespace BlockCraft.NeteaseRoomLab
                     uid = uint.TryParse(value, out parsed) && parsed > 0;
                 }
                 else if (String.Equals(name, "auth_mode", StringComparison.OrdinalIgnoreCase))
+                {
                     mode = String.Equals(value, "g79", StringComparison.OrdinalIgnoreCase);
+                    if (mode) modeCategory = "g79";
+                    else if (String.Equals(value, "x19", StringComparison.OrdinalIgnoreCase))
+                        modeCategory = "x19";
+                    else if (String.Equals(value, "auto", StringComparison.OrdinalIgnoreCase))
+                        modeCategory = "auto";
+                    else modeCategory = "other";
+                }
                 else if (String.Equals(name, "platform", StringComparison.OrdinalIgnoreCase))
                     platform = value == "2";
                 else if (String.Equals(name, "login_token", StringComparison.OrdinalIgnoreCase))
@@ -95,9 +106,11 @@ namespace BlockCraft.NeteaseRoomLab
             return "G79_CHECK_INCONCLUSIVE: 认证助手正常退出，但以下字段未全部满足验证条件。"
                 + " 字段诊断：uid_valid=" + (uid ? "yes" : "no")
                 + ", auth_mode_g79=" + (mode ? "yes" : "no")
+                + ", mode_category=" + modeCategory
                 + ", platform_pe=" + (platform ? "yes" : "no")
                 + ", token_present=" + (hasTokenLine ? "yes" : "no")
-                + "。请只分享这些字段状态，不要分享原始 -dump-auth 输出。";
+                + "。mode_category 仅用于分类，不包含原始值。"
+                + " 请只分享这些字段状态，不要分享原始 -dump-auth 输出。";
         }
 
         public static async Task<string> VerifyAsync(string helperPath)
