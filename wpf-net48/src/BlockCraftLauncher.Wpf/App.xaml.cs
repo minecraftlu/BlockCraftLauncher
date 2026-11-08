@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Text;
 using System.Windows;
 using System.Windows.Threading;
+using BlockCraftLauncher.Wpf.Services;
 
 namespace BlockCraftLauncher.Wpf
 {
@@ -20,7 +21,9 @@ namespace BlockCraftLauncher.Wpf
                 if (args.ExceptionObject is Exception error) WriteDiagnostic(error);
             };
 
-            smokeTest = e.Args.Any(arg =>
+            bool downloadSelfTest = e.Args.Any(arg =>
+                string.Equals(arg, "--download-selftest", StringComparison.OrdinalIgnoreCase));
+            smokeTest = downloadSelfTest || e.Args.Any(arg =>
                 string.Equals(arg, "--smoke-test", StringComparison.OrdinalIgnoreCase));
             // The CI probe must never open a browser, download Minecraft,
             // touch account tokens, or display a GUI message. Both ordinary
@@ -51,6 +54,21 @@ namespace BlockCraftLauncher.Wpf
             }
 
             base.OnStartup(e);
+
+            if (downloadSelfTest)
+            {
+                try
+                {
+                    DownloadSanityChecks.Run();
+                    Shutdown(0);
+                }
+                catch (Exception ex)
+                {
+                    WriteDiagnostic(ex);
+                    Shutdown(26);
+                }
+                return;
+            }
 
             Dispatcher.BeginInvoke(new Action(() =>
             {
