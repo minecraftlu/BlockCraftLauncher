@@ -41,6 +41,11 @@ if errorlevel 1 (
   echo PACKAGING FAILED. No valid release ZIP is available.
   exit /b 1
 )
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "build\build-onefile.ps1"
+if errorlevel 1 (
+  echo ONE-FILE PACKAGING FAILED.
+  exit /b 1
+)
 echo.
 echo BUILD SUCCEEDED. Check dist\ for ZIP and SHA-256.
 exit /b 0
