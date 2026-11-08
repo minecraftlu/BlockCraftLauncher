@@ -5,8 +5,10 @@ import (
     "encoding/json"
     "flag"
     "fmt"
+    "io"
     "os"
     "path/filepath"
+    "sync/atomic"
     "time"
 
     "github.com/minecraftlu/BlockCraftLauncher/experiments/netease-room-discovery/GuestTransportLab/internal/joinprobe"
@@ -22,6 +24,9 @@ func main() {
     timeout := flag.Duration("timeout", 60*time.Second, "maximum total duration (10s-120s)")
     machine := flag.Bool("machine-json", false, "emit one versioned ASCII-safe JSON record without secrets")
     ipcSelftest := flag.Bool("ipc-selftest", false, "emit synthetic IPC report without network, account or room access")
+    cancelOnStdin := flag.Bool("cancel-on-stdin-close", false, "cancel active probe and release sockets when the WPF host closes standard input")
+    ipcCancelSelftest := flag.Bool("ipc-cancel-selftest", false, "offline only: wait for stdin-close cancellation and report without any network")
+
     flag.Parse()
 
     // The WPF client uses this deterministic local fixture to verify the
@@ -37,6 +42,18 @@ func main() {
             Detail: "模拟会话暂不可用；未使用真实账户",
             Scope: "offline_ipc_selftest",
         })
+        return
+    }
+
+    if *ipcCancelSelftest {
+        if !*machine || !*cancelOnStdin {
+            fmt.Fprintln(os.Stderr,"ipc cancel selftest requires -machine-json -cancel-on-stdin-close")
+            os.Exit(2)
+        }
+        // No credentials, no network, no room lookup. The stdin EOF is
+        // intentionally supplied by a Windows .NET Framework integration test.
+        _, _ = io.Copy(io.Discard,os.Stdin)
+        emitMachine(joinprobe.Report{Status:"LOCAL_PROBE_CANCELLED"})
         return
     }
 
@@ -57,6 +74,18 @@ func main() {
 
     ctx,cancel:=context.WithTimeout(context.Background(),*timeout)
     defer cancel()
+    var stdinClosed atomic.Bool
+    if *cancelOnStdin {
+        // The WPF owner keeps stdin open while this subprocess is alive.
+        // If the user cancels, closes the window, or the UI crashes, EOF
+        // closes all owned RakNet, signaling and WebRTC connections through
+        // the existing context-aware cleanup paths. No input is parsed.
+        go func() {
+            _, _ = io.Copy(io.Discard,os.Stdin)
+            stdinClosed.Store(true)
+            cancel()
+        }()
+    }
     report:=joinprobe.Run(ctx,joinprobe.Request{
         HelperPath:filepath.Clean(*helper),
         CookiePath:filepath.Clean(*cookie),
@@ -64,6 +93,11 @@ func main() {
         AuthorizedByHost:*authorized,
         AttemptWebRTC:*tryWebRTC,
     })
+    if stdinClosed.Load() {
+        // Explicit cancellation is a neutral local operation, not a server
+        // denial or proof of a successful room/world session.
+        report=joinprobe.Report{Status:"LOCAL_PROBE_CANCELLED"}
+    }
     if *machine {
         emitMachine(report)
         // Machine transport always returns process exit code 0 after a
@@ -98,6 +132,7 @@ func emitMachine(report joinprobe.Report) {
         HostReadySeen bool `json:"host_ready_seen"`
         SignalingAuthenticated bool `json:"signaling_authenticated"`
         WebRTCTransportConnected bool `json:"webrtc_transport_connected"`
+        TransportStable bool `json:"transport_stable"`
         MinecraftWorldJoined bool `json:"minecraft_world_joined"`
         ModeConfirmed bool `json:"g79_mode_confirmed"`
     }{
@@ -107,6 +142,7 @@ func emitMachine(report joinprobe.Report) {
         HostReadySeen: report.HostReadySeen,
         SignalingAuthenticated: report.SignalingAuthenticated,
         WebRTCTransportConnected: report.WebRTCTransportConnected,
+        TransportStable: report.TransportStable,
         MinecraftWorldJoined: false,
         ModeConfirmed: report.ModeConfirmed,
     }
