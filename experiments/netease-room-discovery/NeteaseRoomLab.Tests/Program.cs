@@ -27,6 +27,7 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 TestEmailAuthLaunchContract();
                 TestG79AuthConfigAndRedaction();
                 TestAdmissionResponseContract();
+                TestLiveRoomPreflightContracts();
                 Console.WriteLine("Room/node parser and local email-helper safety tests passed. No network requests or credentials used.");
                 return 0;
             }
@@ -207,6 +208,91 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 throw new InvalidOperationException("Invalid RakNet address accepted.");
 
             Console.WriteLine("PASS: TanLobby access envelope structure, gating and secret redaction");
+        }
+
+        private static void TestLiveRoomPreflightContracts()
+        {
+            const string response = "{\"code\":0,\"list\":[{\"rid\":280474,\"name\":\"280474\","
+                + "\"room_unique_id\":\"280474\",\"hid\":984321,\"srv\":9366,"
+                + "\"cnt\":1,\"cap\":30,\"need_password\":0}]}";
+            RoomConnectionMetadata.Room room;
+            if (!RoomConnectionMetadata.TryParseRoom(response, "280474", out room)
+                || room.OwnerID != 984321 || room.NodeID != "9366"
+                || room.IsFull || room.NeedsPassword)
+                throw new InvalidOperationException("Authenticated room metadata parse failed.");
+
+            if (RoomConnectionMetadata.TryParseRoom(response, "123456", out room)
+                || RoomConnectionMetadata.TryParseRoom(response.Replace("\"hid\":984321", "\"hid\":0"),
+                    "280474", out room)
+                || RoomConnectionMetadata.TryParseRoom("not-json", "280474", out room))
+                throw new InvalidOperationException("Invalid room metadata accepted.");
+
+            string nodeJson = "[{\"id\":9366,\"ip\":\"42.186.165.240\","
+                + "\"ports\":[19132,19133],\"SignalWebPort\":8900}]";
+            RoomConnectionMetadata.Node node;
+            if (!RoomConnectionMetadata.TryParseNode(nodeJson, "9366", out node)
+                || node.LobbyPort != 19132 || node.SignalingPort != 8900 ||
+                node.PublicHost != "42.186.165.240" ||
+                RoomConnectionMetadata.TryParseNode(nodeJson, "1000", out node))
+                throw new InvalidOperationException("Public node mapping parser failed.");
+
+            RoomSessionPreflight.LocalSession session;
+            const string validToken = "0123456789abcdef";
+            string mockOutput = "uid=12345\nlogin_token=" + validToken +
+                "\nplatform=2\nnickname=MOCK_SENSITIVE_NICK\n";
+            if (!RoomSessionPreflight.TryParseLocalSession(mockOutput, out session)
+                || session.PlayerID != 12345 || session.Token != validToken
+                || session.ModeCategory != "missing" || !session.IsPE)
+                throw new InvalidOperationException("PE mode-missing session not accepted.");
+
+            if (RoomSessionPreflight.TryParseLocalSession(
+                mockOutput + "auth_mode=x19\n", out session)
+                || RoomSessionPreflight.TryParseLocalSession(
+                    mockOutput.Replace("platform=2", "platform=1"), out session)
+                || RoomSessionPreflight.TryParseLocalSession(
+                    mockOutput.Replace(validToken, "private token with spaces"), out session))
+                throw new InvalidOperationException("Malformed or incompatible token accepted.");
+
+            var randomA = new byte[16];
+            var randomB = new byte[16];
+            for (int i = 0; i < 16; i++)
+            {
+                randomA[i] = (byte)i;
+                randomB[i] = (byte)(i + 16);
+            }
+            if (!RoomConnectionMaterial.SupportsTokenKey(validToken)
+                || RoomConnectionMaterial.SupportsTokenKey("short"))
+                throw new InvalidOperationException("Invalid AES token key length accepted.");
+
+            RoomConnectionMaterial material = RoomConnectionMaterial.Derive(
+                validToken, randomA, randomB);
+            byte[] encryptedKey = material.EncryptKeyBytes;
+            if (material.RaknetRand.Length != 16 ||
+                material.RaknetAESRand.Length != 32 ||
+                material.SignalingSeed.Length != 16 ||
+                material.SignalingTicket.Length != 32 ||
+                encryptedKey.Length != 32 ||
+                material.DecryptKeyBytes.Length != 32)
+                throw new InvalidOperationException("Access material shape mismatch.");
+
+            using (var md5 = System.Security.Cryptography.MD5.Create())
+            {
+                var expectedHash = md5.ComputeHash(
+                    System.Text.Encoding.UTF8.GetBytes(validToken));
+                for (int i = 0; i < 16; i++)
+                {
+                    if (encryptedKey[i] != expectedHash[i] ||
+                        encryptedKey[16 + i] != randomA[i] ||
+                        material.DecryptKeyBytes[i] != randomA[i] ||
+                        material.DecryptKeyBytes[16 + i] != expectedHash[i])
+                        throw new InvalidOperationException("Session material key layout mismatch.");
+                }
+            }
+            material.Dispose();
+            foreach (byte b in encryptedKey)
+                if (b != 0) throw new InvalidOperationException("Secret material not cleared.");
+
+            Console.WriteLine("PASS: live-room preflight parsers and volatile session key derivation (offline mocks)");
         }
 
         private static void ExpectNode(bool shouldFind, string testName, string json)
