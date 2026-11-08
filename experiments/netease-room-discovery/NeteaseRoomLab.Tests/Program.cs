@@ -413,6 +413,34 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                     .Contains("SENSITIVE_SIGNALING_TICKET"))
                 throw new InvalidOperationException("WebRTC acceptance bypassed server admission or leaked secrets.");
 
+            // Stage10.1: fixed classifications can be displayed only after
+            // server admission, host ready and signaling authenticated.
+            string[] classifications = {
+                "WEBRTC_ANSWER_TIMEOUT", "WEBRTC_REMOTE_CANDIDATE_TIMEOUT",
+                "WEBRTC_ICE_CONNECT_FAILED", "WEBRTC_ICE_CONNECT_TIMEOUT",
+                "WEBRTC_DTLS_HANDSHAKE_FAILED", "WEBRTC_DTLS_HANDSHAKE_TIMEOUT",
+                "WEBRTC_SCTP_HANDSHAKE_FAILED", "WEBRTC_SCTP_HANDSHAKE_TIMEOUT",
+                "WEBRTC_LOCAL_CANDIDATE_GATHER_FAILED", "WEBRTC_ANSWER_INVALID",
+                "WEBRTC_REMOTE_REJECTED", "WEBRTC_PROBE_CANCELLED"
+            };
+            const string diagnosticTemplate = "{\"status\":\"CODE\","
+                + "\"login_accepted\":true,\"room_admission_accepted\":true,"
+                + "\"host_ready_seen\":true,\"signaling_authenticated\":true,"
+                + "\"webrtc_transport_connected\":false,\"minecraft_world_joined\":false}";
+            foreach (string code in classifications)
+            {
+                string valid = JoinProbeRunner.ParseMachineOutput(prefix
+                    + diagnosticTemplate.Replace("CODE", code));
+                if (!valid.Contains(code) || valid.Contains("JOIN_PROBE_IPC_"))
+                    throw new InvalidOperationException("Stage10.1 diagnostic not allowed: " + code);
+                string invalid = JoinProbeRunner.ParseMachineOutput(prefix
+                    + diagnosticTemplate.Replace("CODE", code)
+                        .Replace("\"room_admission_accepted\":true",
+                            "\"room_admission_accepted\":false"));
+                if (!invalid.Contains("JOIN_PROBE_IPC_INCONSISTENT"))
+                    throw new InvalidOperationException("Stage10.1 diagnostic without room admission: " + code);
+            }
+            Console.WriteLine("PASS: Stage10.1 fixed signaling, answer, ICE/DTLS/SCTP failure statuses");
             Console.WriteLine("PASS: Stage10 signaling and WebRTC success/failure state validation");
 
             Console.WriteLine("PASS: versioned Stage9.1 machine IPC, strict flags and redaction");
