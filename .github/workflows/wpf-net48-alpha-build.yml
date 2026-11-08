@@ -1,0 +1,42 @@
+name: WPF net48 Alpha (Windows build)
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'wpf-net48/src/BlockCraftLauncher.Wpf/**'
+      - 'wpf-net48/BlockCraftLauncher-WPF.sln'
+      - 'wpf-net48/build/**'
+      - 'wpf-net48/tests/**'
+      - '.github/workflows/wpf-net48-alpha-build.yml'
+
+jobs:
+  build:
+    runs-on: windows-2022
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - name: Static migration checks (not a substitute for WPF build)
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          python tests/check_project.py
+          python tests/check_phase2.py
+          python tests/check_windows_packaging.py
+      - name: Restore, compile and package with Visual Studio MSBuild
+        shell: cmd
+        working-directory: wpf-net48
+        run: call build\build-windows.bat
+      - name: Check release artifact
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          if (!(Test-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe')) { throw 'EXE not produced' }
+          if (!(Test-Path 'dist/BlockCraftLauncher-v0.9.27-WPF-net48-Alpha-Windows-x64.zip')) { throw 'ZIP not produced' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BlockCraftLauncher-v0.9.27-WPF-net48-Windows-Alpha
+          path: wpf-net48/dist/BlockCraftLauncher-v0.9.27-WPF-net48-Alpha-Windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
