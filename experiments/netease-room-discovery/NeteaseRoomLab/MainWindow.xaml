@@ -52,7 +52,7 @@
     <Border Grid.Row="1" Background="#18283A" BorderBrush="#35506F" BorderThickness="1"
             CornerRadius="8" Padding="15" Margin="0,0,0,17">
       <StackPanel>
-        <TextBlock Text="第5–10.2阶段 · 大厅入房、WebRTC 及 SCTP 故障诊断（非游戏客户端）" Foreground="#80B7FF" FontWeight="SemiBold" FontSize="14" />
+        <TextBlock Text="第5–10.3阶段 · 大厅入房、WebRTC 及 SCTP 重传兼容实验（非游戏客户端）" Foreground="#80B7FF" FontWeight="SemiBold" FontSize="14" />
         <TextBlock TextWrapping="Wrap" Foreground="#CAD6E7" Margin="0,6,0,0"
                    Text="房间发现与节点查询是只读实验。邮箱认证将由你明确选择的外部助手在本机独立进行；BlockCraft 不读取、上传或打印密码和 Cookie。第三方助手有账号安全与平台条款风险，当前仍无法加入真实世界。" />
       </StackPanel>
@@ -145,7 +145,7 @@
         <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
           <Button x:Name="RealWebRTCButton" IsEnabled="False"
                   Style="{StaticResource PrimaryButton}" Click="RealWebRTC_Click"
-                  Content="第十阶段 10.2 · 连接房主并诊断 SCTP 握手（一次）" />
+                  Content="第十阶段 10.3 · 有界 SCTP 重传与手机房主连接（一次）" />
         </StackPanel>
         <TextBlock TextWrapping="Wrap" Foreground="#D5B682" Margin="0,5,0,0"
                    Text="先完成真实服务器入房，再连接信令 WebSocket 并协商 ICE/DTLS/SCTP。只测试你自己的或获许可的房间；不会发送 Minecraft 游戏包。" />
