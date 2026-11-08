@@ -6,6 +6,7 @@ import (
     "bytes"
     "context"
     "crypto/rand"
+    "encoding/binary"
     "errors"
     "flag"
     "fmt"
@@ -39,14 +40,23 @@ func runOffline(ctx context.Context, worker string) error {
     ready,err:=wire.ReadFrame(stdout)
     if err!=nil || ready.Kind!=wire.Ready || !bytes.Equal(ready.Payload,nonce){return errFixture}
 
-    // Synthetic packet only; no login, no player identity, no world.
-    batch:=[]byte{0x02,0x2a,0x2b}
-    if err:=wire.WriteFrame(stdin,wire.Frame{Kind:wire.Data,Payload:batch});err!=nil{return errFixture}
-    echoed,err:=wire.ReadFrame(stdout)
-    if err!=nil||echoed.Kind!=wire.Data||!bytes.Equal(echoed.Payload,batch){return errFixture}
-    if err:=wire.WriteFrame(stdin,wire.Frame{Kind:wire.Stop});err!=nil{return errFixture}
-    stopped,err:=wire.ReadFrame(stdout)
-    if err!=nil||stopped.Kind!=wire.Stopped{return errFixture}
+    stream:=wire.NewPacketStream(stdout,stdin)
+    // Exercise sustained message boundaries and backpressure with local
+    // synthetic batches, including a frame close to the 1 MiB maximum.
+    // This never sends game/login data to a real server.
+    for _,size:=range []int{2,3,128,1024,10_000,64*1024,wire.MaxPayload-4} {
+        data:=make([]byte,size)
+        for i:=range data { data[i]=byte(i*31+size) }
+        data[0]=0x2a // synthetic game packet ID
+        var length [binary.MaxVarintLen64]byte
+        n:=binary.PutUvarint(length[:],uint64(len(data)))
+        batch:=append(append([]byte(nil),length[:n]...),data...)
+        if err:=stream.SendPacket(batch);err!=nil{return errFixture}
+        echoed,err:=stream.ReadPacket()
+        if err!=nil||!bytes.Equal(echoed,batch){return errFixture}
+    }
+    if err:=stream.RequestStop();err!=nil{return errFixture}
+    if err:=stream.ReadStopped();err!=nil{return errFixture}
     _=stdin.Close()
     if err:=cmd.Wait();err!=nil{return errFixture}
     return nil
