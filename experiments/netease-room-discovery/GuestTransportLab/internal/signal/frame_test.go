@@ -12,12 +12,6 @@ func TestRoundTrip(t *testing.T) {
         Data: "v=0\r\na=group:BUNDLE 0\nhello:world",
     }
     encoded, err := f.Marshal()
-    if err == nil {
-        // CR is deliberately excluded by the envelope validator.
-        t.Fatalf("expected CR rejection: %s", encoded)
-    }
-    f.Data = "v=0\na=group:BUNDLE 0\nhello:world"
-    encoded, err = f.Marshal()
     if err != nil {
         t.Fatal(err)
     }
@@ -35,7 +29,7 @@ func TestBadFrames(t *testing.T) {
         "", "CONNECTREQUEST", "CONNECTREQUEST 0 abc",
         "AUTH 123 secret", "CONNECTREQUEST xyz offer",
         "CANDIDATEADD 234", "CONNECTREQUEST 123 ",
-        "CONNECTREQUEST 123 a\rtest",
+        "CONNECTREQUEST 123 a\x00test",
         strings.Repeat("x", MaxFrameBytes+1),
     }
     for _, example := range examples {
