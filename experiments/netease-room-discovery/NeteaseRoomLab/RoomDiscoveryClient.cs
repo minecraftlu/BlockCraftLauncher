@@ -145,12 +145,12 @@ namespace BlockCraft.NeteaseRoomLab
                     "服务端房间 ID：" + Display(rid),
                     "名称标识：" + Display(name),
                     "当前人数：" + Display(Read(room, "cnt")) + " / " + Display(Read(room, "cap")),
-                    "游戏版本标记：" + Display(Read(room, "version")),
+                    "房间版本标记（非游戏协议号）：" + Display(Read(room, "version")),
                     "平台标记：" + Display(Read(room, "platform")),
-                    "节点标记：" + Display(Read(room, "srv")),
+                    "节点标记（尚未验证对应关系）：" + Display(Read(room, "srv")),
                     "下一关：合法入房会话与游戏协议连接，尚未验证。"
                 };
-                return RoomDiscoveryResult.Found(string.Join(Environment.NewLine, lines));
+                return RoomDiscoveryResult.Found(string.Join(Environment.NewLine, lines), Read(room, "srv"));
             }
 
             return RoomDiscoveryResult.Inconclusive(
@@ -187,22 +187,24 @@ namespace BlockCraft.NeteaseRoomLab
         public bool IsMetadataFound { get; private set; }
         public string Status { get; private set; }
         public string Details { get; private set; }
+        public string NodeId { get; private set; }
 
-        private RoomDiscoveryResult(bool isMetadataFound, string status, string details)
+        private RoomDiscoveryResult(bool isMetadataFound, string status, string details, string nodeId)
         {
             IsMetadataFound = isMetadataFound;
             Status = status;
             Details = details;
+            NodeId = System.Text.RegularExpressions.Regex.IsMatch(nodeId ?? "", @"^[0-9]{1,10}$") ? nodeId : "";
         }
 
-        public static RoomDiscoveryResult Found(string details)
+        public static RoomDiscoveryResult Found(string details, string nodeId = null)
         {
-            return new RoomDiscoveryResult(true, "ROOM_METADATA_FOUND", details);
+            return new RoomDiscoveryResult(true, "ROOM_METADATA_FOUND", details, nodeId);
         }
 
         public static RoomDiscoveryResult Inconclusive(string details)
         {
-            return new RoomDiscoveryResult(false, "INCONCLUSIVE", details);
+            return new RoomDiscoveryResult(false, "INCONCLUSIVE", details, null);
         }
     }
 }
