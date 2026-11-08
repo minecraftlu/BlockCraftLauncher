@@ -308,6 +308,14 @@ namespace BlockCraft.NeteaseRoomLab
             }
         }
 
+        private void AdmissionSchema_Click(object sender, RoutedEventArgs e)
+        {
+            // Stage 7 is a synthetic, network-free authorization contract test.
+            // Not a verified GetAccess response; no cookies or token handling.
+            string roomNumber = (RoomIdBox.Text ?? "").Trim();
+            AdmissionStatusText.Text = RoomAdmissionSchema.OfflineSelfTest(roomNumber);
+        }
+
         private void ParserCheck_Click(object sender, RoutedEventArgs e)
         {
             lastNodeId = "";
