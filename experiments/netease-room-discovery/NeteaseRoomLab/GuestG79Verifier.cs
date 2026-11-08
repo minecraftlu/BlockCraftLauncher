@@ -60,27 +60,44 @@ namespace BlockCraft.NeteaseRoomLab
             if (String.IsNullOrWhiteSpace(stdout))
                 return "G79_CHECK_INCONCLUSIVE: 认证组件正常退出，但未返回可验证的 g79 状态。";
 
+            // Work only with fixed, expected field names. The values from the
+            // third-party helper may be private; never echo them into the UI,
+            // logs, exception messages or a diagnostics report.
             bool uid = false, mode = false, platform = false, hasTokenLine = false;
             foreach (string sourceLine in stdout.Split('\n'))
             {
-                string line = sourceLine.Trim();
-                if (line.StartsWith("uid=", StringComparison.Ordinal))
+                string line = sourceLine.Trim().TrimStart('\uFEFF');
+                int equals = line.IndexOf('=');
+                if (equals <= 0) continue;
+                string name = line.Substring(0, equals).Trim();
+                string value = line.Substring(equals + 1).Trim();
+                if (String.Equals(name, "uid", StringComparison.OrdinalIgnoreCase))
                 {
                     uint parsed;
-                    uid = uint.TryParse(line.Substring(4), out parsed) && parsed > 0;
+                    uid = uint.TryParse(value, out parsed) && parsed > 0;
                 }
-                else if (line == "auth_mode=g79") mode = true;
-                else if (line == "platform=2") platform = true;
-                else if (line.StartsWith("login_token=", StringComparison.Ordinal))
+                else if (String.Equals(name, "auth_mode", StringComparison.OrdinalIgnoreCase))
+                    mode = String.Equals(value, "g79", StringComparison.OrdinalIgnoreCase);
+                else if (String.Equals(name, "platform", StringComparison.OrdinalIgnoreCase))
+                    platform = value == "2";
+                else if (String.Equals(name, "login_token", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Never return the token or a substring of it.
-                    hasTokenLine = line.Length > "login_token=".Length;
+                    // Only presence is tracked, NEVER the token value.
+                    hasTokenLine = value.Length > 0;
                 }
             }
-            return uid && mode && platform && hasTokenLine
-                ? ReportSuccess
-                : "G79_CHECK_INCONCLUSIVE: 程序退出正常，但没有完整的移动端 g79 登录字段。"
-                  + " 本次不判断游戏授权成功。";
+            if (uid && mode && platform && hasTokenLine)
+                return ReportSuccess;
+
+            // A safe field-presence report makes malformed/missing helper
+            // output actionable without requiring users to disclose tokens.
+            // No UID, token, nickname, email or raw stdout is copied here.
+            return "G79_CHECK_INCONCLUSIVE: 认证助手正常退出，但以下字段未全部满足验证条件。"
+                + " 字段诊断：uid_valid=" + (uid ? "yes" : "no")
+                + ", auth_mode_g79=" + (mode ? "yes" : "no")
+                + ", platform_pe=" + (platform ? "yes" : "no")
+                + ", token_present=" + (hasTokenLine ? "yes" : "no")
+                + "。请只分享这些字段状态，不要分享原始 -dump-auth 输出。";
         }
 
         public static async Task<string> VerifyAsync(string helperPath)
