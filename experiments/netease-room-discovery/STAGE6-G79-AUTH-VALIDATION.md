@@ -41,3 +41,21 @@
 4. **尚未实现游客房间准入授权、真实 RakNet TanEnterRoomRequest、WebRTC 到房主的连接与 Minecraft 世界加载。**
 
 真实房间入场需要授权获取的大厅握手字段与票据；`nethernet`、`raknet` 和入房编解码可作为后续模块，不能用 `srv` 节点 IP 和公开端口替代授权票据。
+
+
+## Stage 6.1：实机 G79_CHECK_INCONCLUSIVE 后的安全诊断改进
+
+用户 Windows 截图显示：Stage 6 本机调用认证助手后状态为 `G79_CHECK_INCONCLUSIVE`，说明第三方程序正常退出，但输出未满足所有预期字段。此时**不能断言 g79 游戏授权成功，也不能认为邮箱 Cookie 无效**。
+
+Stage 6.1 不尝试获取原始 `-dump-auth` 文本，因为它包含真实 `login_token`，直接提供 PowerShell 命令或屏幕截图会泄漏凭据。
+
+更改 `GuestG79Verifier.ClassifyResult` 以容忍字段名称的大小写差异、额外空格与 BOM，并只返回不可逆的**布尔字段状态**：
+
+- `uid_valid=yes/no`（不显示真实 UID）
+- `auth_mode_g79=yes/no`
+- `platform_pe=yes/no`
+- `token_present=yes/no`（不显示 token，不显示长度或前后缀）
+
+只要四项条件未同时满足，就维持 `G79_CHECK_INCONCLUSIVE`，不以退出码 0 自动判断成功。Windows CI 增加了模拟字段不全、输出格式差异以及无 token 泄漏测试。
+
+用户安装 Stage 6.1 后只需要使用原账号 Cookie，再点击一次「验证第二账号 g79 游戏授权（只检查，不入房）」，只提供这四个布尔状态即可；无需重新登录、复制原始输出或上传 Cookie。未完成真正的六位数网易手机联机房间授权/入房与游戏连接。
