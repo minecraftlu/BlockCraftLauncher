@@ -31,6 +31,8 @@ namespace BlockCraftLauncher.Wpf
         ComboBox versionCategory, settingsNetworkMode;
         TextBox settingsDownloadThreads, settingsDownloadRetries;
         ListBox downloadList;
+        TextBox neteaseLauncherPath;
+        TextBlock neteaseDetectionText;
         ProgressBar downloadProgressBar;
         readonly ObservableCollection<ResourceHit> resourceResults = new ObservableCollection<ResourceHit>();
         readonly Dictionary<string, Button> sidebarButtons = new Dictionary<string, Button>();
@@ -117,7 +119,7 @@ namespace BlockCraftLauncher.Wpf
             SideMenu.Children.Clear(); sidebarButtons.Clear();
             AddNavSection(SideMenu, "游戏", new[] { "首页", "游戏版本", "下载管理" }, Navigate, sidebarButtons);
             AddNavSection(SideMenu, "资源下载", new[] { "资源中心", "光影引擎", "资源包", "整合包", "CurseForge" }, Navigate, sidebarButtons);
-            AddNavSection(SideMenu, "管理与工具", new[] { "模组更新", "多人联机", "启动器更新", "设置", "运行日志" }, Navigate, sidebarButtons);
+            AddNavSection(SideMenu, "管理与工具", new[] { "模组更新", "多人联机", "网易跨端联机", "启动器更新", "设置", "运行日志" }, Navigate, sidebarButtons);
             SideMenu.Children.Add(Txt("当前账号", 12, true, true));
             SideMenu.Children.Add(Txt(settings.AccountMode == "offline" ? "离线：" + settings.OfflineName :
                 (settings.AccountMode == "microsoft" ? "微软正版：" + settings.AccountName : "未登录"), 13));
@@ -147,6 +149,7 @@ namespace BlockCraftLauncher.Wpf
                 case "CurseForge": PageHost.Content = BuildCurseForge(); break;
                 case "模组更新": PageHost.Content = BuildModUpdates(); break;
                 case "多人联机": PageHost.Content = BuildMultiplayer(); break;
+                case "网易跨端联机": PageHost.Content = BuildNeteaseCrossplay(); break;
                 case "启动器更新": PageHost.Content = BuildLauncherUpdates(); break;
                 case "设置": PageHost.Content = BuildSettings(); break;
                 case "运行日志": PageHost.Content = BuildLogs(); break;
@@ -800,6 +803,171 @@ namespace BlockCraftLauncher.Wpf
                 Status((enabled ? "已启用：" : "已停用：") + item.Name); RefreshLocalResourceList();
             }
             catch (Exception ex) { ShowError("操作本地资源失败", ex); }
+        }
+
+        UIElement BuildNeteaseCrossplay()
+        {
+            var root = Col(
+                Txt("网易跨端联机", 24, true),
+                Txt("网易中国版手机 + Windows 基岩互通版 · 官方好友/联机大厅", 14),
+                Txt("此功能打开网易官方电脑客户端并提供联机引导。它不是 Java→网易的协议转换器，也不会获取网易账号令牌或房间信息。",
+                    12, false, true));
+
+            root.Children.Add(Card(Col(
+                Txt("① 下载或更新网易电脑版", 18, true),
+                Txt("请从网易《我的世界》官方网站安装电脑版，并在官方客户端中选择「基岩互通版」（不是 Java 经典版）。"
+                    + " 该版本通常适用于 Windows 10/11。不要从未知来源获取所谓“互通破解版”。", 13),
+                Row(Btn("打开网易《我的世界》官网", OpenNeteaseWebsite, true),
+                    Btn("检查本机安装情况", RefreshNeteaseDiagnostics)),
+                Txt("官方入口：https://minecraft.com.cn/ · 下载安装及更新由网易官方客户端完成。", 12, false, true)
+            )));
+
+            neteaseLauncherPath = new TextBox
+            {
+                Text = settings.NeteaseLauncherExe ?? "",
+                IsReadOnly = true,
+                ToolTip = "仅保存你手动选择的本机 EXE 路径，不读取游戏账号或房间记录。",
+                Margin = new Thickness(0, 3, 0, 8)
+            };
+            neteaseDetectionText = Txt("", 12, false, true);
+            root.Children.Add(Card(Col(
+                Txt("② 检测和启动网易官方客户端", 18, true),
+                Txt("启动器只能识别可能的安装记录，无法保证自动判定具体版本。"
+                    + " 首次使用请手动选择已经安装好的网易官方启动器 EXE，之后可一键打开。", 13),
+                neteaseLauncherPath,
+                Row(Btn("选择官方启动器 EXE", ChooseNeteaseLauncher),
+                    Btn("启动网易电脑版", LaunchNeteaseClient, true)),
+                neteaseDetectionText
+            )));
+            RefreshNeteaseDiagnostics();
+
+            root.Children.Add(Card(Col(
+                Txt("③ 手机玩家创建联机房间", 18, true),
+                Txt("在网易中国版手机端更新游戏，使用账号 A 登录。"
+                    + " 按当前游戏界面进入好友/联机大厅，创建支持跨端联机的房间，"
+                    + " 设置好友可加入或发出邀请，并保持房主在线。", 13),
+                Txt("注意：房间支持的具体入口、人数和模组权限，以网易客户端的当前提示为准。", 12, false, true)
+            )));
+
+            root.Children.Add(Card(Col(
+                Txt("④ 电脑玩家进入同一世界", 18, true),
+                Txt("Windows 端打开网易基岩互通版，使用另一个账号 B 登录，添加手机房主好友。"
+                    + " 在好友列表、联机大厅或邀请提示中寻找房间并加入。"
+                    + " 如提示资源或版本不匹配，请先通过网易官方更新。", 13),
+                Txt("手机与电脑请勿同时使用同一个网易账号登录，否则可能将另一端挤下线。", 13, true),
+                Row(Btn("启动网易电脑版", LaunchNeteaseClient, true),
+                    Btn("复制联机检查清单", CopyNeteaseChecklist))
+            )));
+
+            root.Children.Add(Card(Col(
+                Txt("排查不能加入房间", 18, true),
+                Txt("• 核对双方均为网易中国版，电脑端必须选择「基岩互通版」。\n"
+                    + "• 手机端允许好友加入，检查房间权限及好友关系。\n"
+                    + "• 两端使用不同网易账号，完成必要的更新与资源下载。\n"
+                    + "• 房主保持在线；部分地图、模组、小游戏不一定支持跨端。\n"
+                    + "• 如果官方客户端没有跨端入口，应以网易当前公告及游戏内说明为准。", 13),
+                Txt("说明：这里不使用 Minecraft Java 国际版的服务器地址或 Geyser。"
+                    + " 没有网易官方公开接口时，启动器无法代替游戏完成账号登录、搜索房间或直接进房。", 12, false, true)
+            )));
+            return root;
+        }
+
+        void RefreshNeteaseDiagnostics()
+        {
+            if (neteaseDetectionText == null) return;
+            try
+            {
+                neteaseDetectionText.Text = NeteaseBedrockSupport.DiagnosticSummary(settings.NeteaseLauncherExe);
+            }
+            catch (Exception ex)
+            {
+                neteaseDetectionText.Text = "读取安装信息失败，可继续手动选择官方 EXE：" + ex.Message;
+                Log("网易客户端安装检测：" + ex.GetType().Name);
+            }
+        }
+
+        void OpenNeteaseWebsite()
+        {
+            try
+            {
+                NeteaseBedrockSupport.OpenOfficialWebsite();
+                Status("已打开网易《我的世界》官方网站，请下载官方 Windows 基岩互通版。");
+            }
+            catch (Exception ex) { ShowError("打开网易官网失败", ex); }
+        }
+
+        void ChooseNeteaseLauncher()
+        {
+            var dialog = new OpenFileDialog
+            {
+                Title = "选择已经安装的网易官方电脑版启动器（非安装包）",
+                Filter = "Windows 启动程序 (*.exe)|*.exe",
+                CheckFileExists = true,
+                Multiselect = false
+            };
+            if (dialog.ShowDialog(this) != true) return;
+            try
+            {
+                var fullPath = NeteaseBedrockSupport.ValidateSelectedLauncher(dialog.FileName);
+                settings.NeteaseLauncherExe = fullPath;
+                store.Save(settings);
+                if (neteaseLauncherPath != null) neteaseLauncherPath.Text = fullPath;
+                RefreshNeteaseDiagnostics();
+                Status("已保存网易官方客户端程序位置。点击「启动网易电脑版」打开它。");
+            }
+            catch (Exception ex) { ShowError("选择网易启动器失败", ex); }
+        }
+
+        void LaunchNeteaseClient()
+        {
+            if (string.IsNullOrWhiteSpace(settings.NeteaseLauncherExe))
+            {
+                MessageBox.Show(this, "请先从网易官网下载并安装官方电脑版，然后点击「选择官方启动器 EXE」。",
+                    "尚未设置网易客户端", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            try
+            {
+                NeteaseBedrockSupport.LaunchSelectedLauncher(settings.NeteaseLauncherExe);
+                Status("已请求启动网易官方客户端；请在其界面选择基岩互通版，并加入手机好友房间。");
+            }
+            catch (Exception ex)
+            {
+                RefreshNeteaseDiagnostics();
+                ShowError("打开网易客户端失败", ex);
+            }
+        }
+
+        void CopyNeteaseChecklist()
+        {
+            try
+            {
+                Clipboard.SetText("网易《我的世界》手机与电脑版基岩互通联机检查清单\n" +
+                    "1. 手机和 Windows 官方网易客户端均更新至可互通版本。\n" +
+                    "2. 电脑端选择「基岩互通版」而非 Java 经典版。\n" +
+                    "3. 手机用账号 A、电脑用账号 B，互相添加好友。\n" +
+                    "4. 手机端创建允许好友加入的房间，保持房主在线。\n" +
+                    "5. 电脑从官方客户端好友/联机大厅接受邀请，进入相同世界。\n" +
+                    "6. 若加入失败，核对房间权限、版本、资源包及地图跨端支持。");
+                Status("已复制网易手机与电脑基岩互通的联机检查清单。");
+            }
+            catch (Exception ex) { ShowError("复制联机清单失败", ex); }
+        }
+
+        /// <summary>
+        /// Windows CI opens the actual WPF page without launching external
+        /// clients, opening URLs, accessing accounts or joining any rooms.
+        /// </summary>
+        internal void VerifyNeteaseCrossplayPage()
+        {
+            NeteaseBedrockSupport.RunSelfTests();
+            Navigate("网易跨端联机");
+            if (neteaseLauncherPath == null || neteaseDetectionText == null ||
+                PageHost.Content == null || currentPage != "网易跨端联机")
+                throw new InvalidOperationException("网易跨端联机页面未正确构建。");
+            if (neteaseLauncherPath.IsReadOnly != true)
+                throw new InvalidOperationException("网易启动器路径必须通过用户文件选择器设置。");
+            PageHost.UpdateLayout();
         }
 
         UIElement BuildMultiplayer()
