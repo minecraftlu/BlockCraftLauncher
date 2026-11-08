@@ -21,6 +21,7 @@ func main() {
     authorized := flag.Bool("host-consent", false, "I own this room or have explicit permission from the host")
     attempt := flag.Bool("try-join", false, "allow exactly one real RakNet login and room admission attempt")
     tryWebRTC := flag.Bool("try-webrtc", false, "after real room acceptance attempt WebSocket signaling + ICE/DTLS/SCTP")
+    observation := flag.Int("observe-seconds", 8, "read-only connected data-channel observation: 8, 30 or 60 seconds")
     timeout := flag.Duration("timeout", 60*time.Second, "maximum total duration (10s-120s)")
     machine := flag.Bool("machine-json", false, "emit one versioned ASCII-safe JSON record without secrets")
     ipcSelftest := flag.Bool("ipc-selftest", false, "emit synthetic IPC report without network, account or room access")
@@ -58,7 +59,7 @@ func main() {
     }
 
     if *room == "" || *helper == "" || *cookie == "" || !*authorized || !*attempt {
-        fmt.Println("BlockCraft Stage 10 genuine NetherNet/WebRTC guest probe (NOT a game client)")
+        fmt.Println("BlockCraft Stage 11.1 read-only channel diagnostics (NOT a game client)")
         fmt.Println("Required: -room ROOM -helper ABSOLUTE_CONNECT_EXE -cookie ABSOLUTE_COOKIE_JSON -host-consent -try-join [-try-webrtc]")
         fmt.Println("The second account must already be legitimately logged in on this PC.")
         fmt.Println("No cookies, login tokens, encryption keys or player IDs are printed.")
@@ -67,8 +68,8 @@ func main() {
         return
     }
 
-    if *timeout < 10*time.Second || *timeout > 120*time.Second {
-        fmt.Fprintln(os.Stderr, "Timeout must be between 10s and 120s.")
+    if *timeout < 10*time.Second || *timeout > 180*time.Second {
+        fmt.Fprintln(os.Stderr, "Timeout must be between 10s and 180s.")
         os.Exit(2)
     }
 
@@ -92,6 +93,7 @@ func main() {
         RoomID:*room,
         AuthorizedByHost:*authorized,
         AttemptWebRTC:*tryWebRTC,
+        ObservationSeconds:*observation,
     })
     if stdinClosed.Load() {
         // Explicit cancellation is a neutral local operation, not a server
@@ -133,6 +135,13 @@ func emitMachine(report joinprobe.Report) {
         SignalingAuthenticated bool `json:"signaling_authenticated"`
         WebRTCTransportConnected bool `json:"webrtc_transport_connected"`
         TransportStable bool `json:"transport_stable"`
+        ReliableChannelOpen bool `json:"reliable_channel_open"`
+        UnreliableChannelOpen bool `json:"unreliable_channel_open"`
+        ReliableMessages uint64 `json:"reliable_messages"`
+        UnreliableMessages uint64 `json:"unreliable_messages"`
+        ReliableBytes uint64 `json:"reliable_bytes"`
+        UnreliableBytes uint64 `json:"unreliable_bytes"`
+        ObservationSeconds int `json:"observation_seconds"`
         MinecraftWorldJoined bool `json:"minecraft_world_joined"`
         ModeConfirmed bool `json:"g79_mode_confirmed"`
     }{
@@ -143,6 +152,13 @@ func emitMachine(report joinprobe.Report) {
         SignalingAuthenticated: report.SignalingAuthenticated,
         WebRTCTransportConnected: report.WebRTCTransportConnected,
         TransportStable: report.TransportStable,
+        ReliableChannelOpen: report.ReliableChannelOpen,
+        UnreliableChannelOpen: report.UnreliableChannelOpen,
+        ReliableMessages: report.ReliableMessages,
+        UnreliableMessages: report.UnreliableMessages,
+        ReliableBytes: report.ReliableBytes,
+        UnreliableBytes: report.UnreliableBytes,
+        ObservationSeconds: report.ObservationSeconds,
         MinecraftWorldJoined: false,
         ModeConfirmed: report.ModeConfirmed,
     }
