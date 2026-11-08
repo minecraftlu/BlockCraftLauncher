@@ -106,6 +106,53 @@ namespace BlockCraftLauncher.Wpf.Services
             finally { if (File.Exists(temp)) File.Delete(temp); }
         }
 
+        /// <summary>Listen to vanilla Minecraft LAN multicast announcements for up to four seconds.</summary>
+        public async Task<IReadOnlyList<ServerEntry>> ScanLanAsync(CancellationToken ct)
+        {
+            var found = new Dictionary<string, ServerEntry>(StringComparer.OrdinalIgnoreCase);
+            var group = IPAddress.Parse("224.0.2.60");
+            using (var client = new UdpClient(AddressFamily.InterNetwork))
+            {
+                client.ExclusiveAddressUse = false;
+                client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                client.Client.Bind(new IPEndPoint(IPAddress.Any, 4445));
+                client.JoinMulticastGroup(group);
+                try
+                {
+                    var deadline = DateTime.UtcNow.AddSeconds(4);
+                    while (DateTime.UtcNow < deadline)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        var receive = client.ReceiveAsync();
+                        var pause = Task.Delay(TimeSpan.FromMilliseconds(
+                            Math.Min(1000, Math.Max(1, (deadline - DateTime.UtcNow).TotalMilliseconds))), ct);
+                        if (await Task.WhenAny(receive, pause) != receive) continue;
+                        var packet = await receive;
+                        string message = Encoding.UTF8.GetString(packet.Buffer);
+                        string motd = Extract(message, "[MOTD]", "[/MOTD]");
+                        string portText = Extract(message, "[AD]", "[/AD]");
+                        if (!int.TryParse(portText, out int port) || port < 1 || port > 65535) continue;
+                        string address = packet.RemoteEndPoint.Address + ":" + port;
+                        found[address] = new ServerEntry { Name = string.IsNullOrWhiteSpace(motd) ?
+                            "Minecraft 局域网世界" : motd.Substring(0, Math.Min(90, motd.Length)), Address = address };
+                    }
+                }
+                finally
+                {
+                    try { client.DropMulticastGroup(group); } catch (SocketException) { }
+                }
+            }
+            return found.Values.ToList();
+        }
+        static string Extract(string value, string startTag, string endTag)
+        {
+            int start = value.IndexOf(startTag, StringComparison.Ordinal);
+            if (start < 0) return "";
+            start += startTag.Length;
+            int end = value.IndexOf(endTag, start, StringComparison.Ordinal);
+            return end < 0 ? "" : value.Substring(start, end - start);
+        }
+
         public async Task<string> CheckReachabilityAsync(string address, CancellationToken ct)
         {
             var parsed = ParseAddress(address);
