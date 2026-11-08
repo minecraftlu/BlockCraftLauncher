@@ -25,10 +25,24 @@ namespace BlockCraftLauncher.Wpf.Services
         readonly LauncherConfig settings;
         readonly JavaScriptSerializer json = new JavaScriptSerializer();
         public ModrinthClient(LauncherConfig settings) { this.settings = settings; network = new NetworkDownloader(settings); }
-        public async Task<IReadOnlyList<ResourceHit>> SearchAsync(string query, string type, CancellationToken ct)
+        public async Task<IReadOnlyList<ResourceHit>> SearchAsync(string query, string type, CancellationToken ct,
+            string gameVersion = null, string loader = null, string sort = "relevance", int offset = 0)
         {
-            var endpoint = "https://api.modrinth.com/v2/search?limit=20&query=" + Uri.EscapeDataString(query ?? "")
-                + "&facets=" + Uri.EscapeDataString("[[\"project_type:" + type + "\"]]");
+            if (type != "mod" && type != "shader" && type != "resourcepack" && type != "modpack")
+                throw new ArgumentException("不支持的 Modrinth 搜索类别");
+            if ((query ?? "").Length > 150 || offset < 0 || offset > 2000)
+                throw new ArgumentException("搜索关键词或分页参数无效");
+            if (sort != "relevance" && sort != "downloads" && sort != "updated" && sort != "newest")
+                sort = "relevance";
+            var facets = new List<object> { new[] { "project_type:" + type } };
+            if (!string.IsNullOrWhiteSpace(gameVersion))
+                facets.Add(new[] { "versions:" + gameVersion.Trim() });
+            if (type == "mod" && !string.IsNullOrWhiteSpace(loader) && loader != "vanilla")
+                facets.Add(new[] { "categories:" + loader.Trim().ToLowerInvariant() });
+            string endpoint = "https://api.modrinth.com/v2/search?limit=20&offset=" + offset +
+                "&index=" + Uri.EscapeDataString(sort) +
+                "&query=" + Uri.EscapeDataString(query ?? "") +
+                "&facets=" + Uri.EscapeDataString(json.Serialize(facets));
             string data = await network.GetStringWithFallbackAsync(endpoint, "official", ct);
             var parsed = json.DeserializeObject(data) as Dictionary<string, object>;
             var hits = new List<ResourceHit>();
