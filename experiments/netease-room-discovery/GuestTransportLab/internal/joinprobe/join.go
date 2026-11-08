@@ -25,6 +25,7 @@ import (
     "time"
 
     "github.com/Happy2018new/nemc-tan-lobby-solver/core/nethernet"
+    rtcwebrtc "github.com/Happy2018new/nemc-tan-lobby-solver/core/webrtc"
     "github.com/Happy2018new/nemc-tan-lobby-solver/core/raknet"
     protoencoding "github.com/Happy2018new/nemc-tan-lobby-solver/protocol/encoding"
     "github.com/Happy2018new/nemc-tan-lobby-solver/protocol/packet"
@@ -504,7 +505,11 @@ func probeWebRTC(ctx context.Context, session login, node server,
     // Use a bounded session; the lobby RakNet connection stays active until
     // this function returns. Do not print ticket, seed, ICE credentials,
     // signaling URL, peer network ID or user/room identifiers.
-    signalCtx,cancel:=context.WithTimeout(ctx,45*time.Second)
+    // Previous 45s combined signaling + ICE + DTLS + SCTP timeout could
+    // terminate a legitimate SCTP retransmission series before its own
+    // typed INIT ACK / COOKIE ACK failure became observable. Keep a finite
+    // 70s budget for all phases under the explicit 105s process limit.
+    signalCtx,cancel:=context.WithTimeout(ctx,70*time.Second)
     defer cancel()
     serverAddress:=net.JoinHostPort(node.host,strconv.Itoa(int(node.signalingPort)))
     signalConn,err:= (signaling.Dialer{
@@ -527,7 +532,17 @@ func probeWebRTC(ctx context.Context, session login, node server,
     observedSignal := trackedSignaling{
         Signaling: signalConn, observation: observation,
     }
+    // The fork used by NetherNet supports a bounded SCTP retransmission
+    // cap through its ORTC SettingEngine. With default exponential backoff
+    // (up to 60s) the 8 INIT/COOKIE retransmissions can outlive the entire
+    // diagnostic session. A 3s RTO cap is a single-attempt LAN-oriented
+    // compatibility experiment, not an assertion that the host is at fault.
+    // Do not disable DTLS verification, ICE checks, or room authorization.
+    settings := rtcwebrtc.SettingEngine{}
+    settings.SetSCTPRTOMax(3*time.Second)
+    api := rtcwebrtc.NewAPI(rtcwebrtc.WithSettingEngine(settings))
     rtc,err:=(nethernet.Dialer{
+        API:api,
         Log:slog.New(stageLogger{observation:observation}),
     }).DialContext(signalCtx,hostNetherID,observedSignal)
     if err!=nil {
