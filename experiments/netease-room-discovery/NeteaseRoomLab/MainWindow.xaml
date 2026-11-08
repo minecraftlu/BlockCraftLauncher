@@ -75,10 +75,12 @@
 
     <StackPanel Grid.Row="3" Margin="0,0,0,15">
       <TextBlock Foreground="#97A9C2" TextWrapping="Wrap" Margin="0,0,0,12"
-                 Text="UID=0 为匿名格式探测值，不代表登录成功。如果查询未匹配，不能判断房间不存在。不要填写密码、Cookie、sessionid 或 token。" />
+                 Text="查询成功后可尝试把 srv 标记与公开大厅节点列表匹配。UID=0 不代表登录成功；查询节点也不等于加入房间。不要填写密码、Cookie、sessionid 或 token。" />
       <StackPanel Orientation="Horizontal">
         <Button x:Name="LookupButton" Style="{StaticResource PrimaryButton}"
                 Click="Lookup_Click" IsDefault="True" Content="查询房间  /  Diagnose" />
+        <Button x:Name="NodeLookupButton" Style="{StaticResource SecondaryButton}" Margin="10,0,0,0"
+                IsEnabled="False" Click="NodeLookup_Click" Content="查节点映射" />
         <Button Style="{StaticResource SecondaryButton}" Margin="10,0,0,0"
                 Click="ParserCheck_Click" Content="本地解析自检" />
         <Button Style="{StaticResource SecondaryButton}" Margin="10,0,0,0"
@@ -103,6 +105,6 @@
 
     <TextBlock Grid.Row="5" Margin="0,14,0,0" Foreground="#889CB7"
                TextWrapping="Wrap"
-               Text="实验状态：仅房间发现。已检索到房间 ≠ 已加入房间 ≠ 已进入游戏。不会安装网易 PC 客户端。" />
+               Text="实验状态：房间发现及可选节点映射。两者都不是入房验证或游戏连接。不需要网易 PC 客户端。" />
   </Grid>
 </Window>
