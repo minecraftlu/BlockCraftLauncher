@@ -24,7 +24,8 @@ namespace BlockCraftLauncher.OneFile
         {
             bool probe = args.Length == 1 &&
                 (string.Equals(args[0], "--smoke-test", StringComparison.OrdinalIgnoreCase) ||
-                 string.Equals(args[0], "--download-ui-selftest", StringComparison.OrdinalIgnoreCase));
+                 string.Equals(args[0], "--download-ui-selftest", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(args[0], "--auth-selftest", StringComparison.OrdinalIgnoreCase));
             try
             {
                 var package = ReadPackage();

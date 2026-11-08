@@ -21,11 +21,13 @@ namespace BlockCraftLauncher.Wpf
                 if (args.ExceptionObject is Exception error) WriteDiagnostic(error);
             };
 
+            bool authSelfTest = e.Args.Any(arg =>
+                string.Equals(arg, "--auth-selftest", StringComparison.OrdinalIgnoreCase));
             bool downloadSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--download-selftest", StringComparison.OrdinalIgnoreCase));
             bool downloadPageSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--download-ui-selftest", StringComparison.OrdinalIgnoreCase));
-            smokeTest = downloadSelfTest || downloadPageSelfTest || e.Args.Any(arg =>
+            smokeTest = authSelfTest || downloadSelfTest || downloadPageSelfTest || e.Args.Any(arg =>
                 string.Equals(arg, "--smoke-test", StringComparison.OrdinalIgnoreCase));
             // The CI probe must never open a browser, download Minecraft,
             // touch account tokens, or display a GUI message. Both ordinary
@@ -56,6 +58,21 @@ namespace BlockCraftLauncher.Wpf
             }
 
             base.OnStartup(e);
+
+            if (authSelfTest)
+            {
+                try
+                {
+                    AuthSanityChecks.Run();
+                    Shutdown(0);
+                }
+                catch (Exception ex)
+                {
+                    WriteDiagnostic(ex);
+                    Shutdown(27);
+                }
+                return;
+            }
 
             if (downloadSelfTest)
             {
