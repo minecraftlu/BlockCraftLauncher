@@ -13,7 +13,10 @@ import (
     "github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
-const ExistingSessionAddress = "authorized-existing-nethernet"
+// Gophertunnel embeds the supplied address into Bedrock client data and
+// requires a syntactically valid UDP host:port. This value is metadata only:
+// AttachedNetwork never opens any socket to it, and rejects any other target.
+const ExistingSessionAddress = "127.0.0.1:19132"
 
 var (
     ErrNoTransport = errors.New("bedrock bridge: no established packet transport")
