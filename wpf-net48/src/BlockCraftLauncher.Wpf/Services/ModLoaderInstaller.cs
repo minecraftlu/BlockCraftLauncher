@@ -22,7 +22,11 @@ namespace BlockCraftLauncher.Wpf.Services
         readonly LauncherConfig settings;
         public ModLoaderInstaller(LauncherConfig settings) { this.settings = settings; }
 
-        public async Task<GameProfile> InstallAsync(string minecraftVersion, string loader,
+        public Task<GameProfile> InstallAsync(string minecraftVersion, string loader,
+            IProgress<string> progress, CancellationToken token)
+            => InstallAsync(minecraftVersion, loader, null, progress, token);
+
+        public async Task<GameProfile> InstallAsync(string minecraftVersion, string loader, string loaderVersion,
             IProgress<string> progress, CancellationToken token)
         {
             if (string.IsNullOrWhiteSpace(minecraftVersion)) throw new ArgumentException("未选择游戏版本");
@@ -50,18 +54,26 @@ namespace BlockCraftLauncher.Wpf.Services
                             handler.UseProxy = true;
                         }
                         if (loader == "Fabric")
-                            installedId = await new FabricInstaller(http).Install(minecraftVersion, path);
+                            installedId = string.IsNullOrWhiteSpace(loaderVersion)
+                                ? await new FabricInstaller(http).Install(minecraftVersion, path)
+                                : await new FabricInstaller(http).Install(minecraftVersion, loaderVersion, path);
                         else
-                            installedId = await new QuiltInstaller(http).Install(minecraftVersion, path);
+                            installedId = string.IsNullOrWhiteSpace(loaderVersion)
+                                ? await new QuiltInstaller(http).Install(minecraftVersion, path)
+                                : await new QuiltInstaller(http).Install(minecraftVersion, loaderVersion, path);
                     }
                 }
                 else if (loader == "Forge")
                 {
-                    installedId = await new ForgeInstaller(launcher).Install(minecraftVersion, new ForgeInstallOptions());
+                    installedId = string.IsNullOrWhiteSpace(loaderVersion)
+                        ? await new ForgeInstaller(launcher).Install(minecraftVersion, new ForgeInstallOptions())
+                        : await new ForgeInstaller(launcher).Install(minecraftVersion, loaderVersion, new ForgeInstallOptions());
                 }
                 else
                 {
-                    installedId = await new NeoForgeInstaller(launcher).Install(minecraftVersion, new ForgeInstallOptions());
+                    installedId = string.IsNullOrWhiteSpace(loaderVersion)
+                        ? await new NeoForgeInstaller(launcher).Install(minecraftVersion, new ForgeInstallOptions())
+                        : await new NeoForgeInstaller(launcher).Install(minecraftVersion, loaderVersion, new ForgeInstallOptions());
                 }
             }
             token.ThrowIfCancellationRequested();
