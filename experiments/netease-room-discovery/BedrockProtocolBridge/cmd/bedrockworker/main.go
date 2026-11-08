@@ -1,0 +1,77 @@
+// bedrockworker is an OFFLINE-ONLY binary framing fixture.
+// It must not be connected to a live NetEase room or given real account data.
+package main
+
+import (
+    "errors"
+    "fmt"
+    "io"
+    "os"
+
+    wire "github.com/minecraftlu/BlockCraftLauncher/experiments/netease-room-discovery/BridgeWire"
+    "github.com/sandertv/gophertunnel/minecraft/protocol/packet"
+)
+
+type batchReader struct {
+    b []byte
+    used bool
+}
+
+func (*batchReader) BatchHeader() []byte {return nil}
+func (*batchReader) DisableEncryption() bool {return true}
+func (r *batchReader) Read(b []byte)(int,error){
+    p,err:=r.ReadPacket()
+    if err!=nil{return 0,err}
+    if len(p)>len(b){return 0,io.ErrShortBuffer}
+    return copy(b,p),nil
+}
+func (r *batchReader) ReadPacket() ([]byte,error){
+    if r.used {return nil,io.EOF}
+    r.used=true
+    return r.b,nil
+}
+
+// validateBatch decodes ONLY the packet boundaries. This does not validate
+// Minecraft login, user identity, game version or NetEase authorization.
+func validateBatch(payload []byte) error {
+    pk,err:=packet.NewDecoder(&batchReader{b:payload}).Decode()
+    if err!=nil{return errors.New("offline game batch invalid")}
+    if len(pk)==0{return errors.New("offline game batch empty")}
+    return nil
+}
+
+func run(r io.Reader,w io.Writer) error {
+    hello,err:=wire.ReadFrame(r)
+    if err!=nil{return err}
+    if hello.Kind!=wire.Hello{return wire.ErrMalformed}
+    if err:=wire.WriteFrame(w,wire.Frame{Kind:wire.Ready,Payload:hello.Payload});err!=nil{return err}
+    for {
+        f,err:=wire.ReadFrame(r)
+        if err!=nil{return err}
+        switch f.Kind {
+        case wire.Data:
+            if err:=validateBatch(f.Payload);err!=nil{return err}
+            // A local-only echo proves binary packet boundaries survive
+            // both process pipes. It does not produce gameplay packets.
+            if err:=wire.WriteFrame(w,wire.Frame{Kind:wire.Data,Payload:f.Payload});err!=nil{return err}
+        case wire.Stop:
+            return wire.WriteFrame(w,wire.Frame{Kind:wire.Stopped})
+        default:
+            return wire.ErrMalformed
+        }
+    }
+}
+
+func main() {
+    if len(os.Args)!=2 || os.Args[1]!="-offline-ipc-selftest" {
+        fmt.Fprintln(os.Stderr,"OFFLINE_BRIDGE_ONLY")
+        os.Exit(2)
+    }
+    // The output stream contains ONLY framed binary records, never logs.
+    if err:=run(os.Stdin,os.Stdout);err!=nil {
+        _=err // Do not print raw payloads or user-provided bytes.
+        fmt.Fprintln(os.Stderr,"OFFLINE_BRIDGE_FAILED")
+        os.Exit(1)
+    }
+}
+
