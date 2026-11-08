@@ -1,0 +1,73 @@
+name: Stage 12 Bedrock bridge - isolated offline compatibility
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/netease-room-discovery/BedrockProtocolBridge/**'
+      - 'experiments/netease-room-discovery/GuestTransportLab/**'
+      - '.github/workflows/stage12-bedrock-bridge.yml'
+  push:
+    branches:
+      - experiment/netease-room-discovery
+    paths:
+      - 'experiments/netease-room-discovery/BedrockProtocolBridge/**'
+      - '.github/workflows/stage12-bedrock-bridge.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bedrock-offline:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: experiments/netease-room-discovery/BedrockProtocolBridge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.5'
+          cache-dependency-path: experiments/netease-room-discovery/BedrockProtocolBridge/go.mod
+      - name: Resolve fixed Bedrock dependency
+        shell: pwsh
+        run: |
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify headerless NetherNet framing and local Bedrock handshake
+        shell: pwsh
+        run: |
+          go test -count=1 -timeout=90s ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  proven-netease-transport:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: experiments/netease-room-discovery/GuestTransportLab
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.5'
+          cache-dependency-path: experiments/netease-room-discovery/GuestTransportLab/go.mod
+      - name: Restore known-good pinned NetherNet overlay
+        shell: pwsh
+        run: |
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "./tools/create-sctp-crc32c-overlay.ps1" -OutPath ".blockcraft/nethernet-fork"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Regression test previous RakNet and SCTP/WebRTC behavior
+        shell: pwsh
+        run: |
+          go test -count=1 -timeout=90s ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build ./cmd/joinprobe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
