@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
@@ -41,7 +42,59 @@ namespace BlockCraftLauncher.Wpf.Services
         sealed class MinecraftRouteHandler : DelegatingHandler
         {
             readonly LauncherConfig settings;
+            static readonly ConcurrentDictionary<string, Preference> History =
+                new ConcurrentDictionary<string, Preference>(StringComparer.OrdinalIgnoreCase);
+
+            sealed class Preference
+            {
+                public DateTime Expires { get; set; }
+                public bool PreferMirror { get; set; }
+            }
+
             public MinecraftRouteHandler(LauncherConfig settings) { this.settings = settings; }
+
+            async Task<long> ProbeAsync(string url, CancellationToken ct)
+            {
+                try
+                {
+                    using (var linked = CancellationTokenSource.CreateLinkedTokenSource(ct))
+                    {
+                        linked.CancelAfter(TimeSpan.FromMilliseconds(1400));
+                        var timer = Stopwatch.StartNew();
+                        using (var head = new HttpRequestMessage(HttpMethod.Head, url))
+                        using (var answer = await base.SendAsync(head, linked.Token))
+                            return answer.IsSuccessStatusCode ? timer.ElapsedMilliseconds : long.MaxValue;
+                    }
+                }
+                catch (Exception ex) when ((ex is HttpRequestException || ex is TaskCanceledException) &&
+                                          !ct.IsCancellationRequested)
+                {
+                    return long.MaxValue;
+                }
+            }
+
+            async Task<bool> PreferMirrorAsync(string official, string mirror, CancellationToken ct)
+            {
+                string host = new Uri(official).Host;
+                if (History.TryGetValue(host, out var cached) && cached.Expires > DateTime.UtcNow)
+                    return cached.PreferMirror;
+
+                // HEAD probes do not download the entire game asset. They run
+                // concurrently and have a 1400ms deadline each.
+                var officialProbe = ProbeAsync(official, ct);
+                var mirrorProbe = ProbeAsync(mirror, ct);
+                await Task.WhenAll(officialProbe, mirrorProbe);
+                long officialMs = officialProbe.Result;
+                long mirrorMs = mirrorProbe.Result;
+                bool prefer = mirrorMs != long.MaxValue &&
+                    (officialMs == long.MaxValue || mirrorMs + 60 < officialMs);
+                History[host] = new Preference
+                {
+                    PreferMirror = prefer,
+                    Expires = DateTime.UtcNow.AddMinutes(10)
+                };
+                return prefer;
+            }
 
             protected override async Task<HttpResponseMessage> SendAsync(
                 HttpRequestMessage request, CancellationToken ct)
@@ -52,10 +105,12 @@ namespace BlockCraftLauncher.Wpf.Services
                 if (mirror == null || settings.NetworkMode == "official")
                     return await base.SendAsync(request, ct);
 
-                // Explicit mirror preference routes known Mojang hosts to BMCLAPI.
-                // On unavailable mirror, retry the original official URI.
-                string first = settings.NetworkMode == "mirror" ? mirror : original.AbsoluteUri;
-                string second = settings.NetworkMode == "mirror" ? original.AbsoluteUri : mirror;
+                bool mirrorFirst = settings.NetworkMode == "mirror";
+                if (settings.NetworkMode == "auto")
+                    mirrorFirst = await PreferMirrorAsync(original.AbsoluteUri, mirror, ct);
+
+                string first = mirrorFirst ? mirror : original.AbsoluteUri;
+                string second = mirrorFirst ? original.AbsoluteUri : mirror;
                 try
                 {
                     using (var attempt = new HttpRequestMessage(HttpMethod.Get, first))
