@@ -54,3 +54,15 @@ BlockCraft **不会**要求用户在 WPF 界面填写邮箱、密码、短信验
 - CI 编译 WPF 和模拟登录助手参数检查成功；没有进行真实登录网络测试。
 - 程序界面不能将“文件已保存”显示为“账号认证成功”。
 - 只有获得平台接受的真实入房回执后才能显示 `ROOM_JOINED`；只有收到来自房主游戏协议的有效数据后才能显示 `GAME_CONNECTED`。
+
+
+## 如何取得可选第三方认证组件（尚未审核安全）
+
+截至 2026-11-08，Opentransfer 的 GitHub 仓库没有正式 Releases；不过其自己的 Windows GitHub Actions 构建会上传独立 `connect-Windows-amd64` Artifact。
+
+用户如果决定自担风险试验，可去其**原作者**仓库（非本项目分发）：
+https://github.com/XiaoXiao-2026Max/Opentransfer/actions/runs/38939141444
+
+该 2026-10-16 构建页面在查询时显示 success，Windows Artifact 名称为 `connect-Windows-amd64`。下载后应核对源码、签名（如果有）、哈希以及程序来源。GitHub Artifacts 可能需要登录，并可能过期。
+
+**不要**通过聊天、网盘或其他陌生来源索要或提交登录令牌与密码。本项目没有审核这些第三方二进制，也没有承诺账号风险为零。
