@@ -39,20 +39,20 @@ jobs:
       - name: Prepare RFC4960 CRC32c compiler overlay for pinned SCTP fork
         shell: pwsh
         run: |
-          & "./tools/create-sctp-crc32c-overlay.ps1" -OutPath ".blockcraft/sctp-overlay.json"
+          & "./tools/create-sctp-crc32c-overlay.ps1" -OutPath ".blockcraft/nethernet-fork"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Unit tests and local-only WebRTC guest-host handshake
         shell: pwsh
         run: |
-          go test -overlay=".blockcraft/sctp-overlay.json" -count=1 -timeout=90s ./...
+          go test -count=1 -timeout=90s ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build standalone Windows companion EXE
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force "dist" | Out-Null
-          go build -overlay=".blockcraft/sctp-overlay.json" -trimpath -ldflags="-s -w" -o "dist/BlockCraft.GuestTransportLab.exe" ./cmd/guestlab
+          go build -trimpath -ldflags="-s -w" -o "dist/BlockCraft.GuestTransportLab.exe" ./cmd/guestlab
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go build -trimpath -ldflags="-s -w" -o "dist/BlockCraft.JoinProbe.exe" ./cmd/joinprobe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
