@@ -22,13 +22,11 @@ namespace BlockCraftLauncher.Wpf
 
             smokeTest = e.Args.Any(arg =>
                 string.Equals(arg, "--smoke-test", StringComparison.OrdinalIgnoreCase));
+            // The CI probe must never open a browser, download Minecraft,
+            // touch account tokens, or display a GUI message. Both ordinary
+            // startup and smoke test explicitly create the same MainWindow.
             if (smokeTest)
-            {
-                // The CI probe must never open a browser, download Minecraft,
-                // touch account tokens, or display a GUI message.
-                StartupUri = null;
                 ShutdownMode = ShutdownMode.OnExplicitShutdown;
-            }
 
             try
             {
@@ -54,27 +52,31 @@ namespace BlockCraftLauncher.Wpf
 
             base.OnStartup(e);
 
-            if (smokeTest)
+            Dispatcher.BeginInvoke(new Action(() =>
             {
-                Dispatcher.BeginInvoke(new Action(() =>
+                try
                 {
-                    try
-                    {
-                        // Construct the same real MainWindow as ordinary startup.
-                        // This catches reflection/assembly load exceptions that
-                        // a simple 'file exists' package check cannot detect.
-                        var window = new MainWindow();
-                        if (window.Content == null)
-                            throw new InvalidOperationException("WPF 主窗口没有初始化内容");
+                    var window = new MainWindow();
+                    if (window.Content == null)
+                        throw new InvalidOperationException("WPF 主窗口没有初始化内容");
+                    if (smokeTest)
                         Shutdown(0);
-                    }
-                    catch (Exception ex)
+                    else
                     {
-                        WriteDiagnostic(ex);
-                        Shutdown(22);
+                        MainWindow = window;
+                        window.Show();
                     }
-                }), DispatcherPriority.ApplicationIdle);
-            }
+                }
+                catch (Exception ex)
+                {
+                    string log = WriteDiagnostic(ex);
+                    if (!smokeTest)
+                        MessageBox.Show("启动器窗口初始化失败：\n" + ex.GetBaseException().Message
+                            + "\n\n错误日志：\n" + log,
+                            "BlockCraft Launcher", MessageBoxButton.OK, MessageBoxImage.Error);
+                    Shutdown(smokeTest ? 22 : 1);
+                }
+            }), DispatcherPriority.ApplicationIdle);
         }
 
         private static void VerifyCoreAssemblies()
