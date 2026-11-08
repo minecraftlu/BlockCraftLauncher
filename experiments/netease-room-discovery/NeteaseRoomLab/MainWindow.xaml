@@ -164,6 +164,21 @@
         </StackPanel>
         <TextBlock TextWrapping="Wrap" Foreground="#D5B682" Margin="0,5,0,0"
                    Text="先完成真实服务器入房，再连接 WebRTC 两条数据通道。30/60 秒模式只统计 OPEN 状态、消息条数与字节数，不读取或显示游戏内容，不发送 Minecraft 游戏包。停止连接仅清理本地会话。" />
+        <Border Margin="0,15,0,10" Padding="12" CornerRadius="7"
+                Background="#142E38" BorderBrush="#36778B" BorderThickness="1">
+          <StackPanel>
+            <TextBlock Text="第十二阶段 12.3 · 本机游戏协议桥接"
+                       Foreground="#8AD9EC" FontWeight="Bold" />
+            <TextBlock TextWrapping="Wrap" Foreground="#BBD4DE" Margin="0,7,0,9"
+                       Text="可验证已嵌入的两个 Go 组件、跨进程大数据帧和停止清理。仅使用模拟数据，不读取账号 Cookie、不连接网易服务器，也不代表进入世界。" />
+            <Button x:Name="Stage12OfflineButton" Style="{StaticResource PrimaryButton}"
+                    HorizontalAlignment="Left" Click="Stage12Offline_Click"
+                    Content="运行 Stage 12.3 本机桥接自检（离线）" />
+            <TextBlock x:Name="Stage12OfflineStatusText" TextWrapping="Wrap"
+                       Foreground="#AAD5EC" Margin="0,8,0,0"
+                       Text="STAGE12_OFFLINE_BRIDGE_NOT_RUN：尚未运行本机游戏协议桥接自检。" />
+          </StackPanel>
+        </Border>
         <TextBlock x:Name="RealWebRTCStatusText" Foreground="#BFD5F4" TextWrapping="Wrap" Margin="0,8,0,0"
                    Text="WEBRTC_PROBE_NOT_RUN：未尝试与手机房主建立真实游戏传输。" />
         <TextBlock x:Name="RealJoinStatusText" Foreground="#BFD5F4" TextWrapping="Wrap"
