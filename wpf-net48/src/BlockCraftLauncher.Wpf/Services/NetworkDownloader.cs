@@ -1,8 +1,11 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,133 +13,235 @@ using BlockCraftLauncher.Wpf.Models;
 
 namespace BlockCraftLauncher.Wpf.Services
 {
-    /// <summary>Timeout, rate-limit, backup route and verified atomic writes.</summary>
+    /// <summary>
+    /// HTTP downloads with bounded connections, per-file locks, resumable
+    /// partial files, cryptographic validation and official/BMCLAPI fallback.
+    /// NetworkMode: official, mirror, auto. Unknown API endpoints remain official.
+    /// </summary>
     public sealed class NetworkDownloader : IDisposable
     {
+        private static readonly ConcurrentDictionary<string, SemaphoreSlim> OutputLocks =
+            new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
         readonly HttpClient http;
         readonly int attempts;
+        readonly LauncherConfig settings;
         public NetworkDownloader(LauncherConfig settings)
         {
-            var handler = new HttpClientHandler { AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate };
-            if (!string.IsNullOrWhiteSpace(settings.Proxy)) { handler.UseProxy = true; handler.Proxy = new WebProxy(settings.Proxy); }
-            http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(32) };
+            this.settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            var handler = new HttpClientHandler {
+                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
+                MaxConnectionsPerServer = Math.Max(2, Math.Min(32, settings.DownloadThreads))
+            };
+            if (!string.IsNullOrWhiteSpace(settings.Proxy))
+            {
+                handler.UseProxy = true;
+                handler.Proxy = new WebProxy(settings.Proxy);
+            }
+            http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(45) };
             http.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher-WPF/0.9.27");
             attempts = Math.Max(1, Math.Min(6, settings.DownloadRetries));
         }
+
         public static string MirrorMojangUri(string url)
         {
-            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps || !uri.IsDefaultPort || !string.IsNullOrEmpty(uri.UserInfo)) return null;
-            var path = uri.AbsolutePath;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+                uri.Scheme != Uri.UriSchemeHttps || !uri.IsDefaultPort ||
+                !string.IsNullOrEmpty(uri.UserInfo))
+                return null;
             string prefix;
             switch (uri.Host.ToLowerInvariant())
             {
-                case "piston-meta.mojang.com": case "launchermeta.mojang.com": case "launcher.mojang.com":
-                case "piston-data.mojang.com": prefix = ""; break;
+                case "piston-meta.mojang.com":
+                case "launchermeta.mojang.com":
+                case "launcher.mojang.com":
+                case "piston-data.mojang.com":
+                    prefix = ""; break;
                 case "libraries.minecraft.net": prefix = "/maven"; break;
                 case "resources.download.minecraft.net": prefix = "/assets"; break;
                 case "maven.fabricmc.net": prefix = "/maven"; break;
                 case "meta.fabricmc.net": prefix = "/fabric-meta"; break;
                 default: return null;
             }
-            return "https://bmclapi2.bangbang93.com" + prefix + path + uri.Query;
+            return "https://bmclapi2.bangbang93.com" + prefix + uri.AbsolutePath + uri.Query;
         }
+
+        public static IReadOnlyList<string> Routes(string official, string mode)
+        {
+            if (!Uri.TryCreate(official, UriKind.Absolute, out var uri) ||
+                uri.Scheme != Uri.UriSchemeHttps || uri.UserInfo.Length > 0 ||
+                !uri.IsDefaultPort) throw new ArgumentException("只允许标准 HTTPS 下载链接");
+            string mirror = MirrorMojangUri(official);
+            if (mirror == null || mode == "official") return new[] { official };
+            if (mode == "mirror") return new[] { mirror, official };
+            // Auto has a conservative official-first fallback for public CDN
+            // hosts; the source choice can be explicitly set by the user.
+            return new[] { official, mirror };
+        }
+
         public async Task<string> GetStringWithFallbackAsync(string officialUrl, string networkMode, CancellationToken ct)
         {
-            var mirror = MirrorMojangUri(officialUrl);
-            string[] candidates = networkMode == "official" || mirror == null ? new[] { officialUrl }
-                : networkMode == "mirror" ? new[] { mirror, officialUrl } : new[] { mirror, officialUrl };
             Exception last = null;
-            foreach (var url in candidates)
+            foreach (string url in Routes(officialUrl, networkMode))
             {
-                for (int i = 0; i < Math.Min(2, attempts); ++i)
+                for (int i = 0; i < Math.Min(2, attempts); i++)
                 {
                     ct.ThrowIfCancellationRequested();
                     try
                     {
-                        using (var response = await http.GetAsync(url, ct))
+                        using (var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct))
                         {
-                            if ((int)response.StatusCode == 429 || (int)response.StatusCode >= 500)
-                                throw new HttpRequestException("远端暂时不可用：" + response.StatusCode);
+                            if (TemporaryStatus(response.StatusCode))
+                                throw new HttpRequestException("线路暂时不可用：" + response.StatusCode);
                             response.EnsureSuccessStatusCode();
-                            return await response.Content.ReadAsStringAsync();
+                            var data = await response.Content.ReadAsStringAsync();
+                            if (data.Length > 12 * 1024 * 1024)
+                                throw new InvalidDataException("远端元数据超过大小限制");
+                            return data;
                         }
                     }
                     catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
                     {
                         if (ct.IsCancellationRequested) throw;
                         last = ex;
-                        if (i == 0) await Task.Delay(350, ct);
+                        if (i + 1 < Math.Min(2, attempts)) await Task.Delay(300 * (i + 1), ct);
                     }
                 }
             }
-            throw new IOException("全部下载线路失败。可更换下载模式或配置代理。", last);
+            throw new IOException("全部元数据下载线路均失败，请切换下载模式或检查代理。", last);
         }
-        public async Task DownloadVerifiedAsync(string url, string destination, string sha1, CancellationToken ct, IProgress<long> progress = null)
+
+        static bool TemporaryStatus(HttpStatusCode code) => (int)code == 429 || (int)code >= 500;
+        static bool ValidSha1(string sha) => sha != null && sha.Length == 40 && sha.All(Uri.IsHexDigit);
+
+        public Task DownloadVerifiedAsync(string url, string destination, string sha1,
+            CancellationToken ct, IProgress<long> progress = null)
         {
-            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
-                throw new ArgumentException("仅接受 HTTPS 下载链接");
-            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(destination)));
-            string temp = destination + ".part-" + Guid.NewGuid().ToString("N");
+            IProgress<DownloadBytes> converted = progress == null ? null :
+                new Progress<DownloadBytes>(info => progress.Report(info.Completed));
+            return DownloadVerifiedDetailedAsync(url, destination, sha1, ct, converted);
+        }
+
+        public async Task DownloadVerifiedDetailedAsync(string url, string destination, string sha1,
+            CancellationToken ct, IProgress<DownloadBytes> progress = null)
+        {
+            if (string.IsNullOrEmpty(sha1) || !ValidSha1(sha1))
+                throw new ArgumentException("下载文件必须具有有效的 SHA-1，用于防止损坏文件被安装");
+            string fullPath = Path.GetFullPath(destination);
+            Directory.CreateDirectory(Path.GetDirectoryName(fullPath));
+            var gate = OutputLocks.GetOrAdd(fullPath, _ => new SemaphoreSlim(1, 1));
+            await gate.WaitAsync(ct);
             try
             {
-                Exception last = null;
-                for (int attempt = 0; attempt < attempts; attempt++)
+                await TransferVerifiedAsync(url, fullPath, sha1, ct, progress);
+            }
+            finally { gate.Release(); }
+        }
+
+        async Task TransferVerifiedAsync(string url, string fullPath, string sha1,
+            CancellationToken ct, IProgress<DownloadBytes> progress)
+        {
+            string part = fullPath + ".blockcraft.part";
+            Exception last = null;
+            var routes = Routes(url, settings.NetworkMode);
+            foreach (var candidate in routes)
+            {
+                for (int retry = 0; retry < attempts; retry++)
                 {
                     ct.ThrowIfCancellationRequested();
                     try
                     {
-                        using (var response = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct))
+                        long offset = File.Exists(part) ? new FileInfo(part).Length : 0;
+                        if (offset > 1024L * 1024 * 1024 * 4)
                         {
-                            if ((int)response.StatusCode == 429 || (int)response.StatusCode >= 500)
+                            File.Delete(part);
+                            offset = 0;
+                        }
+                        using (var request = new HttpRequestMessage(HttpMethod.Get, candidate))
+                        {
+                            if (offset > 0) request.Headers.Range = new RangeHeaderValue(offset, null);
+                            using (var response = await http.SendAsync(request,
+                                HttpCompletionOption.ResponseHeadersRead, ct))
                             {
-                                int pause = response.Headers.RetryAfter?.Delta.HasValue == true ?
-                                    (int)response.Headers.RetryAfter.Delta.Value.TotalMilliseconds : 700 * (attempt + 1);
-                                throw new HttpRequestException("限流或服务故障：" + response.StatusCode + ", RetryAfterMs=" + Math.Max(0, Math.Min(6000, pause)));
-                            }
-                            response.EnsureSuccessStatusCode();
-                            using (var src = await response.Content.ReadAsStreamAsync())
-                            using (var dest = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 128 * 1024, true))
-                            {
-                                byte[] buffer = new byte[128 * 1024]; int count; long total = 0;
-                                while ((count = await src.ReadAsync(buffer, 0, buffer.Length, ct)) > 0)
+                                if (response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
                                 {
-                                    await dest.WriteAsync(buffer, 0, count, ct);
-                                    total += count; progress?.Report(total);
+                                    if (File.Exists(part)) File.Delete(part);
+                                    continue;
                                 }
+                                if (TemporaryStatus(response.StatusCode))
+                                {
+                                    var after = response.Headers.RetryAfter?.Delta;
+                                    int ms = after.HasValue ? (int)Math.Max(0, Math.Min(10000, after.Value.TotalMilliseconds)) : 0;
+                                    throw new RetryableHttpException("服务器繁忙：" + response.StatusCode, ms);
+                                }
+                                response.EnsureSuccessStatusCode();
+                                bool continued = offset > 0 &&
+                                    response.StatusCode == HttpStatusCode.PartialContent &&
+                                    response.Content.Headers.ContentRange?.From == offset;
+                                // If the CDN ignored the range request or the ETag changed,
+                                // replace the incomplete .part file rather than appending.
+                                if (!continued) offset = 0;
+                                long total = response.Content.Headers.ContentLength.HasValue
+                                    ? response.Content.Headers.ContentLength.Value + offset : 0;
+                                if (total > 4L * 1024 * 1024 * 1024)
+                                    throw new InvalidDataException("单文件超过 4 GiB 限制");
+                                using (var incoming = await response.Content.ReadAsStreamAsync())
+                                using (var output = new FileStream(part, offset > 0 ?
+                                    FileMode.Append : FileMode.Create, FileAccess.Write,
+                                    FileShare.None, 128 * 1024, true))
+                                {
+                                    byte[] buffer = new byte[128 * 1024];
+                                    long written = offset;
+                                    int count;
+                                    while ((count = await incoming.ReadAsync(buffer, 0, buffer.Length, ct)) > 0)
+                                    {
+                                        written += count;
+                                        if (written > 4L * 1024 * 1024 * 1024)
+                                            throw new InvalidDataException("下载大小超过安全限制");
+                                        await output.WriteAsync(buffer, 0, count, ct);
+                                        progress?.Report(new DownloadBytes(written, total));
+                                    }
+                                }
+                                if (total > 0 && new FileInfo(part).Length != total)
+                                    throw new IOException("下载未完成，保留断点续传临时文件");
                             }
                         }
-                        if (!string.IsNullOrWhiteSpace(sha1))
+                        string hash;
+                        using (var file = File.OpenRead(part))
+                        using (var sha = SHA1.Create())
+                            hash = BitConverter.ToString(sha.ComputeHash(file)).Replace("-", "");
+                        if (!hash.Equals(sha1, StringComparison.OrdinalIgnoreCase))
                         {
-                            using (var stream = File.OpenRead(temp))
-                            using (var hasher = SHA1.Create())
-                            {
-                                var hash = BitConverter.ToString(hasher.ComputeHash(stream)).Replace("-", "");
-                                if (!hash.Equals(sha1, StringComparison.OrdinalIgnoreCase)) throw new IOException("SHA-1 校验失败，已拒绝安装");
-                            }
+                            File.Delete(part);
+                            throw new InvalidDataException("SHA-1 校验失败，拒绝安装损坏资源");
                         }
-                        // Replacing only after validation avoids losing a good
-                        // existing JAR when the new transfer is corrupted.
-                        if (File.Exists(destination)) File.Replace(temp, destination, null, true);
-                        else File.Move(temp, destination);
+                        if (File.Exists(fullPath)) File.Replace(part, fullPath, null);
+                        else File.Move(part, fullPath);
                         return;
                     }
-                    catch (Exception ex) when (ex is IOException || ex is HttpRequestException || ex is TaskCanceledException)
+                    catch (Exception ex) when (ex is IOException || ex is HttpRequestException ||
+                                               ex is TaskCanceledException || ex is InvalidDataException)
                     {
                         if (ct.IsCancellationRequested) throw;
                         last = ex;
-                        if (attempt + 1 < attempts)
+                        if (retry + 1 < attempts)
                         {
-                            int backoff = 500 * (attempt + 1);
-                            var match = System.Text.RegularExpressions.Regex.Match(ex.Message, @"RetryAfterMs=(\d+)");
-                            if (match.Success && int.TryParse(match.Groups[1].Value, out int retryMs)) backoff = Math.Max(backoff, retryMs);
-                            await Task.Delay(Math.Min(6000, backoff), ct);
+                            int pause = ex is RetryableHttpException rate && rate.RetryAfterMs > 0
+                                ? rate.RetryAfterMs : Math.Min(6000, 400 * (1 << retry));
+                            await Task.Delay(pause, ct);
                         }
                     }
                 }
-                throw new IOException("资源下载失败", last);
             }
-            finally { if (File.Exists(temp)) File.Delete(temp); }
+            throw new IOException("所有下载线路重试后仍失败，请检查网络、代理或更换线路。", last);
         }
+
+        sealed class RetryableHttpException : HttpRequestException
+        {
+            public int RetryAfterMs { get; }
+            public RetryableHttpException(string message, int retryAfterMs) : base(message)
+            { RetryAfterMs = retryAfterMs; }
+        }
+
         public void Dispose() => http.Dispose();
     }
 }
