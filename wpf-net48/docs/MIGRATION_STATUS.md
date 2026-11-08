@@ -1,46 +1,37 @@
-# BlockCraft Launcher WPF · 迁移状态（阶段 2）
+# BlockCraft Launcher v0.9.26 → v0.9.27 WPF 功能对照（2026-11-08）
 
-**基线：** Python v0.9.26 IconFix；**目标：** C# + WPF + .NET Framework 4.8；**工程标识：** v0.9.27-WPF-alpha2。
+基准：v0.9.26 IconFix（Python/Tk + Go）；迁移目标：C#、WPF、.NET Framework 4.8、Windows x64。
 
-本项目仍为 **Alpha 源码工程**，不等于已经发布了全功能 WPF 客户端；未在真实 Windows 环境编译、登录、下载、启动过。不要移除旧版启动器。
+> 这里的“接入”表示源码实现并在 Windows CI 执行编译检查，不等于已完成 Windows 真机端到端测试。
+> WPF 预览继续使用独立的用户配置、账号缓存和模块数据文件。**不得覆盖 v0.9.26 稳定版。**
 
-| 原版功能 | 当前实现程度 | 验证和限制 |
+| 模块 | 当前迁移实现 | 仍需验证或继续开发 |
 |---|---|---|
-| WPF 主窗口、PCL2 风格、侧栏 | 已实现基础布局 | XML 与源码静态检查；未做 Windows 截图验收 |
-| 深色/蓝白主题、全局缩放 80–140% | 已实现基础机制 | WPF LayoutTransform；未做 Windows 高 DPI 验证 |
-| 读取旧配置与实例 | 已实现兼容读取 | WPF 预览写入独立 `settings.wpf-preview.json` |
-| Minecraft 原版安装与离线启动 | 已接入 CmlLib.Core | Windows 首次构建/运行未验证 |
-| **微软正版登录与静默续期** | **阶段 2 新增接入** | CmlLib.Core.Auth.Microsoft OAuth + Xbox + Minecraft；依赖 Windows WebView2；实际登录待测 |
-| **微软退出登录** | **阶段 2 新增接入** | 调用 SignoutWithBrowser；缓存独立于旧版，未测 WebView2 |
-| **Fabric / Quilt 安装** | **阶段 2 新增接入** | CmlLib.Core 自带安装器；版本兼容性及实际安装未测 |
-| **Forge / NeoForge 安装** | **阶段 2 新增接入** | CmlLib.Core.Installer.Forge 2.0.0；新/旧版本兼容性未测 |
-| 原版 + 加载器安装状态 | 已编写 | 安装完成后检查版本 JSON；取消操作不能中断第三方库当前阶段的下载 |
-| Modrinth 模组、光影下载 | 基础下载 + 阶段 2 校验改进 | 校验 MC 与 mod loader 匹配、SHA-1；尚未处理所有依赖 |
-| Modrinth / CurseForge 全部依赖和搜索 | 部分 / 未迁移 | CurseForge 直装、依赖图、授权、下载队列尚未移植 |
-| `.mrpack` 整合包 | 未迁移 | 安全解压与覆盖策略尚未实现 |
-| 自动模组更新、多人联机、更新器 | 未迁移 | 保留明确迁移提示，不提供空的“成功”回执 |
-| 中国大陆、海外网络优化 | 仅基础超时/重试/代理 | CmlLib 下载后端尚未统一国内镜像路由；两地真实网络验证未做 |
-| Windows EXE | **未交付** | 需在 Windows + Visual Studio 2022 + net48 Developer Pack 构建 |
+| PCL2 风格首页/侧边栏、深浅主题、80–140% 缩放 | 已接入 WPF | Windows 高 DPI / 多窗口回归测试 |
+| 启动器图标与 Windows x64 | 已接入 x64/PE 验证 | 实际 Windows 10/11 任务栏图标检查 |
+| 离线模式、微软账号、静默续期、退出 | CmlLib / WebView2 x64；用户反馈能使用新版登录入口 | 端到端账号身份、静默续期和退出验证；令牌加密 |
+| 原版 Minecraft / Fabric / Quilt / Forge / NeoForge 安装 | CmlLib 组件；支持 .mrpack 指定的加载器版本 | 各游戏版本真实安装、启动、取消与进度 |
+| 本地实例、存档备份和本地资源管理 | 本地扫描、导入、启用/停用 JAR / 光影 / 资源包 | 多实例路径一致性、兼容性、备份恢复 UI |
+| Modrinth 搜索、下载 | 已接入 API、兼容性和 SHA-1 验证 | 分页/分类/中文检索、模组自动依赖 |
+| **Modrinth 模组更新** | WPF 管理的资源登记、检查、更新、备份和回滚 | 批量失败续传与跨版本迁移实测 |
+| **Modrinth 整合包 .mrpack** | 搜索/下载/本地导入、限制解压、SHA-1/SHA-512、独立实例、固定加载器版本 | 联网安装完整整合包、客户端 override 冲突处理/恢复、兼容全量包 |
+| **CurseForge** | 可选 MCIM 搜索、JAR、必要依赖、SHA-1 和防覆盖 | MCIM 访问授权、文件 URL、真实下载、持久队列与更新管理 |
+| **多人联机** | 服务器收藏、TCP 连通性、直接进入服务器、UDP 局域网发现 | 游戏内直连实测、延迟/在线人数/历史、复杂 IPv6 |
+| **启动器更新** | 只读查询 GitHub Releases、打开官方页 | 校验下载更新包、回滚与自动替换未实现 |
+| 国内外自动线路/代理/多线程 | 保留基础路由和 WPF 代理设置 | CmlLib 安装器全面接入 Mojang/BMCLAPI 快速切换、运营商实测 |
+| 资源包、光影辅助组件、离线工具与诊断 | 基础文件管理与诊断 | Iris/Sodium 组合安装、网络测速与诊断导出、账户存档工具 |
+| Windows 构建 | GitHub Actions MSBuild x64，SHA-256、ZIP 打包 | Windows 真机 GUI / 实际下载、登录、启动回归 |
 
-## 新增依赖
+## 重要的安全边界
+- 不读取或公开旧版的 Microsoft 刷新令牌。
+- .mrpack 的文件名不能逃出新实例目录，限制大小，校验 SHA-1 与 SHA-512；发生失败不会登记实例。
+- 只自动更新 WPF 安装并登记的 Modrinth 资源，不猜测手动放入的 JAR。
+- CurseForge 使用可选 MCIM，必须在设置中主动启用，不绕过作者禁止下载的限制；不使用别人的 API Key。
+- 自动更新暂时为只读检查和手动下载，不自动执行不可信的 EXE。
 
-- `CmlLib.Core` 4.1.0 (netstandard2.0)
-- `CmlLib.Core.Auth.Microsoft` 3.4.0 (netstandard2.0)
-- `CmlLib.Core.Installer.Forge` 2.0.0 (netstandard2.0，包含新版 NeoForge 集成)
-- WebView2 Runtime：Microsoft 交互式登录依赖；不由 ZIP 自动提供。
-
-## 账号和存储安全
-
-- **不导入原 Python 启动器的登录令牌、密码或刷新令牌。** 仅导入玩家名称等非密钥字段。
-- WPF 预览自己的账户缓存路径：`%APPDATA%\BlockCraftLauncher\wpf-preview-auth\accounts.json`。CmlLib 提供的 JSON 账户管理器可能包含令牌，请勿上传、分享该文件或把它放入日志、ZIP、Git 仓库；使用 Windows 个人账户与系统文件权限保护此目录。
-- 若要完全退出，请使用 WPF 的“退出账号”，而不仅仅是关闭窗口。升级或卸载 Alpha 时可以删除预览账户缓存，旧 Python 客户端不会受影响。
-- 本阶段尚未实现 Windows DPAPI 对本地 OAuth 缓存加密；这应在正式版之前作为阻塞项修复。
-- WPF 与旧启动器使用相同 Minecraft 游戏目录：**不要同时进行同一实例的安装、更新或游戏启动**。
-
-## 下一阶段工作（发布正式版前必需）
-
-1. Windows CI/Visual Studio restore 和 build，修正真实 NuGet API 编译问题。
-2. Windows 双机实际登录/静默续期/登出（WebView2）、原版与各加载器完整安装与启动。
-3. 迁移 CurseForge、Modrinth 依赖与 `.mrpack`，下载失败诊断及哈希校验。
-4. 扩充中国大陆/海外分运营商、分 CDN 连通性测试和回退策略。
-5. 迁移多人联机、模组更新、诊断导出与自动更新；完成 UI 测试和安全审计。
+## 后续必须完成才能声称“与 v0.9.26 全功能等价”
+1. 真实 Windows 双机测试所有页面、登录、5 类加载器、下载/联机/整合包；对照旧版行为逐项验收。
+2. CmlLib 全部文件下载通过国内/海外自动镜像、并发优化与回退测试。
+3. CurseForge 后台下载队列、更新管理、整合包、浏览分类和授权兼容性；Modrinth 模组依赖图。
+4. Fabric 光影助手、实例维护、更新器安全安装/回滚、日志导出和主题缩放细节。
+5. 对微软账号令牌使用 Windows DPAPI 做加密存储，并完成审计。
