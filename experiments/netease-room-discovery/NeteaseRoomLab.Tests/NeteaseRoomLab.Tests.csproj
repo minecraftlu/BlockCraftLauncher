@@ -27,6 +27,12 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="..\NeteaseRoomLab\RoomConnectionMaterial.cs">
+      <Link>RoomConnectionMaterial.cs</Link>
+    </Compile>
+    <Compile Include="..\NeteaseRoomLab\RoomSessionPreflight.cs">
+      <Link>RoomSessionPreflight.cs</Link>
+    </Compile>
     <Compile Include="..\NeteaseRoomLab\RoomAdmissionSchema.cs">
       <Link>RoomAdmissionSchema.cs</Link>
     </Compile>
