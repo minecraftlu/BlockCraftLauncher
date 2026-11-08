@@ -18,6 +18,15 @@ namespace BlockCraftLauncher.Wpf.Services
         readonly LauncherConfig config;
         public MinecraftBackend(LauncherConfig config) { this.config = config; }
         MinecraftLauncher CreateLauncher() => new MinecraftLauncher(new MinecraftPath(config.Root));
+        MinecraftLauncher CreateLauncher(GameProfile profile)
+        {
+            // Imported modpacks have an isolated MinecraftPath, including versions and libraries.
+            // Legacy profiles continue using their shared Minecraft game root.
+            string version = string.IsNullOrWhiteSpace(profile.LaunchVersion) ? profile.BaseVersion : profile.LaunchVersion;
+            string metadata = Path.Combine(profile.Directory ?? "", "versions", version, version + ".json");
+            string root = File.Exists(metadata) ? profile.Directory : config.Root;
+            return new MinecraftLauncher(new MinecraftPath(root));
+        }
 
         public async Task<IReadOnlyList<string>> ListVersionsAsync()
         {
@@ -48,7 +57,7 @@ namespace BlockCraftLauncher.Wpf.Services
             if (!System.Text.RegularExpressions.Regex.IsMatch(username, "^[A-Za-z0-9_]{3,16}$"))
                 throw new InvalidOperationException("离线玩家名必须是 3～16 位英文字母、数字或下划线。");
             string id = string.IsNullOrWhiteSpace(profile.LaunchVersion) ? profile.BaseVersion : profile.LaunchVersion;
-            var launcher = CreateLauncher();
+            var launcher = CreateLauncher(profile);
             var server = string.IsNullOrWhiteSpace(serverAddress) ? null : MultiplayerService.ParseAddress(serverAddress);
             var process = await launcher.BuildProcessAsync(id, new MLaunchOption {
                 Session = MSession.CreateOfflineSession(username),
@@ -70,7 +79,7 @@ namespace BlockCraftLauncher.Wpf.Services
             if (session == null || string.IsNullOrWhiteSpace(session.AccessToken) || string.IsNullOrWhiteSpace(session.UUID))
                 throw new InvalidOperationException("请先完成微软正版登录，并确认 Minecraft Java 购买资格。");
             string version = string.IsNullOrWhiteSpace(profile.LaunchVersion) ? profile.BaseVersion : profile.LaunchVersion;
-            var launcher = CreateLauncher();
+            var launcher = CreateLauncher(profile);
             var server = string.IsNullOrWhiteSpace(serverAddress) ? null : MultiplayerService.ParseAddress(serverAddress);
             var process = await launcher.BuildProcessAsync(version, new MLaunchOption
             {
