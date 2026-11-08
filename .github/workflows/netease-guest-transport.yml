@@ -86,6 +86,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           msbuild "experiments/netease-room-discovery/NeteaseRoomLab/NeteaseRoomLab.csproj" /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU /v:minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # Windows PowerShell 5.1 uses the full .NET Framework runtime. pwsh 7
+      # runs on .NET Core and cannot Assembly.LoadFile a net48 WPF executable.
+      - name: Verify embedded Go probe and package unsigned WPF preview
+        shell: powershell
+        working-directory: .
+        run: |
           $exe = "experiments/netease-room-discovery/NeteaseRoomLab/bin/Release/BlockCraft.NeteaseRoomLab.exe"
           $asm = [System.Reflection.Assembly]::LoadFile((Resolve-Path $exe).Path)
           if (-not ($asm.GetManifestResourceNames() -contains "BlockCraft.JoinProbe.exe")) {
