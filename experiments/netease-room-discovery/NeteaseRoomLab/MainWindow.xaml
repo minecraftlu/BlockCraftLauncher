@@ -108,6 +108,9 @@
           <Button x:Name="EmailAuthButton" Margin="10,0,0,0" IsEnabled="False"
                   Style="{StaticResource PrimaryButton}" Click="EmailAuth_Click"
                   Content="启动网易邮箱登录（本机）" />
+          <Button x:Name="AuthDebugButton" Margin="10,0,0,0" IsEnabled="False"
+                  Style="{StaticResource SecondaryButton}" Click="CopyAuthDebug_Click"
+                  Content="复制认证诊断命令" />
           <Button x:Name="DeleteAuthButton" Margin="10,0,0,0"
                   Style="{StaticResource SecondaryButton}" Click="DeleteAuth_Click"
                   Content="删除本地 Cookie 文件" />
