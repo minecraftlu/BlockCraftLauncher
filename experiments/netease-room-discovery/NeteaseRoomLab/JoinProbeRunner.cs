@@ -405,7 +405,7 @@ namespace BlockCraft.NeteaseRoomLab
                         + " -helper \"" + Path.GetFullPath(helperPath) + "\""
                         + " -cookie \"" + cookie + "\""
                         + " -host-consent -try-join -timeout "
-                        + (105 + observationSeconds - 8).ToString(
+                        + (105 + (observationSeconds > 8 ? observationSeconds : 0)).ToString(
                             System.Globalization.CultureInfo.InvariantCulture) + "s -machine-json"
                         + " -cancel-on-stdin-close"
                         + (tryWebRTC ? " -try-webrtc -observe-seconds "
