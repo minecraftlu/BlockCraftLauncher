@@ -26,6 +26,7 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 ExpectNode(false, "node unexpected data", "{\"id\":9366}");
                 TestEmailAuthLaunchContract();
                 TestG79AuthConfigAndRedaction();
+                TestAdmissionResponseContract();
                 Console.WriteLine("Room/node parser and local email-helper safety tests passed. No network requests or credentials used.");
                 return 0;
             }
@@ -150,6 +151,62 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 throw new InvalidOperationException("Cross-platform mode mismatch classified as success.");
 
             Console.WriteLine("PASS: safe G79 config, field diagnostics and zero credential disclosure");
+        }
+
+        private static void TestAdmissionResponseContract()
+        {
+            const string room = "280474";
+            string fixture = RoomAdmissionSchema.SyntheticEnvelope();
+            string complete = RoomAdmissionSchema.Inspect(fixture, room);
+            if (!complete.Contains(RoomAdmissionSchema.CompleteStatus) ||
+                complete.Contains("SERVER_ROOM_ADMITTED") ||
+                complete.Contains("GAME_CONNECTED"))
+                throw new InvalidOperationException("Offline schema check claimed real admission.");
+
+            string offline = RoomAdmissionSchema.OfflineSelfTest(room);
+            if (!offline.Contains(RoomAdmissionSchema.BlockedStatus) ||
+                !offline.Contains(RoomAdmissionSchema.CompleteStatus))
+                throw new InvalidOperationException("Offline test did not mark provider unconfigured.");
+
+            if (!RoomAdmissionSchema.Inspect(fixture, "not-room")
+                    .Contains("ADMISSION_INPUT_ERROR") ||
+                !RoomAdmissionSchema.Inspect("bad-json", room)
+                    .Contains("ADMISSION_ENVELOPE_INVALID") ||
+                !RoomAdmissionSchema.Inspect(new string('x',
+                    RoomAdmissionSchema.MaxEnvelopeLength + 1), room)
+                    .Contains("ADMISSION_ENVELOPE_INVALID"))
+                throw new InvalidOperationException("Bad payload or room not rejected.");
+
+            var serializer = new System.Web.Script.Serialization.JavaScriptSerializer();
+            var fields = serializer.Deserialize<System.Collections.Generic.Dictionary<string, object>>(fixture);
+            fields["success"] = false;
+            fields["error_info"] = "PRIVATE_SERVER_ERROR_DO_NOT_EXPOSE";
+            string denied = RoomAdmissionSchema.Inspect(serializer.Serialize(fields), room);
+            if (!denied.Contains("ADMISSION_RESPONSE_REJECTED_UNVERIFIED") ||
+                denied.Contains("PRIVATE_SERVER_ERROR"))
+                throw new InvalidOperationException("Denied admission leaked remote error text.");
+
+            fields["success"] = true;
+            fields.Remove("signaling_ticket");
+            string missing = RoomAdmissionSchema.Inspect(serializer.Serialize(fields), room);
+            if (!missing.Contains("ADMISSION_ENVELOPE_INCOMPLETE") ||
+                !missing.Contains("signaling_ticket"))
+                throw new InvalidOperationException("Missing signaling ticket not detected.");
+
+            fields["signaling_ticket"] = "PRIVATE_SECRET_NOT_BASE64";
+            string invalid = RoomAdmissionSchema.Inspect(serializer.Serialize(fields), room);
+            if (!invalid.Contains("ADMISSION_ENVELOPE_INCOMPLETE") ||
+                invalid.Contains("PRIVATE_SECRET"))
+                throw new InvalidOperationException("Invalid ticket leaked a credential.");
+
+            fields["signaling_ticket"] = Convert.ToBase64String(new byte[16]);
+            fields["raknet_server_address"] = "malformed address";
+            string address = RoomAdmissionSchema.Inspect(serializer.Serialize(fields), room);
+            if (!address.Contains("ADMISSION_ENVELOPE_INCOMPLETE") ||
+                !address.Contains("raknet_server_address"))
+                throw new InvalidOperationException("Invalid RakNet address accepted.");
+
+            Console.WriteLine("PASS: TanLobby access envelope structure, gating and secret redaction");
         }
 
         private static void ExpectNode(bool shouldFind, string testName, string json)
