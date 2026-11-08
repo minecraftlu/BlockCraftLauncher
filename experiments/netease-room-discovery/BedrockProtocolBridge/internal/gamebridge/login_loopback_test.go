@@ -32,7 +32,7 @@ func pairMessages() (*messagePipe, *messagePipe) {
     b := make(chan []byte, 32)
     done := make(chan struct{})
     once := new(sync.Once)
-    return &messagePipe{a,b,done,once}, &messagePipe{b,a,done,once}
+    return &messagePipe{inbound:a,outbound:b,done:done,once:once}, &messagePipe{inbound:b,outbound:a,done:done,once:once}
 }
 
 func (p *messagePipe) ReadPacket() ([]byte, error) {
