@@ -286,7 +286,7 @@ namespace BlockCraft.NeteaseRoomLab
                     Arguments = "-room \"" + room + "\""
                         + " -helper \"" + Path.GetFullPath(helperPath) + "\""
                         + " -cookie \"" + cookie + "\""
-                        + " -host-consent -try-join -timeout 90s -machine-json"
+                        + " -host-consent -try-join -timeout 105s -machine-json"
                         + (tryWebRTC ? " -try-webrtc" : ""),
                     WorkingDirectory = Path.GetDirectoryName(localExecutable),
                     RedirectStandardOutput = true,
