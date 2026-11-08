@@ -29,29 +29,27 @@ jobs:
 
       - name: Build and test genuine RakNet guest probe (no network credentials)
         shell: pwsh
+        working-directory: experiments/netease-room-discovery/GuestTransportLab
         run: |
-          Push-Location "experiments/netease-room-discovery/GuestTransportLab"
-          try {
-            go mod tidy
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-            # This test MUST fail on the pinned unpatched dependency.
-            # It proves that the Stage10.4 fix really changes SCTP wire bytes.
-            go test -count=1 -run "^TestForkedSCTPInitHasStandardsCompliantCRC32cWireBytes$" ./internal/joinprobe
-            if ($LASTEXITCODE -eq 0) { throw "Unpatched dependency unexpectedly passed SCTP CRC32c test." }
+          # Negative-control: the exact pinned unpatched fork must emit bad CRC32.
+          go test -count=1 -run "^TestForkedSCTPInitHasStandardsCompliantCRC32cWireBytes$" ./internal/joinprobe
+          if ($LASTEXITCODE -eq 0) { throw "The unpatched fork unexpectedly produced RFC4960-compliant INIT." }
 
-            & "./tools/create-sctp-crc32c-overlay.ps1" -OutPath ".blockcraft/nethernet-fork"
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            go test -count=1 -timeout=90s ./internal/joinprobe
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            New-Item -ItemType Directory -Force "dist" | Out-Null
-            go build -trimpath -ldflags="-s -w" -o "dist/BlockCraft.JoinProbe.exe" ./cmd/joinprobe
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            if (-not (Test-Path "dist/BlockCraft.JoinProbe.exe")) {
-              throw "Embedded RakNet probe executable not found."
-            }
-          } finally {
-            Pop-Location
+          & "./tools/create-sctp-crc32c-overlay.ps1" -OutPath ".blockcraft/nethernet-fork"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path ".blockcraft/nethernet-fork/go.mod")) {
+            throw "Patched local fork directory not found in current Go module."
+          }
+          go test -count=1 -timeout=90s ./internal/joinprobe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force "dist" | Out-Null
+          go build -trimpath -ldflags="-s -w" -o "dist/BlockCraft.JoinProbe.exe" ./cmd/joinprobe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path "dist/BlockCraft.JoinProbe.exe")) {
+            throw "Embedded RakNet probe executable not found."
           }
 
       - name: Configure MSBuild
