@@ -381,6 +381,40 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 .Contains("JOIN_PROBE_IPC_SCHEMA_ERROR"))
                 throw new InvalidOperationException("Corrupt IPC payload was accepted.");
 
+            // Stage10: signaling auth is not yet a WebRTC connection and the
+            // game world must remain unjoined even if ICE/DTLS/SCTP succeed.
+            const string rtcSuccess = "{\"status\":\"WEBRTC_TRANSPORT_CONNECTED_GAME_NOT_JOINED\","
+                + "\"login_accepted\":true,\"room_admission_accepted\":true,"
+                + "\"host_ready_seen\":true,\"signaling_authenticated\":true,"
+                + "\"webrtc_transport_connected\":true,\"minecraft_world_joined\":false}";
+            const string sigFailed = "{\"status\":\"SIGNALING_CONNECTION_FAILED\","
+                + "\"login_accepted\":true,\"room_admission_accepted\":true,"
+                + "\"host_ready_seen\":true,\"signaling_authenticated\":false,"
+                + "\"webrtc_transport_connected\":false,\"minecraft_world_joined\":false}";
+            string rtcResult = JoinProbeRunner.ParseMachineOutput(prefix + rtcSuccess + "\n");
+            if (!rtcResult.Contains("WEBRTC_TRANSPORT_CONNECTED_GAME_NOT_JOINED")
+                || rtcResult.Contains("JOIN_PROBE_IPC_"))
+                throw new InvalidOperationException("Real WebRTC transport status not recognized.");
+            if (!JoinProbeRunner.ParseMachineOutput(prefix + sigFailed)
+                .Contains("SIGNALING_CONNECTION_FAILED"))
+                throw new InvalidOperationException("Signaling failure status was not recognized.");
+
+            string falsePositive = rtcSuccess.Replace(
+                "\"room_admission_accepted\":true", "\"room_admission_accepted\":false");
+            string missingTransport = rtcSuccess.Replace(
+                "\"webrtc_transport_connected\":true", "\"webrtc_transport_connected\":false");
+            string leaked = rtcSuccess.Substring(0,rtcSuccess.Length - 1)
+                + ",\"secret\":\"SENSITIVE_SIGNALING_TICKET\"}";
+            if (!JoinProbeRunner.ParseMachineOutput(prefix + falsePositive)
+                    .Contains("JOIN_PROBE_IPC_INCONSISTENT")
+                || !JoinProbeRunner.ParseMachineOutput(prefix + missingTransport)
+                    .Contains("JOIN_PROBE_IPC_INCONSISTENT")
+                || JoinProbeRunner.ParseMachineOutput(prefix + leaked)
+                    .Contains("SENSITIVE_SIGNALING_TICKET"))
+                throw new InvalidOperationException("WebRTC acceptance bypassed server admission or leaked secrets.");
+
+            Console.WriteLine("PASS: Stage10 signaling and WebRTC success/failure state validation");
+
             Console.WriteLine("PASS: versioned Stage9.1 machine IPC, strict flags and redaction");
         }
 
