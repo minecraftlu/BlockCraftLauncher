@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
@@ -20,10 +21,39 @@ namespace BlockCraft.NeteaseRoomLab
         private bool g79CheckRunning;
         private bool livePreflightRunning;
         private bool joinProbeRunning;
+        // All real room tests share this cancellation scope; it is never
+        // reused after completion and is cancelled when the window closes.
+        private CancellationTokenSource activeProbeCancellation;
 
         public MainWindow()
         {
             InitializeComponent();
+        }
+
+        protected override void OnClosing(CancelEventArgs e)
+        {
+            // Let Go receive stdin EOF and close RakNet, WebSocket and
+            // WebRTC before the WPF owner disappears; no forced loop.
+            if (activeProbeCancellation != null)
+                activeProbeCancellation.Cancel();
+            base.OnClosing(e);
+        }
+
+        private void CancelProbe_Click(object sender, RoutedEventArgs e)
+        {
+            var cancellation = activeProbeCancellation;
+            if (cancellation == null || !joinProbeRunning) return;
+            if (!cancellation.IsCancellationRequested)
+            {
+                cancellation.Cancel();
+                CancelProbeButton.IsEnabled = false;
+                if (RealWebRTCStatusText != null)
+                    RealWebRTCStatusText.Text =
+                        "LOCAL_PROBE_CANCELLING：已请求停止连接，正在等待本机探针释放会话。";
+                if (RealJoinStatusText != null)
+                    RealJoinStatusText.Text =
+                        "LOCAL_PROBE_CANCELLING：正在请求结束本机大厅连接。";
+            }
         }
 
         private async void Lookup_Click(object sender, RoutedEventArgs e)
@@ -121,6 +151,10 @@ namespace BlockCraft.NeteaseRoomLab
                     && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
                     && File.Exists(selectedAuthHelper)
                     && GuestEmailAuth.CredentialFileExists();
+            if (CancelProbeButton != null)
+                CancelProbeButton.IsEnabled = joinProbeRunning
+                    && activeProbeCancellation != null
+                    && !activeProbeCancellation.IsCancellationRequested;
             if (RealWebRTCButton != null)
                 RealWebRTCButton.IsEnabled = !joinProbeRunning && !livePreflightRunning
                     && !authHelperRunning && !g79CheckRunning && JoinProbeRunner.IsEmbedded
@@ -368,13 +402,15 @@ namespace BlockCraft.NeteaseRoomLab
             if (confirmation != MessageBoxResult.Yes) return;
 
             joinProbeRunning = true;
+            activeProbeCancellation = new CancellationTokenSource();
             UpdateAuthButtons();
             RealWebRTCStatusText.Text = "WEBRTC_PROBE_RUNNING："
                 + "正在申请真实大厅准入并尝试建立房主游戏传输连接。";
             try
             {
                 RealWebRTCStatusText.Text =
-                    await JoinProbeRunner.RunAsync(roomNumber, selectedAuthHelper, true);
+                    await JoinProbeRunner.RunAsync(roomNumber, selectedAuthHelper, true,
+                        activeProbeCancellation.Token);
             }
             catch (Exception)
             {
@@ -384,6 +420,11 @@ namespace BlockCraft.NeteaseRoomLab
             finally
             {
                 joinProbeRunning = false;
+                if (activeProbeCancellation != null)
+                {
+                    activeProbeCancellation.Dispose();
+                    activeProbeCancellation = null;
+                }
                 UpdateAuthButtons();
             }
         }
@@ -426,13 +467,15 @@ namespace BlockCraft.NeteaseRoomLab
             if (confirmation != MessageBoxResult.Yes) return;
 
             joinProbeRunning = true;
+            activeProbeCancellation = new CancellationTokenSource();
             UpdateAuthButtons();
             RealJoinStatusText.Text = "JOIN_PROBE_RUNNING：正在请求真实大厅登录/入房回执。"
                 + " 只尝试一次；测试期间请保持手机房间在线。";
             try
             {
                 RealJoinStatusText.Text =
-                    await JoinProbeRunner.RunAsync(roomNumber, selectedAuthHelper);
+                    await JoinProbeRunner.RunAsync(roomNumber, selectedAuthHelper, false,
+                        activeProbeCancellation.Token);
             }
             catch (Exception)
             {
@@ -442,6 +485,11 @@ namespace BlockCraft.NeteaseRoomLab
             finally
             {
                 joinProbeRunning = false;
+                if (activeProbeCancellation != null)
+                {
+                    activeProbeCancellation.Dispose();
+                    activeProbeCancellation = null;
+                }
                 UpdateAuthButtons();
             }
         }
