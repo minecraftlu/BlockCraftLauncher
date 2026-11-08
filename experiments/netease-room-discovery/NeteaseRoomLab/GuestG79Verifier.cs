@@ -100,6 +100,16 @@ namespace BlockCraft.NeteaseRoomLab
             if (uid && mode && platform && hasTokenLine)
                 return ReportSuccess;
 
+            // The published helper source appears to choose LoginG79 when the
+            // caller supplies auth_mode=g79. However, the real user's helper
+            // omitted auth_mode from its output. Preserve this as a separate
+            // evidence level, not as proof of G79 or lobby admission.
+            if (uid && platform && hasTokenLine && modeCategory == "missing")
+                return "PE_SESSION_REPORTED_MODE_UNCONFIRMED: 第三方助手报告了有效格式的"
+                    + " PE 平台用户会话信息，但没有返回可确认的 auth_mode 字段。"
+                    + " 不需要重复登录；不能据此声称已确认 G79 授权或进入网易房间。"
+                    + " 下一步需要合法的房间准入回执和授权信令资料。";
+
             // A safe field-presence report makes malformed/missing helper
             // output actionable without requiring users to disclose tokens.
             // No UID, token, nickname, email or raw stdout is copied here.
