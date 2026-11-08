@@ -84,7 +84,16 @@ namespace BlockCraft.NeteaseRoomLab
             { "WEBRTC_TRANSPORT_STABLE_8S_GAME_NOT_JOINED", "WebRTC 传输已成功建立，8 秒被动存活检查期间未发生断开；未发送 Minecraft 游戏包或进入世界。" },
             { "WEBRTC_EARLY_DISCONNECT_GAME_NOT_JOINED", "WebRTC 曾完成协商，但手机房主在稳定性检查期间断开；本次未判定稳定。" },
             { "WEBRTC_STABILITY_WINDOW_INTERRUPTED", "WebRTC 协商成功，但整体时限在稳定性检查结束前到达；尚不能判定稳定。" },
-            { "LOCAL_PROBE_CANCELLED", "本机用户已取消测试，探针释放连接；这不是网易服务器拒绝入房。" }
+            { "LOCAL_PROBE_CANCELLED", "本机用户已取消测试，探针释放连接；这不是网易服务器拒绝入房。" },
+            { "OBSERVATION_DURATION_INVALID", "被动观察仅支持 8、30 或 60 秒。" },
+            { "WEBRTC_CHANNEL_OBSERVER_UNAVAILABLE", "此 EXE 缺少两条数据通道的本地只读诊断模块。" },
+            { "WEBRTC_CHANNELS_NOT_OPEN_GAME_NOT_JOINED", "WebRTC 已协商，但观察结束时可靠和不可靠数据通道未同时处于 OPEN。" },
+            { "WEBRTC_CHANNELS_EARLY_CLOSED_GAME_NOT_JOINED", "观察期间房主传输断开，不能判定连接稳定。" },
+            { "WEBRTC_CHANNELS_OBSERVATION_INTERRUPTED", "观察时限中断，没有完成 30 或 60 秒测试。" },
+            { "WEBRTC_CHANNELS_OPEN_30S_NO_DATA_GAME_NOT_JOINED", "两条数据通道均为 OPEN；30 秒被动观察内没有收到应用消息。尚未进入世界。" },
+            { "WEBRTC_CHANNELS_OPEN_30S_DATA_OBSERVED_GAME_NOT_JOINED", "两条数据通道均为 OPEN；30 秒被动观察收到数据通道消息。尚未验证 Minecraft 游戏协议。" },
+            { "WEBRTC_CHANNELS_OPEN_60S_NO_DATA_GAME_NOT_JOINED", "两条数据通道均为 OPEN；60 秒被动观察内没有收到应用消息。尚未进入世界。" },
+            { "WEBRTC_CHANNELS_OPEN_60S_DATA_OBSERVED_GAME_NOT_JOINED", "两条数据通道均为 OPEN；60 秒被动观察收到数据通道消息。尚未验证 Minecraft 游戏协议。" }
         };
 
         public static bool IsEmbedded
@@ -165,6 +174,26 @@ namespace BlockCraft.NeteaseRoomLab
                         return "JOIN_PROBE_IPC_SCHEMA_ERROR：稳定性状态格式不正确。";
                     stable = (bool)optional;
                 }
+                bool reliableOpen = false, unreliableOpen = false;
+                long reliableMessages=0, unreliableMessages=0, reliableBytes=0, unreliableBytes=0;
+                long observedSeconds=0;
+                if (response.ContainsKey("reliable_channel_open")
+                    && !ReadBool(response, "reliable_channel_open", out reliableOpen))
+                    return "JOIN_PROBE_IPC_SCHEMA_ERROR：可靠通道状态格式错误。";
+                if (response.ContainsKey("unreliable_channel_open")
+                    && !ReadBool(response, "unreliable_channel_open", out unreliableOpen))
+                    return "JOIN_PROBE_IPC_SCHEMA_ERROR：不可靠通道状态格式错误。";
+                if ((response.ContainsKey("reliable_messages")
+                     && !ReadUIntBounded(response, "reliable_messages", 1000000, out reliableMessages))
+                    || (response.ContainsKey("unreliable_messages")
+                     && !ReadUIntBounded(response, "unreliable_messages", 1000000, out unreliableMessages))
+                    || (response.ContainsKey("reliable_bytes")
+                     && !ReadUIntBounded(response, "reliable_bytes", 1000000000, out reliableBytes))
+                    || (response.ContainsKey("unreliable_bytes")
+                     && !ReadUIntBounded(response, "unreliable_bytes", 1000000000, out unreliableBytes))
+                    || (response.ContainsKey("observation_seconds")
+                     && !ReadUIntBounded(response, "observation_seconds", 60, out observedSeconds)))
+                    return "JOIN_PROBE_IPC_SCHEMA_ERROR：被动统计字段不合法。";
                 if (stable && !rtc)
                     return "JOIN_PROBE_IPC_INCONSISTENT：稳定性标志缺少实际 WebRTC 连接。";
                 if ((signaling && !hostReady) || (rtc && !signaling))
@@ -203,11 +232,24 @@ namespace BlockCraft.NeteaseRoomLab
                     || status == "WEBRTC_SIGNALING_INTERRUPTED"
                     || status == "WEBRTC_PROBE_CANCELLED"
                     || status == "WEBRTC_EARLY_DISCONNECT_GAME_NOT_JOINED"
-                    || status == "WEBRTC_STABILITY_WINDOW_INTERRUPTED";
+                    || status == "WEBRTC_STABILITY_WINDOW_INTERRUPTED"
+                    || status == "WEBRTC_CHANNEL_OBSERVER_UNAVAILABLE"
+                    || status == "WEBRTC_CHANNELS_NOT_OPEN_GAME_NOT_JOINED"
+                    || status == "WEBRTC_CHANNELS_EARLY_CLOSED_GAME_NOT_JOINED"
+                    || status == "WEBRTC_CHANNELS_OBSERVATION_INTERRUPTED";
                 bool rtcComplete = status == "WEBRTC_TRANSPORT_CONNECTED_GAME_NOT_JOINED";
                 bool rtcStable = status == "WEBRTC_TRANSPORT_STABLE_8S_GAME_NOT_JOINED";
+                bool channels30 = status == "WEBRTC_CHANNELS_OPEN_30S_NO_DATA_GAME_NOT_JOINED"
+                    || status == "WEBRTC_CHANNELS_OPEN_30S_DATA_OBSERVED_GAME_NOT_JOINED";
+                bool channels60 = status == "WEBRTC_CHANNELS_OPEN_60S_NO_DATA_GAME_NOT_JOINED"
+                    || status == "WEBRTC_CHANNELS_OPEN_60S_DATA_OBSERVED_GAME_NOT_JOINED";
+                bool channelSuccess = channels30 || channels60;
+                bool dataObserved = status == "WEBRTC_CHANNELS_OPEN_30S_DATA_OBSERVED_GAME_NOT_JOINED"
+                    || status == "WEBRTC_CHANNELS_OPEN_60S_DATA_OBSERVED_GAME_NOT_JOINED";
+                bool noData = status == "WEBRTC_CHANNELS_OPEN_30S_NO_DATA_GAME_NOT_JOINED"
+                    || status == "WEBRTC_CHANNELS_OPEN_60S_NO_DATA_GAME_NOT_JOINED";
                 bool isPostAdmission = acceptedOnly || readyOnly || signalingError
-                    || pending || negotiationFailure || rtcComplete || rtcStable;
+                    || pending || negotiationFailure || rtcComplete || rtcStable || channelSuccess;
                 if ((acceptedOnly && (!login || !admitted || hostReady))
                     || (readyOnly && (!login || !admitted || !hostReady))
                     || (admitted && !isPostAdmission)
@@ -217,13 +259,31 @@ namespace BlockCraft.NeteaseRoomLab
                     || ((pending || negotiationFailure) && (!signaling || rtc))
                     || (rtcComplete && (!signaling || !rtc || stable))
                     || (rtcStable && (!signaling || !rtc || !stable))
-                    || (stable && !rtcStable)
-                    || (rtc && !rtcComplete && !rtcStable))
+                    || (channelSuccess && (!signaling || !rtc || !stable
+                        || !reliableOpen || !unreliableOpen
+                        || observedSeconds != (channels30 ? 30 : 60)))
+                    || (channelSuccess && (dataObserved != (reliableMessages > 0
+                        || unreliableMessages > 0)))
+                    || (channelSuccess && (noData != (reliableMessages == 0
+                        && unreliableMessages == 0)))
+                    || (!channelSuccess && (reliableOpen && unreliableOpen && stable
+                        && status != "WEBRTC_TRANSPORT_STABLE_8S_GAME_NOT_JOINED"))
+                    || (stable && !rtcStable && !channelSuccess)
+                    || (rtc && !rtcComplete && !rtcStable && !channelSuccess))
                     return "JOIN_PROBE_IPC_INCONSISTENT：服务器准入、信令和 WebRTC 状态不匹配。";
                 if (status == "TAN_LOGIN_ACCEPTED" && !login)
                     return "JOIN_PROBE_IPC_INCONSISTENT：服务器登录标记与状态不匹配。";
 
-                return ReportStatus(frame);
+                string safeStatus = ReportStatus(frame);
+                if (channelSuccess)
+                    safeStatus += Environment.NewLine
+                        + "被动观察：" + observedSeconds + " 秒；可靠通道 OPEN、不可靠通道 OPEN。"
+                        + Environment.NewLine
+                        + "收到的通道消息（不含内容）：可靠 " + reliableMessages
+                        + " 条 / " + reliableBytes + " 字节；不可靠 "
+                        + unreliableMessages + " 条 / " + unreliableBytes + " 字节。"
+                        + " 零条消息也不等于连接失败。";
+                return safeStatus;
             }
             catch (Exception)
             {
@@ -239,6 +299,19 @@ namespace BlockCraft.NeteaseRoomLab
                 return false;
             value = (bool)raw;
             return true;
+        }
+
+        private static bool ReadUIntBounded(Dictionary<string, object> response,
+            string key, long maximum, out long value)
+        {
+            value = 0;
+            object raw;
+            if (!response.TryGetValue(key, out raw) || raw == null)
+                return false;
+            if (!(raw is int) && !(raw is long))
+                return false;
+            value = Convert.ToInt64(raw, System.Globalization.CultureInfo.InvariantCulture);
+            return value >= 0 && value <= maximum;
         }
 
         public static string ReportStatus(string json)
