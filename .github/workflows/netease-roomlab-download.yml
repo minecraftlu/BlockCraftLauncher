@@ -40,13 +40,12 @@ jobs:
             go test -count=1 -run "^TestForkedSCTPInitHasStandardsCompliantCRC32cWireBytes$" ./internal/joinprobe
             if ($LASTEXITCODE -eq 0) { throw "Unpatched dependency unexpectedly passed SCTP CRC32c test." }
 
-            & "./tools/create-sctp-crc32c-overlay.ps1" -OutPath ".blockcraft/sctp-overlay.json"
+            & "./tools/create-sctp-crc32c-overlay.ps1" -OutPath ".blockcraft/nethernet-fork"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            $overlay = ".blockcraft/sctp-overlay.json"
-            go test -overlay=$overlay -count=1 -timeout=90s ./internal/joinprobe
+            go test -count=1 -timeout=90s ./internal/joinprobe
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             New-Item -ItemType Directory -Force "dist" | Out-Null
-            go build -overlay=$overlay -trimpath -ldflags="-s -w" -o "dist/BlockCraft.JoinProbe.exe" ./cmd/joinprobe
+            go build -trimpath -ldflags="-s -w" -o "dist/BlockCraft.JoinProbe.exe" ./cmd/joinprobe
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             if (-not (Test-Path "dist/BlockCraft.JoinProbe.exe")) {
               throw "Embedded RakNet probe executable not found."
