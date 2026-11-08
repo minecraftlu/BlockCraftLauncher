@@ -104,7 +104,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 hit.Name, Get(latest, "id"), filename, sha1);
             return destination;
         }
-        public async Task<string> DownloadModpackArchiveAsync(ResourceHit hit, string destination, CancellationToken ct)
+        public async Task<string> DownloadModpackArchiveAsync(ResourceHit hit, string destination, CancellationToken ct, IProgress<DownloadBytes> progress = null)
         {
             if (hit == null || hit.Kind != "modpack") throw new ArgumentException("请选择 Modrinth 整合包");
             if (string.IsNullOrWhiteSpace(hit.ProjectId)) throw new ArgumentException("整合包项目 ID 不正确");
@@ -126,7 +126,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out var uri) ||
                     uri.Scheme != Uri.UriSchemeHttps || uri.Host != "cdn.modrinth.com")
                     throw new InvalidDataException("整合包下载源不是可信 Modrinth CDN");
-                await network.DownloadVerifiedAsync(downloadUrl, destination, sha1, ct);
+                await network.DownloadVerifiedDetailedAsync(downloadUrl, destination, sha1, ct, progress);
                 return destination;
             }
             throw new IOException("没有找到可用的 .mrpack 文件");
