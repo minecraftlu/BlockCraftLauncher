@@ -58,6 +58,7 @@ namespace BlockCraft.NeteaseRoomLab
 
         private async void Lookup_Click(object sender, RoutedEventArgs e)
         {
+            if (joinProbeRunning) return;
             var number = (RoomIdBox.Text ?? "").Trim();
             var uidText = (UidBox.Text ?? "").Trim();
             uint uid;
@@ -95,13 +96,16 @@ namespace BlockCraft.NeteaseRoomLab
             finally
             {
                 BusyBar.Visibility = Visibility.Collapsed;
-                LookupButton.IsEnabled = true;
-                NodeLookupButton.IsEnabled = !string.IsNullOrEmpty(lastNodeId);
+                LookupButton.IsEnabled = !joinProbeRunning;
+                NodeLookupButton.IsEnabled = !joinProbeRunning
+                    && !string.IsNullOrEmpty(lastNodeId);
+                UpdateAuthButtons();
             }
         }
 
         private async void NodeLookup_Click(object sender, RoutedEventArgs e)
         {
+            if (joinProbeRunning) return;
             if (string.IsNullOrEmpty(lastNodeId))
             {
                 ShowResult("NODE_MAPPING_INCONCLUSIVE", "请先成功查询真实房间，再执行节点匹配。", false);
@@ -126,8 +130,10 @@ namespace BlockCraft.NeteaseRoomLab
             finally
             {
                 BusyBar.Visibility = Visibility.Collapsed;
-                LookupButton.IsEnabled = true;
-                NodeLookupButton.IsEnabled = !string.IsNullOrEmpty(lastNodeId);
+                LookupButton.IsEnabled = !joinProbeRunning;
+                NodeLookupButton.IsEnabled = !joinProbeRunning
+                    && !string.IsNullOrEmpty(lastNodeId);
+                UpdateAuthButtons();
             }
         }
 
@@ -139,6 +145,16 @@ namespace BlockCraft.NeteaseRoomLab
         private void UpdateAuthButtons()
         {
             if (EmailAuthButton == null || AuthConsentBox == null) return;
+            // Prevent the visible room number and node query from changing
+            // during the one expressly authorized real connection attempt.
+            if (RoomIdBox != null) RoomIdBox.IsEnabled = !joinProbeRunning;
+            if (UidBox != null) UidBox.IsEnabled = !joinProbeRunning;
+            bool queryAvailable = !joinProbeRunning &&
+                (BusyBar == null || BusyBar.Visibility != Visibility.Visible);
+            if (LookupButton != null) LookupButton.IsEnabled = queryAvailable;
+            if (NodeLookupButton != null)
+                NodeLookupButton.IsEnabled = queryAvailable &&
+                    !string.IsNullOrEmpty(lastNodeId);
             EmailAuthButton.IsEnabled = !joinProbeRunning && !livePreflightRunning && !authHelperRunning && !g79CheckRunning
                 && AuthConsentBox.IsChecked == true
                 && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
