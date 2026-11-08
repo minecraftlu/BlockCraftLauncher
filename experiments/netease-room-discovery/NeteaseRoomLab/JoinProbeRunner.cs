@@ -5,6 +5,7 @@ using System.IO;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 
@@ -274,11 +275,24 @@ namespace BlockCraft.NeteaseRoomLab
 
         public static Task<string> RunAsync(string room, string helperPath)
         {
-            return RunAsync(room, helperPath, false);
+            return RunAsync(room, helperPath, false, CancellationToken.None);
         }
 
-        public static async Task<string> RunAsync(string room, string helperPath, bool tryWebRTC)
+        public static Task<string> RunAsync(string room, string helperPath, bool tryWebRTC)
         {
+            return RunAsync(room, helperPath, tryWebRTC, CancellationToken.None);
+        }
+
+        // WPF owns a cancellation token for the entire guest-room session.
+        // On cancel it closes the child's stdin; the Go CLI then cancels its
+        // context, which releases helper, RakNet, signaling and WebRTC sockets.
+        // A bounded final kill is only a fallback for a stuck external helper.
+        public static async Task<string> RunAsync(
+            string room, string helperPath, bool tryWebRTC,
+            CancellationToken cancellationToken)
+        {
+            if (cancellationToken.IsCancellationRequested)
+                return "LOCAL_PROBE_CANCELLED：本机用户取消了测试。";
             if (String.IsNullOrWhiteSpace(room) || room.Length > 10)
                 return "JOIN_PROBE_INPUT_INVALID：房间号无效。";
             foreach (char c in room)
@@ -290,14 +304,16 @@ namespace BlockCraft.NeteaseRoomLab
                 return "JOIN_PROBE_NOT_READY：本机没有可用的第二账号认证组件或 Cookie 文件。";
             GuestEmailAuth.PreparePrivateWorkspace();
 
-            string localExecutable = null;
             Process process = null;
+            CancellationTokenRegistration registration = default(CancellationTokenRegistration);
             try
             {
-                localExecutable = ExtractVerifiedExecutable();
+                string localExecutable = ExtractVerifiedExecutable();
                 if (localExecutable == null)
-                    return "JOIN_PROBE_COMPONENT_UNAVAILABLE：当前 EXE 尚未嵌入真实 RakNet 探针。"
-                        + " 请下载 Stage9 专用发布版。";
+                    return "JOIN_PROBE_COMPONENT_UNAVAILABLE：当前 EXE 没有嵌入真实 RakNet 探针。"
+                        + " 请使用新的稳定版实验构建。";
+                if (cancellationToken.IsCancellationRequested)
+                    return "LOCAL_PROBE_CANCELLED：本机用户取消了测试。";
 
                 string cookie = GuestEmailAuth.GetCredentialFile();
                 var startInfo = new ProcessStartInfo
@@ -307,8 +323,10 @@ namespace BlockCraft.NeteaseRoomLab
                         + " -helper \"" + Path.GetFullPath(helperPath) + "\""
                         + " -cookie \"" + cookie + "\""
                         + " -host-consent -try-join -timeout 105s -machine-json"
+                        + " -cancel-on-stdin-close"
                         + (tryWebRTC ? " -try-webrtc" : ""),
                     WorkingDirectory = Path.GetDirectoryName(localExecutable),
+                    RedirectStandardInput = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     StandardOutputEncoding = new UTF8Encoding(false, true),
@@ -321,34 +339,75 @@ namespace BlockCraft.NeteaseRoomLab
                 if (!process.Start())
                     return "JOIN_PROBE_START_FAILED：无法启动本地 RakNet 探针。";
 
+                // Register after Start. Register synchronously closes the pipe
+                // when the token was already cancelled before registration.
+                registration = cancellationToken.Register(() => TryCloseInput(process));
                 Task<string> stdout = Task.Run(() => ReadCapped(process.StandardOutput, MaxStdout));
                 Task<string> stderr = Task.Run(() => ReadCapped(process.StandardError, 0));
                 Task exit = Task.Run(() => process.WaitForExit());
-                if (await Task.WhenAny(exit, Task.Delay(TimeoutMilliseconds)) != exit)
+                Task cancelTask = Task.Delay(Timeout.Infinite, cancellationToken);
+                Task completed = await Task.WhenAny(exit, Task.Delay(TimeoutMilliseconds), cancelTask);
+                if (completed != exit)
                 {
-                    try { process.Kill(); } catch (InvalidOperationException) { }
-                    try { await exit; } catch (Exception) { }
+                    // EOF first, to let Go close the lobby and child helper
+                    // itself. Do not forcibly kill until the 4-second grace
+                    // period has expired.
+                    TryCloseInput(process);
+                    bool stopped = await WaitForExitWithFallbackAsync(process, exit, 4000);
+                    if (!stopped)
+                        return "JOIN_PROBE_STOP_INCOMPLETE：本机子进程未能及时结束，请检查任务管理器。";
                     await Task.WhenAll(stdout, stderr);
-                    return "JOIN_PROBE_TIMEOUT：已终止长时间无响应的本地探针。";
+                    return completed == cancelTask
+                        ? "LOCAL_PROBE_CANCELLED：已请求取消并结束本机连接测试。"
+                        : "JOIN_PROBE_TIMEOUT：已终止超时的本机连接探针。";
                 }
+
                 await exit;
                 string result = await stdout;
                 await stderr;
-                // Stage 9.1 machine mode always exits 0 after emitting one
-                // status frame, including genuine denial. Failure to emit a
-                // well-formed frame is a distinct IPC error, not server denial.
+                if (cancellationToken.IsCancellationRequested)
+                    return "LOCAL_PROBE_CANCELLED：已请求取消并结束本机连接测试。";
                 if (process.ExitCode != 0)
-                    return "JOIN_PROBE_IPC_PROCESS_FAILURE：本机探针异常退出。未输出原始日志。";
+                    return "JOIN_PROBE_IPC_PROCESS_FAILURE：本机探针异常退出，原始日志已隐藏。";
                 return ParseMachineOutput(result);
             }
             catch (Exception)
             {
-                return "JOIN_PROBE_FAILED：本机网络探针异常，未显示任何登录凭据或原始日志。";
+                return "JOIN_PROBE_FAILED：本机探针异常，未显示账号凭据或原始日志。";
             }
             finally
             {
-                if (process != null) process.Dispose();
+                registration.Dispose();
+                if (process != null)
+                {
+                    TryCloseInput(process);
+                    process.Dispose();
+                }
             }
+        }
+
+        private static void TryCloseInput(Process process)
+        {
+            if (process == null) return;
+            try { process.StandardInput.Close(); }
+            catch (InvalidOperationException) { }
+            catch (ObjectDisposedException) { }
+            catch (System.IO.IOException) { }
+        }
+
+        private static async Task<bool> WaitForExitWithFallbackAsync(
+            Process process, Task exit, int gracefulMilliseconds)
+        {
+            if (await Task.WhenAny(exit, Task.Delay(gracefulMilliseconds)) != exit)
+            {
+                try { if (!process.HasExited) process.Kill(); }
+                catch (InvalidOperationException) { }
+                catch (System.ComponentModel.Win32Exception) { }
+                if (await Task.WhenAny(exit, Task.Delay(2000)) != exit)
+                    return false;
+            }
+            try { await exit; return true; }
+            catch (Exception) { return false; }
         }
 
         private static string ExtractVerifiedExecutable()
