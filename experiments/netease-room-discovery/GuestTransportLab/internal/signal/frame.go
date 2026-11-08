@@ -35,7 +35,7 @@ func (f Frame) Marshal() (string, error) {
     if f.ConnectionID == 0 {
         return "", errors.New("zero connection ID")
     }
-    if f.Data == "" || strings.ContainsAny(f.Data, "\x00\r") {
+    if f.Data == "" || strings.ContainsRune(f.Data, '\x00') {
         return "", errors.New("invalid signal payload")
     }
     result := fmt.Sprintf("%s %d %s", f.Kind, f.ConnectionID, f.Data)
@@ -61,7 +61,7 @@ func Parse(raw string) (Frame, error) {
     if err != nil || id == 0 {
         return Frame{}, errors.New("invalid connection ID")
     }
-    if strings.ContainsAny(parts[2], "\x00\r") {
+    if strings.ContainsRune(parts[2], '\x00') {
         return Frame{}, errors.New("invalid signal payload")
     }
     return Frame{Kind: kind, ConnectionID: id, Data: parts[2]}, nil
