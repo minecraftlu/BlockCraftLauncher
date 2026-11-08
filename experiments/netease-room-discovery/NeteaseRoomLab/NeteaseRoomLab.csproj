@@ -61,6 +61,10 @@
     <Compile Include="RoomAdmissionSchema.cs" />
     <Compile Include="RoomConnectionMaterial.cs" />
     <Compile Include="RoomSessionPreflight.cs" />
+    <Compile Include="JoinProbeRunner.cs" />
+    <EmbeddedResource Include="..\GuestTransportLab\dist\BlockCraft.JoinProbe.exe" Condition="Exists('..\GuestTransportLab\dist\BlockCraft.JoinProbe.exe')">
+      <LogicalName>BlockCraft.JoinProbe.exe</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
