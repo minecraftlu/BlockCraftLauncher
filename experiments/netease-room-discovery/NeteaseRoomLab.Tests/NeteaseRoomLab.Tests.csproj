@@ -27,6 +27,9 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="..\NeteaseRoomLab\RoomAdmissionSchema.cs">
+      <Link>RoomAdmissionSchema.cs</Link>
+    </Compile>
     <Compile Include="..\NeteaseRoomLab\GuestG79Verifier.cs">
       <Link>GuestG79Verifier.cs</Link>
     </Compile>
