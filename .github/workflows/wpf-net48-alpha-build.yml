@@ -25,6 +25,7 @@ jobs:
           python tests/check_phase2.py
           python tests/check_windows_packaging.py
           python tests/check_v0926_features.py
+          python tests/check_onefile.py
       - name: Restore, compile and package with Visual Studio MSBuild
         shell: cmd
         working-directory: wpf-net48
@@ -47,15 +48,37 @@ jobs:
             throw "WPF startup smoke test failed: exit code $($process.ExitCode)"
           }
           Write-Host 'PASS: WPF MainWindow initialized and CmlLib dependencies loaded'
+      - name: Smoke test single EXE payload extraction and startup
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.27-WPF-OneFile-Windows-x64.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--smoke-test' -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            $process.Kill()
+            throw 'Single-file startup smoke test timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/onefile/bootstrap-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 30 }
+            throw "Single-file startup smoke test failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: single EXE extracted, verified and started WPF MainWindow'
       - name: Check release artifact
         shell: pwsh
         working-directory: wpf-net48
         run: |
           if (!(Test-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe')) { throw 'EXE not produced' }
           if (!(Test-Path 'dist/BlockCraftLauncher-v0.9.27-WPF-net48-Alpha-Windows-x64.zip')) { throw 'ZIP not produced' }
+          if (!(Test-Path 'dist/BlockCraftLauncher-v0.9.27-WPF-OneFile-Windows-x64.exe')) { throw 'One-file EXE not produced' }
       - uses: actions/upload-artifact@v4
         with:
           name: BlockCraftLauncher-v0.9.27-WPF-net48-Windows-Alpha
-          path: wpf-net48/dist/BlockCraftLauncher-v0.9.27-WPF-net48-Alpha-Windows-x64.zip
+          path: |
+            wpf-net48/dist/BlockCraftLauncher-v0.9.27-WPF-net48-Alpha-Windows-x64.zip
+            wpf-net48/dist/BlockCraftLauncher-v0.9.27-WPF-OneFile-Windows-x64.exe
+            wpf-net48/dist/BlockCraftLauncher-v0.9.27-WPF-OneFile-Windows-x64.exe.sha256
           if-no-files-found: error
           retention-days: 14
