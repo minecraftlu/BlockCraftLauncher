@@ -145,10 +145,15 @@
         <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
           <Button x:Name="RealWebRTCButton" IsEnabled="False"
                   Style="{StaticResource PrimaryButton}" Click="RealWebRTC_Click"
-                  Content="第十阶段 10.4 · 修复 SCTP CRC32c 后连接手机房主（一次）" />
+                  Content="第十阶段 10.5 · 稳定连接手机房主（一次）" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+          <Button x:Name="CancelProbeButton" IsEnabled="False" Click="CancelProbe_Click"
+                  Content="停止连接测试并清理会话" Padding="16,9"
+                  Background="#8B3740" Foreground="White" BorderThickness="0" />
         </StackPanel>
         <TextBlock TextWrapping="Wrap" Foreground="#D5B682" Margin="0,5,0,0"
-                   Text="先完成真实服务器入房，再连接信令 WebSocket 并协商 ICE/DTLS/SCTP。只测试你自己的或获许可的房间；不会发送 Minecraft 游戏包。" />
+                   Text="先完成真实服务器入房，再连接信令 WebSocket 并协商 ICE/DTLS/SCTP。只测试你自己的或获许可的房间；不会发送 Minecraft 游戏包。取消将结束探针，不代表服务器已完成离房。" />
         <TextBlock x:Name="RealWebRTCStatusText" Foreground="#BFD5F4" TextWrapping="Wrap" Margin="0,8,0,0"
                    Text="WEBRTC_PROBE_NOT_RUN：未尝试与手机房主建立真实游戏传输。" />
         <TextBlock x:Name="RealJoinStatusText" Foreground="#BFD5F4" TextWrapping="Wrap"
