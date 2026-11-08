@@ -38,7 +38,10 @@ jobs:
       - name: Verify headerless NetherNet framing and local Bedrock handshake
         shell: pwsh
         run: |
-          go test -count=1 -timeout=90s ./...
+          go test -count=5 -timeout=120s ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Real race detection on the isolated mock game protocol session.
+          go test -race -count=1 -timeout=120s ./internal/gamebridge
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go vet ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
