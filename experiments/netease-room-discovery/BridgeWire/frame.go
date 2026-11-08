@@ -68,7 +68,12 @@ func ReadFrame(r io.Reader) (Frame, error) {
         return Frame{},ErrMalformed
     }
     b:=make([]byte,int(n))
-    if _,err:=io.ReadFull(r,b);err!=nil{return Frame{},err}
+    if _,err:=io.ReadFull(r,b);err!=nil {
+        // EOF after a valid non-empty frame header is a truncated packet,
+        // not a clean shutdown. Keep cancellation/EOF classification strict.
+        if errors.Is(err,io.EOF) {return Frame{},io.ErrUnexpectedEOF}
+        return Frame{},err
+    }
     return Frame{Kind:k,Payload:b},nil
 }
 
