@@ -47,6 +47,8 @@ type Request struct {
     AuthorizedByHost bool
     // AttemptWebRTC requires real lobby admission and a host-ready event.
     AttemptWebRTC bool
+    // Explicit, bounded 8/30/60-second post-WebRTC observation.
+    ObservationSeconds int
 }
 
 type Report struct {
@@ -58,6 +60,13 @@ type Report struct {
     SignalingAuthenticated bool `json:"signaling_authenticated"`
     WebRTCTransportConnected bool `json:"webrtc_transport_connected"`
     TransportStable bool `json:"transport_stable"`
+    ReliableChannelOpen bool `json:"reliable_channel_open"`
+    UnreliableChannelOpen bool `json:"unreliable_channel_open"`
+    ReliableMessages uint64 `json:"reliable_messages"`
+    UnreliableMessages uint64 `json:"unreliable_messages"`
+    ReliableBytes uint64 `json:"reliable_bytes"`
+    UnreliableBytes uint64 `json:"unreliable_bytes"`
+    ObservationSeconds int `json:"observation_seconds"`
     MinecraftWorldJoined bool `json:"minecraft_world_joined"`
     ModeConfirmed bool `json:"g79_mode_confirmed"`
     Detail string `json:"detail"`
@@ -372,7 +381,7 @@ func receivePacket(ctx context.Context, conn *raknet.Conn, dec *packet.Decoder) 
     }
 }
 
-func probeLobby(ctx context.Context, loginSession login, roomInfo room, node server, attemptWebRTC bool) Report {
+func probeLobby(ctx context.Context, loginSession login, roomInfo room, node server, attemptWebRTC bool, observationSeconds int) Report {
     address:=net.JoinHostPort(node.host,strconv.Itoa(int(node.port)))
     dialCtx,cancel:=context.WithTimeout(ctx,12*time.Second)
     defer cancel()
@@ -455,7 +464,7 @@ func probeLobby(ctx context.Context, loginSession login, roomInfo room, node ser
             report.Detail="房主连接标识格式无法用于 NetherNet 协商。"
             return report
         }
-        return probeWebRTC(ctx, loginSession, node, clientID, hostNetherID, report)
+        return probeWebRTC(ctx, loginSession, node, clientID, hostNetherID, report, observationSeconds)
     }
     return report
 }
@@ -488,7 +497,7 @@ func deriveSignalingCredential(token []byte) (seed []byte, ticket []byte, err er
 // TanNotifyServerReady. It uses the original local client NetherNetID, never
 // a synthetic room grant. No Minecraft gameplay packets are sent.
 func probeWebRTC(ctx context.Context, session login, node server,
-    clientNetherID uint64, hostNetherID uint64, result Report) Report {
+    clientNetherID uint64, hostNetherID uint64, result Report, observationSeconds int) Report {
     if node.signalingPort==0 {
         result.Status="SIGNALING_NODE_UNAVAILABLE"
         result.Detail="当前公开大厅节点列表没有可靠的 WebSocket 信令端口。"
@@ -510,7 +519,10 @@ func probeWebRTC(ctx context.Context, session login, node server,
     // terminate a legitimate SCTP retransmission series before its own
     // typed INIT ACK / COOKIE ACK failure became observable. Keep a finite
     // 70s budget for all phases under the explicit 105s process limit.
-    signalCtx,cancel:=context.WithTimeout(ctx,70*time.Second)
+    // Keep the known-good 8s path identical. For explicitly chosen 30/60s
+    // observation, expand both this and the outer process budget so a full
+    // passive window remains possible after legitimate WebRTC negotiation.
+    signalCtx,cancel:=context.WithTimeout(ctx,time.Duration(62+observationSeconds)*time.Second)
     defer cancel()
     serverAddress:=net.JoinHostPort(node.host,strconv.Itoa(int(node.signalingPort)))
     signalConn,err:= (signaling.Dialer{
@@ -552,6 +564,55 @@ func probeWebRTC(ctx context.Context, session login, node server,
         return result
     }
     defer rtc.Close()
+    // Stage11.1 is explicitly opt-in. The proven Stage10.5 8s path below
+    // remains unchanged when observationSeconds==8.
+    if observationSeconds == 30 || observationSeconds == 60 {
+        source,ok:=any(rtc).(channelObservationSource)
+        if !ok {
+            result.Status="WEBRTC_CHANNEL_OBSERVER_UNAVAILABLE"
+            result.Detail="构建时未包含本地只读数据通道诊断组件。"
+            return result
+        }
+        observed:=observeDataChannels(signalCtx,source,time.Duration(observationSeconds)*time.Second)
+        result.ObservationSeconds=observationSeconds
+        result.ReliableMessages=observed.reliableMessages
+        result.UnreliableMessages=observed.unreliableMessages
+        result.ReliableBytes=observed.reliableBytes
+        result.UnreliableBytes=observed.unreliableBytes
+        result.ReliableChannelOpen=observed.reliableOpen
+        result.UnreliableChannelOpen=observed.unreliableOpen
+        switch observed.outcome {
+        case stabilityRemoteClosed:
+            result.Status="WEBRTC_CHANNELS_EARLY_CLOSED_GAME_NOT_JOINED"
+            result.Detail="远端连接在通道观察阶段断开，没有把它误报为稳定连接。"
+        case stabilityCancelled:
+            if errors.Is(signalCtx.Err(),context.DeadlineExceeded) {
+                result.Status="WEBRTC_CHANNELS_OBSERVATION_INTERRUPTED"
+                result.Detail="观察期尚未完成时测试预算用尽。"
+            } else {
+                result.Status="WEBRTC_PROBE_CANCELLED"
+                result.Detail="本机主动结束了连接观察。"
+            }
+        default:
+            if !observed.reliableOpen || !observed.unreliableOpen {
+                result.Status="WEBRTC_CHANNELS_NOT_OPEN_GAME_NOT_JOINED"
+                result.Detail="WebRTC 协商曾成功，但观察结束时两条数据通道未同时处于 OPEN。"
+                return result
+            }
+            result.WebRTCTransportConnected=true
+            result.TransportStable=true
+            hasPackets:=observed.reliableMessages>0 || observed.unreliableMessages>0
+            if observationSeconds==30 {
+                if hasPackets { result.Status="WEBRTC_CHANNELS_OPEN_30S_DATA_OBSERVED_GAME_NOT_JOINED" 
+                } else { result.Status="WEBRTC_CHANNELS_OPEN_30S_NO_DATA_GAME_NOT_JOINED" }
+            } else {
+                if hasPackets { result.Status="WEBRTC_CHANNELS_OPEN_60S_DATA_OBSERVED_GAME_NOT_JOINED" 
+                } else { result.Status="WEBRTC_CHANNELS_OPEN_60S_NO_DATA_GAME_NOT_JOINED" }
+            }
+            result.Detail="可靠和不可靠数据通道均为 OPEN；仅被动观察消息计数，未发送 Minecraft 游戏包或进入世界。"
+        }
+        return result
+    }
     // A successful DialContext alone only proves that the transport was
     // constructed. Do not call it stable until both data channels have
     // survived a bounded passive observation window. The observer sends
@@ -580,6 +641,10 @@ func probeWebRTC(ctx context.Context, session login, node server,
 }
 
 func Run(ctx context.Context, req Request) Report {
+    if req.ObservationSeconds==0 {req.ObservationSeconds=8}
+    if req.ObservationSeconds!=8 && req.ObservationSeconds!=30 && req.ObservationSeconds!=60 {
+        return makeReport("OBSERVATION_DURATION_INVALID","只允许 8、30 或 60 秒的被动观察。")
+    }
     if !req.AuthorizedByHost{return makeReport("HOST_CONSENT_REQUIRED","只允许测试自己开设或获得房主明确允许的联机房间。")}
     if len(req.RoomID)<4 || len(req.RoomID)>10 {
         return makeReport("ROOM_ID_INVALID","请输入有效的数字房间号。")
@@ -601,5 +666,5 @@ func Run(ctx context.Context, req Request) Report {
     if err!=nil{return makeReport("LOBBY_NODE_LOOKUP_FAILED","无法读取网易公开大厅节点列表。")}
     node,err:=parseServerJSON(data,roomInfo.srv)
     if err!=nil{return makeReport("LOBBY_NODE_MAPPING_FAILED","无法可靠匹配当前房间的 RakNet 大厅节点。")}
-    return probeLobby(ctx,session,roomInfo,node,req.AttemptWebRTC)
+    return probeLobby(ctx,session,roomInfo,node,req.AttemptWebRTC,req.ObservationSeconds)
 }
