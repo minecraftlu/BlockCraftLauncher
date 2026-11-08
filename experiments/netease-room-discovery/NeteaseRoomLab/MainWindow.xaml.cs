@@ -167,6 +167,9 @@ namespace BlockCraft.NeteaseRoomLab
                     && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
                     && File.Exists(selectedAuthHelper)
                     && GuestEmailAuth.CredentialFileExists();
+            if (ObservationSecondsBox != null)
+                ObservationSecondsBox.IsEnabled = !joinProbeRunning
+                    && !livePreflightRunning && !authHelperRunning && !g79CheckRunning;
             if (CancelProbeButton != null)
                 CancelProbeButton.IsEnabled = joinProbeRunning
                     && activeProbeCancellation != null
@@ -400,6 +403,9 @@ namespace BlockCraft.NeteaseRoomLab
                 return;
             }
 
+            int observationSeconds = ObservationSecondsBox.SelectedIndex == 2 ? 60
+                : ObservationSecondsBox.SelectedIndex == 0 ? 8 : 30;
+
             var confirmation = MessageBox.Show(
                 "此测试会使用第二账号和当前房间号，向真实网易服务器执行一次"
                 + " RakNet 大厅登录、入房请求，并在服务器接受且房主就绪后"
@@ -408,8 +414,11 @@ namespace BlockCraft.NeteaseRoomLab
                 + "请确认这是你本人手机创建的房间或已获房主明确许可。"
                 + " 该实验使用非官方客户端协议，存在服务条款及账号限制风险。"
                 + Environment.NewLine + Environment.NewLine
-                + "探针仅测试连接，不发送 Minecraft 游戏数据包，不加载世界，"
-                + "结束后立即断开。它不会输出或上传 Cookie、token、信令票据、"
+                + "探针只被动观察 " + observationSeconds + " 秒内两条数据通道是否 OPEN、"
+                + "收到消息数量和字节数，不发送 Minecraft 游戏数据包，不加载世界。"
+                + "测试结束后关闭本地连接；这不保证服务器立即清除离线玩家。"
+                + Environment.NewLine
+                + "不会输出或上传 Cookie、token、信令票据、"
                 + "ICE 密码、网络 ID 或其他认证凭据。"
                 + Environment.NewLine + Environment.NewLine
                 + "确认开始一次真实手机房主 WebRTC 连接测试？",
@@ -426,7 +435,7 @@ namespace BlockCraft.NeteaseRoomLab
             {
                 RealWebRTCStatusText.Text =
                     await JoinProbeRunner.RunAsync(roomNumber, selectedAuthHelper, true,
-                        activeProbeCancellation.Token);
+                        observationSeconds, activeProbeCancellation.Token);
             }
             catch (Exception)
             {
