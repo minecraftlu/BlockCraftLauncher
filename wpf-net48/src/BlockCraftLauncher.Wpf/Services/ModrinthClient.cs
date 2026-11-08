@@ -22,8 +22,9 @@ namespace BlockCraftLauncher.Wpf.Services
     public sealed class ModrinthClient : IDisposable
     {
         readonly NetworkDownloader network;
+        readonly LauncherConfig settings;
         readonly JavaScriptSerializer json = new JavaScriptSerializer();
-        public ModrinthClient(LauncherConfig settings) { network = new NetworkDownloader(settings); }
+        public ModrinthClient(LauncherConfig settings) { this.settings = settings; network = new NetworkDownloader(settings); }
         public async Task<IReadOnlyList<ResourceHit>> SearchAsync(string query, string type, CancellationToken ct)
         {
             var endpoint = "https://api.modrinth.com/v2/search?limit=20&query=" + Uri.EscapeDataString(query ?? "")
@@ -78,6 +79,8 @@ namespace BlockCraftLauncher.Wpf.Services
                 throw new IOException("服务端没有提供有效的 SHA-1 校验值，已取消下载。");
             string destination = Path.Combine(profile.Directory, folder, filename);
             await network.DownloadVerifiedAsync(Get(file, "url"), destination, sha1, ct);
+            new ManagedModUpdateService(settings).Record(profile, hit.ProjectId, hit.Kind,
+                hit.Name, Get(latest, "id"), filename, sha1);
             return destination;
         }
         public async Task<string> DownloadModpackArchiveAsync(ResourceHit hit, string destination, CancellationToken ct)
