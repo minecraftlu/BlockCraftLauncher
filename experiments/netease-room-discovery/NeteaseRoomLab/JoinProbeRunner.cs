@@ -432,7 +432,8 @@ namespace BlockCraft.NeteaseRoomLab
                 Task<string> stderr = Task.Run(() => ReadCapped(process.StandardError, 0));
                 Task exit = Task.Run(() => process.WaitForExit());
                 Task cancelTask = Task.Delay(Timeout.Infinite, cancellationToken);
-                int timeoutMs = TimeoutMilliseconds + (observationSeconds - 8) * 1000;
+                int timeoutMs = TimeoutMilliseconds
+                    + (observationSeconds > 8 ? observationSeconds * 1000 : 0);
                 Task completed = await Task.WhenAny(exit, Task.Delay(timeoutMs), cancelTask);
                 if (completed != exit)
                 {
