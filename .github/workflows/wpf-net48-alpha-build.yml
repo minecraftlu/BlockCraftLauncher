@@ -26,6 +26,7 @@ jobs:
           python tests/check_windows_packaging.py
           python tests/check_v0926_features.py
           python tests/check_onefile.py
+          python tests/check_pcl_downloads.py
       - name: Restore, compile and package with Visual Studio MSBuild
         shell: cmd
         working-directory: wpf-net48
