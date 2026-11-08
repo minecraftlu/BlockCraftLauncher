@@ -141,7 +141,7 @@
                   Content="第九阶段 · 真实 RakNet 大厅登录并申请入房（一次）" />
         </StackPanel>
         <TextBlock TextWrapping="Wrap" Foreground="#D5B682" Margin="0,5,0,0"
-                   Text="此按钮会向网易服务器发送真实登录与入房请求。只对自己创建或已获得房主许可的房间使用；探针退出时会离开房间，尚不能加载游戏世界。" />
+                   Text="此按钮会向网易服务器发送真实登录与入房请求。只对自己创建或已获得房主许可的房间使用；探针结束时会关闭本地连接，但网易房间列表中的离线记录可能暂时保留；尚不能加载游戏世界。" />
         <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
           <Button x:Name="RealWebRTCButton" IsEnabled="False"
                   Style="{StaticResource PrimaryButton}" Click="RealWebRTC_Click"
