@@ -15,6 +15,24 @@ import (
     "github.com/sandertv/gophertunnel/minecraft"
 )
 
+// safeFixtureLog makes the diagnostics collector race-safe when the mock
+// server/client report errors from separate goroutines. It never handles real
+// credentials and is never enabled for the NetEase transport probe.
+type safeFixtureLog struct {
+    mu sync.Mutex
+    buffer bytes.Buffer
+}
+func (l *safeFixtureLog) Write(b []byte) (int,error) {
+    l.mu.Lock()
+    defer l.mu.Unlock()
+    return l.buffer.Write(b)
+}
+func (l *safeFixtureLog) String() string {
+    l.mu.Lock()
+    defer l.mu.Unlock()
+    return l.buffer.String()
+}
+
 // messagePipe creates an entirely in-memory message-oriented transport with
 // the same already-reassembled packet boundaries as NetherNet ReadPacket.
 // Unlike net.Pipe, it guarantees each Write stays one datagram.
@@ -103,7 +121,7 @@ func TestLocalBedrockHandshakeAcrossAttachedNetherNetFraming(t *testing.T) {
     clientPipe, serverPipe := pairMessages()
     defer clientPipe.Close()
     // Log only this synthetic fixture's local Bedrock errors to memory.
-    var fixtureLog bytes.Buffer
+    var fixtureLog safeFixtureLog
     safeLogger := slog.New(slog.NewTextHandler(&fixtureLog,nil))
     host := &gameHostListener{conn:make(chan net.Conn,1),done:make(chan struct{})}
     host.conn <- &PacketConn{PacketTransport:serverPipe}
