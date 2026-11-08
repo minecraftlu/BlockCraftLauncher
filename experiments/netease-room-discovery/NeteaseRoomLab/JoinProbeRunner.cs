@@ -390,8 +390,8 @@ namespace BlockCraft.NeteaseRoomLab
         {
             if (process == null) return;
             try { process.StandardInput.Close(); }
-            catch (InvalidOperationException) { }
             catch (ObjectDisposedException) { }
+            catch (InvalidOperationException) { }
             catch (System.IO.IOException) { }
         }
 
