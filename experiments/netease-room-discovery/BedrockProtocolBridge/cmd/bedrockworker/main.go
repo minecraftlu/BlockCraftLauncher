@@ -45,20 +45,17 @@ func run(r io.Reader,w io.Writer) error {
     if err!=nil{return err}
     if hello.Kind!=wire.Hello{return wire.ErrMalformed}
     if err:=wire.WriteFrame(w,wire.Frame{Kind:wire.Ready,Payload:hello.Payload});err!=nil{return err}
+    stream:=wire.NewPacketStream(r,w)
     for {
-        f,err:=wire.ReadFrame(r)
-        if err!=nil{return err}
-        switch f.Kind {
-        case wire.Data:
-            if err:=validateBatch(f.Payload);err!=nil{return err}
-            // A local-only echo proves binary packet boundaries survive
-            // both process pipes. It does not produce gameplay packets.
-            if err:=wire.WriteFrame(w,wire.Frame{Kind:wire.Data,Payload:f.Payload});err!=nil{return err}
-        case wire.Stop:
-            return wire.WriteFrame(w,wire.Frame{Kind:wire.Stopped})
-        default:
-            return wire.ErrMalformed
+        payload,err:=stream.ReadPacket()
+        if errors.Is(err,wire.ErrRemoteStop) {
+            return stream.AcknowledgeStop()
         }
+        if err!=nil{return err}
+        if err:=validateBatch(payload);err!=nil{return err}
+        // Still an offline-only echo, now over a persistent, ordered stream.
+        // Payloads are never logged or written to disk.
+        if err:=stream.SendPacket(payload);err!=nil{return err}
     }
 }
 
