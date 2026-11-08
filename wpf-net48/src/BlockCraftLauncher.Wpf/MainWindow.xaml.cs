@@ -26,6 +26,10 @@ namespace BlockCraftLauncher.Wpf
         readonly ObservableCollection<ResourceHit> resourceResults = new ObservableCollection<ResourceHit>();
         readonly Dictionary<string, Button> sidebarButtons = new Dictionary<string, Button>();
         readonly List<string> logs = new List<string>();
+        readonly MultiplayerService multiplayer = new MultiplayerService();
+        ComboBox localResourceKind;
+        ListBox localResourceList, serverList;
+        TextBox serverName, serverAddress;
         GameProfile activeProfile;
         string currentPage = "首页";
         ComboBox homeProfile, versionLoader, settingsTheme;
@@ -95,7 +99,7 @@ namespace BlockCraftLauncher.Wpf
             SideMenu.Children.Clear(); sidebarButtons.Clear();
             AddNavSection(SideMenu, "游戏", new[] { "首页", "游戏版本" }, Navigate, sidebarButtons);
             AddNavSection(SideMenu, "资源下载", new[] { "资源中心", "光影引擎", "整合包" }, Navigate, sidebarButtons);
-            AddNavSection(SideMenu, "管理与工具", new[] { "模组更新", "多人联机", "设置", "运行日志" }, Navigate, sidebarButtons);
+            AddNavSection(SideMenu, "管理与工具", new[] { "模组更新", "多人联机", "启动器更新", "设置", "运行日志" }, Navigate, sidebarButtons);
             SideMenu.Children.Add(Txt("当前账号", 12, true, true));
             SideMenu.Children.Add(Txt(settings.AccountMode == "offline" ? "离线：" + settings.OfflineName :
                 (settings.AccountMode == "microsoft" ? "微软正版：" + settings.AccountName : "未登录"), 13));
@@ -122,6 +126,7 @@ namespace BlockCraftLauncher.Wpf
                 case "整合包": PageHost.Content = BuildModpacks(); break;
                 case "模组更新": PageHost.Content = BuildModUpdates(); break;
                 case "多人联机": PageHost.Content = BuildMultiplayer(); break;
+                case "启动器更新": PageHost.Content = BuildLauncherUpdates(); break;
                 case "设置": PageHost.Content = BuildSettings(); break;
                 case "运行日志": PageHost.Content = BuildLogs(); break;
                 default: PageHost.Content = Txt("页面不存在"); break;
@@ -337,8 +342,178 @@ namespace BlockCraftLauncher.Wpf
                 Txt(details, 14, false, true), Txt("为保证存档和账户安全，此处不会运行未经迁移验证的下载/安装逻辑。", 12, false, true))));
         }
         UIElement BuildModpacks() => MigrationPanel("整合包", "Modrinth .mrpack 安全解压、依赖索引和 CurseForge 镜像安装仍需移植。");
-        UIElement BuildModUpdates() => MigrationPanel("模组更新", "需要移植已安装 JAR 哈希匹配、依赖图更新、停用/还原以及更新前备份。");
-        UIElement BuildMultiplayer() => MigrationPanel("多人联机", "需要移植服务器列表、局域网发现、延迟测试与历史记录；旧配置已保留。");
+
+        UIElement BuildModUpdates()
+        {
+            var root = Col(Txt("本地模组与资源管理", 24, true),
+                Txt("管理当前实例的模组、光影和资源包；仅操作用户选择的文件，不自动修改其他 JAR。在线模组版本更新仍在迁移中。", 12, false, true));
+            if (activeProfile == null) return Col(Txt("请先在首页选择游戏实例。"), Btn("返回首页", () => Navigate("首页")));
+            root.Children.Add(Txt("当前实例：" + activeProfile.Name));
+            localResourceKind = new ComboBox { ItemsSource = new[] { "模组", "光影", "资源包" }, SelectedIndex = 0,
+                Width = 200, HorizontalAlignment = HorizontalAlignment.Left };
+            localResourceKind.SelectionChanged += (sender, e) => RefreshLocalResourceList();
+            root.Children.Add(Row(Txt("类型"), localResourceKind));
+            localResourceList = new ListBox { Height = 370, Margin = new Thickness(0, 8, 0, 14) };
+            root.Children.Add(Card(localResourceList));
+            root.Children.Add(Card(Col(Txt("本地操作", 18, true),
+                Row(Btn("导入文件", ImportLocalResource, true),
+                    Btn("停用选中", () => ToggleLocalResource(false)),
+                    Btn("启用选中", () => ToggleLocalResource(true))),
+                Row(Btn("刷新列表", RefreshLocalResourceList),
+                    Btn("打开实例目录", OpenGameFolder)),
+                Txt("离线管理不等同于在线更新：自动版本匹配和更新前备份仍待完成。", 12, false, true))));
+            RefreshLocalResourceList();
+            return root;
+        }
+        void RefreshLocalResourceList()
+        {
+            if (localResourceList == null || localResourceKind == null || activeProfile == null) return;
+            try { localResourceList.ItemsSource = InstanceResourceService.List(activeProfile, Convert.ToString(localResourceKind.SelectedItem)); }
+            catch (Exception ex) { ShowError("读取本地资源失败", ex); }
+        }
+        void ImportLocalResource()
+        {
+            if (activeProfile == null || localResourceKind == null) return;
+            string kind = Convert.ToString(localResourceKind.SelectedItem);
+            var dialog = new OpenFileDialog
+            {
+                Filter = kind == "模组" ? "Minecraft 模组 (*.jar)|*.jar" : "Minecraft 资源 (*.zip)|*.zip",
+                Title = "选择要导入到当前实例的文件"
+            };
+            if (dialog.ShowDialog(this) != true) return;
+            try
+            {
+                string added = InstanceResourceService.Import(activeProfile, kind, dialog.FileName);
+                Status("导入完成：" + Path.GetFileName(added)); RefreshLocalResourceList();
+            }
+            catch (Exception ex) { ShowError("导入资源失败", ex); }
+        }
+        void ToggleLocalResource(bool enabled)
+        {
+            var item = localResourceList?.SelectedItem as LocalResourceItem;
+            if (activeProfile == null || item == null) { MessageBox.Show("请先选择要操作的本地文件"); return; }
+            try
+            {
+                InstanceResourceService.SetEnabled(activeProfile, Convert.ToString(localResourceKind.SelectedItem), item, enabled);
+                Status((enabled ? "已启用：" : "已停用：") + item.Name); RefreshLocalResourceList();
+            }
+            catch (Exception ex) { ShowError("操作本地资源失败", ex); }
+        }
+
+        UIElement BuildMultiplayer()
+        {
+            var root = Col(Txt("多人联机", 24, true), Txt("服务器收藏 · 可选 TCP 连通性检查 · 复制地址。游戏内仍需选择多人游戏连接。", 12, false, true));
+            serverList = new ListBox { Height = 270, Margin = new Thickness(0, 8, 0, 10) };
+            root.Children.Add(Card(serverList));
+            serverName = new TextBox { Width = 170, ToolTip = "收藏名称" };
+            serverAddress = new TextBox { Width = 310, ToolTip = "域名或 IP:端口" };
+            root.Children.Add(Card(Col(Txt("添加或编辑服务器", 17, true),
+                Row(Txt("名称"), serverName, Txt("地址"), serverAddress),
+                Row(Btn("保存服务器", SaveServer, true),
+                    Btn("删除选中", DeleteServer),
+                    Btn("复制地址", CopyServerAddress)),
+                Row(Btn("检查连通性", async () => await CheckServerAsync()),
+                    Btn("启动当前实例", async () => await LaunchAsync())),
+                Txt("连通性仅检查 TCP 端口，不能保证游戏版本/模组/正版要求匹配。", 12, false, true))));
+            serverList.SelectionChanged += (sender, args) =>
+            {
+                if (serverList.SelectedItem is ServerEntry selected)
+                {
+                    serverName.Text = selected.Name; serverAddress.Text = selected.Address;
+                }
+            };
+            RefreshServers();
+            return root;
+        }
+        void RefreshServers()
+        {
+            if (serverList == null) return;
+            try { serverList.ItemsSource = multiplayer.Load(); }
+            catch (Exception ex) { ShowError("读取服务器收藏失败", ex); }
+        }
+        void SaveServer()
+        {
+            if (serverName == null || serverAddress == null) return;
+            try
+            {
+                var list = multiplayer.Load();
+                var name = (serverName.Text ?? "").Trim();
+                var address = (serverAddress.Text ?? "").Trim();
+                var selected = serverList?.SelectedItem as ServerEntry;
+                var item = new ServerEntry { Name = name, Address = address };
+                if (selected != null)
+                {
+                    int i = list.FindIndex(x => x.Name == selected.Name && x.Address == selected.Address);
+                    if (i >= 0) list[i] = item;
+                    else list.Add(item);
+                }
+                else list.Add(item);
+                multiplayer.Save(list); RefreshServers(); Status("已保存服务器：" + name);
+            }
+            catch (Exception ex) { ShowError("保存服务器失败", ex); }
+        }
+        void DeleteServer()
+        {
+            var selected = serverList?.SelectedItem as ServerEntry;
+            if (selected == null) { MessageBox.Show("请先选择服务器"); return; }
+            if (MessageBox.Show("删除收藏的 " + selected.Name + "？", "确认删除",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            try
+            {
+                var list = multiplayer.Load();
+                list.RemoveAll(x => x.Name == selected.Name && x.Address == selected.Address);
+                multiplayer.Save(list); RefreshServers(); Status("已删除服务器：" + selected.Name);
+            }
+            catch (Exception ex) { ShowError("删除服务器失败", ex); }
+        }
+        void CopyServerAddress()
+        {
+            string address = serverAddress?.Text;
+            try
+            {
+                MultiplayerService.ParseAddress(address);
+                Clipboard.SetText(address.Trim());
+                Status("服务器地址已复制，请在 Minecraft 多人游戏中添加或连接。");
+            }
+            catch (Exception ex) { ShowError("复制服务器地址失败", ex); }
+        }
+        async Task CheckServerAsync()
+        {
+            string address = serverAddress?.Text;
+            try
+            {
+                Status("正在检测服务器连通性：" + address);
+                string result = await multiplayer.CheckReachabilityAsync(address, CancellationToken.None);
+                Status(result); MessageBox.Show(result, "服务器连通性", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex) { ShowError("服务器检测失败", ex); }
+        }
+        UIElement BuildLauncherUpdates()
+        {
+            var root = Col(Txt("启动器更新", 24, true),
+                Txt("仅从 minecraftlu/BlockCraftLauncher 官方 GitHub Releases 检查版本。不会自动下载、运行或覆盖启动器。", 13, false, true));
+            root.Children.Add(Card(Col(Txt("当前版本：v0.9.27 WPF Alpha", 18, true),
+                Txt("旧版 v0.9.26 IconFix 与 WPF Alpha 属不同架构，不应直接自动互相覆盖。", 12, false, true),
+                Btn("检查 GitHub 最新发布", async () => await CheckLauncherUpdateAsync(), true),
+                Btn("打开官方 Releases", () => LauncherReleaseService.OpenOfficialRelease("https://github.com/minecraftlu/BlockCraftLauncher/releases")))));
+            return root;
+        }
+        async Task CheckLauncherUpdateAsync()
+        {
+            try
+            {
+                Status("正在查询 GitHub Releases...");
+                var release = await new LauncherReleaseService().CheckAsync(settings, CancellationToken.None);
+                string message = (release.Newer ? "发现更新：" : "已查询最新发布：") + release.Version +
+                    "\n\n不同架构不可直接覆盖安装，请阅读发布说明后手动下载。\n\n" + release.Description;
+                Status("GitHub 最新版本：" + release.Version);
+                if (MessageBox.Show(message + "\n\n打开官方发布页？", "启动器更新",
+                        MessageBoxButton.YesNo, MessageBoxImage.Information) == MessageBoxResult.Yes)
+                    LauncherReleaseService.OpenOfficialRelease(release.Url);
+            }
+            catch (Exception ex) { ShowError("检查启动器更新失败", ex); }
+        }
+
         UIElement BuildSettings()
         {
             var root = Col(Txt("启动器设置", 24, true), Txt("配置单独保存为 WPF 预览文件，不覆盖旧启动器的 settings.json。", 12, false, true));
