@@ -66,3 +66,19 @@ https://github.com/XiaoXiao-2026Max/Opentransfer/actions/runs/38939141444
 该 2026-10-16 构建页面在查询时显示 success，Windows Artifact 名称为 `connect-Windows-amd64`。下载后应核对源码、签名（如果有）、哈希以及程序来源。GitHub Artifacts 可能需要登录，并可能过期。
 
 **不要**通过聊天、网盘或其他陌生来源索要或提交登录令牌与密码。本项目没有审核这些第三方二进制，也没有承诺账号风险为零。
+
+## Stage 5.1：外部认证助手退出失败时的诊断
+
+用户 Windows 实机截图显示 `AUTH_HELPER_EXITED_WITH_ERROR`，但没有任何外部助手终端错误详情。该状态只说明外部 `connect.exe` 进程退出码非 0，**不意味着密码错误，更不代表认证成功**。同一截图的 `LOCAL_PARSER_OK` 是模拟房间解析，与认证无关。
+
+WPF Stage 5.1 新增「复制认证诊断命令」按钮。在选择可信的 `connect.exe` 后点击该按钮，再在**已打开且保持显示的 PowerShell 窗口**粘贴并执行，避免登录助手报错时临时控制台直接关闭。
+
+复制命令包含：绝对路径、固定的 `-login -login-method email`、本地 cookie 输出位置、设备目录，以及输出 `AUTH_HELPER_EXIT_CODE`；不包含账户密码、短信验证码或 cookie/token 内容。所有账号交互仍只发生在助手自身。
+
+诊断范围：
+- 如果认证程序自身报错，应仅根据本地显示的错误码和**经过脱敏的**错误类别判断网络、平台拒绝、验证要求或其他问题；
+- **不采集 stdout/stderr**：第三方控制台日志可能含邮箱、cookie、sessionid、密钥、姓名或验证码，不能把原始日志自动写入 BlockCraft 诊断报告。
+- 不要在聊天、Issues、截屏或任何共享渠道公开密码、邮箱全称、验证码、Cookie、token、sessionid、身份证号和个人认证资料。
+- 真实账号授权必须遵循平台认证与实名要求，程序不绕过这些限制。
+
+该更新只改善认证报错可见性，仍未实现网易房间真实游客入房或游戏连接。
