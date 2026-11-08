@@ -25,6 +25,7 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 ExpectNode(false, "node bad JSON", "not-json");
                 ExpectNode(false, "node unexpected data", "{\"id\":9366}");
                 TestEmailAuthLaunchContract();
+                TestG79AuthConfigAndRedaction();
                 Console.WriteLine("Room/node parser and local email-helper safety tests passed. No network requests or credentials used.");
                 return 0;
             }
@@ -69,6 +70,41 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 throw new InvalidOperationException("Diagnostic command quoting or safety failed.");
 
             Console.WriteLine("PASS: email helper opt-in argument construction and unverified status handling");
+        }
+
+        private static void TestG79AuthConfigAndRedaction()
+        {
+            const string localCookiePath = @"C:\Users\tester\secure folder\cookie.json";
+            string config = GuestG79Verifier.BuildConfig(localCookiePath);
+            var settings = new System.Web.Script.Serialization.JavaScriptSerializer()
+                .Deserialize<System.Collections.Generic.Dictionary<string, object>>(config);
+            if ((string)settings["auth_mode"] != "g79" ||
+                (string)settings["cookie_file"] != localCookiePath ||
+                !object.Equals(settings["transfer"], true) ||
+                settings.ContainsKey("token") ||
+                settings.ContainsKey("password") ||
+                settings.ContainsKey("uid"))
+                throw new InvalidOperationException("Unsafe G79 probe configuration.");
+
+            string syntheticSensitiveOutput = "uid=10001\\nlogin_token=MOCK_SECRET_DO_NOT_PRINT\\n"
+                + "nickname=SENSITIVE_NAME\\nauth_mode=g79\\nplatform=2\\n";
+            string verdict = GuestG79Verifier.ClassifyResult(
+                0, syntheticSensitiveOutput.Replace("\\n", "\n"), false);
+            if (!verdict.Contains("G79_HELPER_LOGIN_ACCEPTED") ||
+                verdict.Contains("MOCK_SECRET") ||
+                verdict.Contains("SENSITIVE_NAME") ||
+                verdict.Contains("10001"))
+                throw new InvalidOperationException("G79 success classification leaked sensitive output.");
+
+            if (GuestG79Verifier.ClassifyResult(1, syntheticSensitiveOutput, false)
+                    .Contains("ACCEPTED") ||
+                GuestG79Verifier.ClassifyResult(0, "uid=1\\nauth_mode=x19\\nplatform=1", false)
+                    .Contains("ACCEPTED") ||
+                GuestG79Verifier.ClassifyResult(0, syntheticSensitiveOutput, true)
+                    .Contains("ACCEPTED"))
+                throw new InvalidOperationException("Invalid G79 status promoted to success.");
+
+            Console.WriteLine("PASS: safe G79 config, successful simulation and zero credential disclosure");
         }
 
         private static void ExpectNode(bool shouldFind, string testName, string json)
