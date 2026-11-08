@@ -169,7 +169,7 @@ namespace BlockCraftLauncher.OneFile
                     (baseName.Length == 4 &&
                      (baseName.StartsWith("COM", StringComparison.Ordinal) ||
                       baseName.StartsWith("LPT", StringComparison.Ordinal)) &&
-                     baseName[3] >= '1' && baseName[3] <= '9')
+                     baseName[3] >= '1' && baseName[3] <= '9'))
                     throw new InvalidDataException("资源包包含 Windows 保留文件名。");
             }
             return string.Join(Path.DirectorySeparatorChar.ToString(), parts);
