@@ -52,6 +52,9 @@ namespace BlockCraftLauncher.Wpf
         TextBlock accountText, zoomValue;
         Slider settingsZoom;
         string resourceType = "mod";
+        int resourcePage;
+        CheckBox resourceMatchVersion;
+        ComboBox resourceSort;
         CancellationTokenSource currentOperation;
         bool loadingVersions;
 
@@ -372,13 +375,28 @@ namespace BlockCraftLauncher.Wpf
 
         UIElement BuildResources(string type)
         {
-            resourceType = type; resourceResults.Clear();
+            resourceType = type; resourceResults.Clear(); resourcePage = 0;
             var title = type == "mod" ? "Modrinth 资源中心" : type == "shader" ? "光影引擎" : "资源包";
             var root = Col(Txt(title, 24, true), Txt("根据游戏实例筛选下载资源；文件按 SHA-1 校验，独立重试。", 12, false, true));
             resourceQuery = new TextBox { Width = 320 };
-            root.Children.Add(Row(resourceQuery, Btn("搜索", async () => await SearchResourcesAsync(), true)));
+            resourceMatchVersion = new CheckBox { Content = "匹配当前游戏版本与加载器",
+                IsChecked = activeProfile != null, VerticalAlignment = VerticalAlignment.Center };
+            resourceSort = new ComboBox { ItemsSource = new[] { "相关度", "下载量", "最近更新", "最新发布" },
+                SelectedIndex = 0, Width = 140 };
+            root.Children.Add(Row(resourceQuery, Btn("搜索", async () => { resourcePage = 0; await SearchResourcesAsync(); }, true)));
+            root.Children.Add(Row(resourceMatchVersion, Txt("排序"), resourceSort));
             resourceList = new ListBox { ItemsSource = resourceResults, Height = 390 };
             root.Children.Add(Card(resourceList));
+            root.Children.Add(Row(Btn("上一页", async () =>
+                {
+                    resourcePage = Math.Max(0, resourcePage - 1);
+                    await SearchResourcesAsync();
+                }),
+                Btn("下一页", async () =>
+                {
+                    resourcePage++;
+                    await SearchResourcesAsync();
+                })));
             root.Children.Add(Card(Col(Txt("资源安装", 18, true), Txt("选择资源后下载对应游戏版本文件", 12, false, true),
                 Row(Btn("安装到当前实例", async () => await InstallResourceAsync(), true),
                     Btn("查看下载任务", () => Navigate("下载管理")),
@@ -392,10 +410,15 @@ namespace BlockCraftLauncher.Wpf
             {
                 using (var client = new ModrinthClient(settings))
                 {
-                    var result = await client.SearchAsync(resourceQuery.Text, resourceType, CancellationToken.None);
+                    string sort = new[] { "relevance", "downloads", "updated", "newest" }
+                        [Math.Max(0, resourceSort?.SelectedIndex ?? 0)];
+                    bool compatible = resourceMatchVersion?.IsChecked == true;
+                    var result = await client.SearchAsync(resourceQuery.Text, resourceType,
+                        CancellationToken.None, compatible ? activeProfile?.BaseVersion : null,
+                        compatible ? activeProfile?.Loader : null, sort, resourcePage * 20);
                     resourceResults.Clear(); foreach (var item in result) resourceResults.Add(item);
                 }
-                Status("搜索结果：" + resourceResults.Count);
+                Status("搜索结果：第 " + (resourcePage + 1) + " 页，共 " + resourceResults.Count + " 项");
             }
             catch (Exception ex) { ShowError("搜索失败", ex); }
         }
