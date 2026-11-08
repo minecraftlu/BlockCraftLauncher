@@ -129,6 +129,14 @@
           <TextBlock Foreground="#A9BAD0" Margin="12,0,0,0" VerticalAlignment="Center"
                      Text="无真实准入服务，不读取 Cookie，也不连接手机。" />
         </StackPanel>
+        <StackPanel Orientation="Horizontal" Margin="0,11,0,0">
+          <Button x:Name="LivePreflightButton" IsEnabled="False"
+                  Style="{StaticResource PrimaryButton}" Click="LivePreflight_Click"
+                  Content="第八阶段 · 用第二账号预检真实房间连接参数（不入房）" />
+        </StackPanel>
+        <TextBlock x:Name="LivePreflightStatusText" Foreground="#BFD5F4"
+                   TextWrapping="Wrap" Margin="0,8,0,0"
+                   Text="LIVE_PREFLIGHT_NOT_RUN：尚未用第二账号查询当前真实房间及构造临时连接材料。" />
         <TextBlock x:Name="AdmissionStatusText" Foreground="#C4D0E5" Margin="0,8,0,0"
                    TextWrapping="Wrap" Text="ADMISSION_PROVIDER_NOT_CONFIGURED：尚未获取真实房间入场授权。" />
         <TextBlock x:Name="AuthStatusText" Foreground="#C4D0E5" Margin="0,9,0,0"
