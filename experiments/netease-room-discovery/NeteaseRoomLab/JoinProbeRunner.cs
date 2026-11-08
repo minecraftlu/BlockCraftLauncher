@@ -116,7 +116,6 @@ namespace BlockCraft.NeteaseRoomLab
                     || worldJoined || (admitted && !login) || (hostReady && !admitted))
                     return "JOIN_PROBE_IPC_INCONSISTENT：子进程状态标志不一致，未判定成功。";
 
-                string status = (string)statusObject;
                 bool signaling = false, rtc = false;
                 object optional;
                 if (response.TryGetValue("signaling_authenticated", out optional))
