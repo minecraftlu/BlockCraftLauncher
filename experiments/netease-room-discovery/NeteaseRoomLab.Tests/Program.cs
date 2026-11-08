@@ -484,6 +484,44 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                     throw new InvalidOperationException("Actual Go stdout failed C# IPC parser.");
             }
             Console.WriteLine("PASS: actual compiled Go EXE to .NET Framework UTF-8 Stage9.1 IPC");
+
+            // End-to-end local cancellation test: the real compiled helper
+            // waits for stdin EOF, releases its scope, and emits a single
+            // safe cancellation frame. No account, cookie or network is used.
+            var cancelInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = System.IO.Path.GetFullPath(exe),
+                Arguments = "-ipc-cancel-selftest -machine-json -cancel-on-stdin-close",
+                UseShellExecute = false,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                StandardOutputEncoding = new System.Text.UTF8Encoding(false, true),
+                StandardErrorEncoding = new System.Text.UTF8Encoding(false, true),
+                CreateNoWindow = true
+            };
+            using (var cancelled = System.Diagnostics.Process.Start(cancelInfo))
+            {
+                if (cancelled == null)
+                    throw new InvalidOperationException("Cannot launch local cancellation fixture.");
+                cancelled.StandardInput.Close();
+                if (!cancelled.WaitForExit(10000))
+                {
+                    cancelled.Kill();
+                    throw new InvalidOperationException("Go probe ignored WPF stdin EOF.");
+                }
+                if (cancelled.ExitCode != 0)
+                    throw new InvalidOperationException("Go probe cancellation fixture failed.");
+                string cancellationResult = JoinProbeRunner.ParseMachineOutput(
+                    cancelled.StandardOutput.ReadToEnd());
+                if (!cancellationResult.Contains("LOCAL_PROBE_CANCELLED")
+                    || cancellationResult.Contains("JOIN_PROBE_IPC_"))
+                    throw new InvalidOperationException(
+                        "Windows Go-to-WPF cancellation IPC returned an unsafe result.");
+                if (cancelled.StandardError.ReadToEnd().Length > 0)
+                    throw new InvalidOperationException("Cancellation fixture printed unexpected stderr.");
+            }
+            Console.WriteLine("PASS: compiled Go probe exits cleanly on WPF stdin EOF without networking");
         }
 
         private static void ExpectNode(bool shouldFind, string testName, string json)
