@@ -80,6 +80,34 @@ namespace BlockCraftLauncher.Wpf.Services
             await network.DownloadVerifiedAsync(Get(file, "url"), destination, sha1, ct);
             return destination;
         }
+        public async Task<string> DownloadModpackArchiveAsync(ResourceHit hit, string destination, CancellationToken ct)
+        {
+            if (hit == null || hit.Kind != "modpack") throw new ArgumentException("请选择 Modrinth 整合包");
+            if (string.IsNullOrWhiteSpace(hit.ProjectId)) throw new ArgumentException("整合包项目 ID 不正确");
+            string url = "https://api.modrinth.com/v2/project/" + Uri.EscapeDataString(hit.ProjectId) + "/version";
+            var data = await network.GetStringWithFallbackAsync(url, "official", ct);
+            var versions = json.DeserializeObject(data) as object[];
+            if (versions == null || versions.Length == 0) throw new IOException("整合包没有可用版本");
+            foreach (var version in versions.OfType<Dictionary<string, object>>())
+            {
+                var files = version.TryGetValue("files", out var f) ? f as object[] : null;
+                var archive = files?.OfType<Dictionary<string, object>>().FirstOrDefault(x =>
+                    Get(x, "filename").EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase));
+                if (archive == null) continue;
+                var fields = archive.TryGetValue("hashes", out var rawHash) ? rawHash as Dictionary<string, object> : null;
+                string sha1 = fields == null ? "" : Get(fields, "sha1");
+                if (sha1.Length != 40 || !sha1.All(Uri.IsHexDigit))
+                    throw new InvalidDataException("整合包索引缺少有效 SHA-1 哈希");
+                string downloadUrl = Get(archive, "url");
+                if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out var uri) ||
+                    uri.Scheme != Uri.UriSchemeHttps || uri.Host != "cdn.modrinth.com")
+                    throw new InvalidDataException("整合包下载源不是可信 Modrinth CDN");
+                await network.DownloadVerifiedAsync(downloadUrl, destination, sha1, ct);
+                return destination;
+            }
+            throw new IOException("没有找到可用的 .mrpack 文件");
+        }
+
         public void Dispose() => network.Dispose();
     }
 }
