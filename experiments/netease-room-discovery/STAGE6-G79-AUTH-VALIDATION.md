@@ -59,3 +59,21 @@ Stage 6.1 不尝试获取原始 `-dump-auth` 文本，因为它包含真实 `log
 只要四项条件未同时满足，就维持 `G79_CHECK_INCONCLUSIVE`，不以退出码 0 自动判断成功。Windows CI 增加了模拟字段不全、输出格式差异以及无 token 泄漏测试。
 
 用户安装 Stage 6.1 后只需要使用原账号 Cookie，再点击一次「验证第二账号 g79 游戏授权（只检查，不入房）」，只提供这四个布尔状态即可；无需重新登录、复制原始输出或上传 Cookie。未完成真正的六位数网易手机联机房间授权/入房与游戏连接。
+
+
+## Stage 6.2：平台标记已满足，但 g79 模式标记未匹配
+
+Windows 用户截图的**真实本机状态**为：
+
+- `uid_valid=yes`
+- `auth_mode_g79=no`
+- `platform_pe=yes`
+- `token_present=yes`
+
+含义：第三方认证助手返回 UID、PE 平台编号与非空登录凭据字段，但不满足本地对 `auth_mode=g79` 的严格判断，因此**不得视为真实 G79 认证通过，更没有进入网易手机房间**。
+
+从已公开的 Opentransfer 源码看，`connect.exe -dump-auth` 打印 `auth_mode`；`LoginWithCookie(..., "g79")` 会调用 `LoginG79`，并将对应模式放入返回字段。按这一实现，本地生成的配置 `auth_mode=g79` 应使输出与验证器一致。但用户所运行的实际二进制及其输出细节未经独立观测，所以本阶段不能判定原因；可能是具体程序版本、输出格式、缺失字段或模式不匹配。
+
+Stage 6.2 在原四项布尔标记之外，新增**固定值分类** `mode_category`：仅为 `g79`、`x19`、`auto`、`other` 或 `missing`，永不回显第三方原始字段值。即使遇到未知文字或敏感内容，也只显示 `other`。仅当严格 `g79` 条件全部满足才显示 `G79_HELPER_LOGIN_ACCEPTED`；否则保留 `INCONCLUSIVE`。
+
+不要求用户执行会把真实 `login_token` 打印在终端的 `-dump-auth`；无需发 Cookie、用户 ID、邮箱或令牌。新增离线测试覆盖缺失字段、x19 模式、未知模式及 token 不泄漏。
