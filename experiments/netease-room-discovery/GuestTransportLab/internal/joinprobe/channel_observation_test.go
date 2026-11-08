@@ -111,3 +111,16 @@ func TestStage11PassiveChannelObservation(t *testing.T) {
         if result.outcome!=stabilityCancelled {t.Fatal("cancelled session reported stable")}
     })
 }
+
+func TestStage11ObservationSecondsRejectedBeforeAnyNetwork(t *testing.T) {
+    result:=Run(context.Background(),Request{
+        RoomID:"643871",
+        AuthorizedByHost:true,
+        AttemptWebRTC:true,
+        ObservationSeconds:19,
+    })
+    if result.Status!="OBSERVATION_DURATION_INVALID" || result.LoginAccepted ||
+       result.RoomAdmissionAccepted || result.WebRTCTransportConnected {
+        t.Fatalf("unexpected observation request left offline safety gate: %+v",result)
+    }
+}
