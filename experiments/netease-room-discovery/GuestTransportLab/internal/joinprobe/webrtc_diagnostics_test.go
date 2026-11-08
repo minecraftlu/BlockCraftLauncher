@@ -8,6 +8,8 @@ import (
     "strings"
     "testing"
     "time"
+
+    "github.com/pion/sctp"
 )
 
 func TestWebRTCPhaseClassifierUsesOnlyFixedLabels(t *testing.T) {
@@ -27,6 +29,12 @@ func TestWebRTCPhaseClassifierUsesOnlyFixedLabels(t *testing.T) {
         {"ice_failure", nil, errors.New("start transports: start ICE: SECRET_HOST_IP"), "WEBRTC_ICE_CONNECT_FAILED"},
         {"dtls_failure", nil, errors.New("start transports: start DTLS: SECRET_TOKEN"), "WEBRTC_DTLS_HANDSHAKE_FAILED"},
         {"sctp_failure", nil, errors.New("start transports: start SCTP: SECRET_TOKEN"), "WEBRTC_SCTP_HANDSHAKE_FAILED"},
+        {"sctp_init_ack_not_received", nil, fmt.Errorf("start transports: start SCTP: %w",sctp.ErrHandshakeInitAck), "WEBRTC_SCTP_INIT_ACK_NOT_RECEIVED"},
+        {"sctp_cookie_ack_not_received", nil, fmt.Errorf("start transports: start SCTP: %w",sctp.ErrHandshakeCookieEcho), "WEBRTC_SCTP_COOKIE_ACK_NOT_RECEIVED"},
+        {"sctp_assoc_closed_before_ready", nil, fmt.Errorf("start transports: start SCTP: %w",sctp.ErrAssociationClosedBeforeConn), "WEBRTC_SCTP_ASSOCIATION_CLOSED"},
+        {"sctp_assoc_closed_after_connect", nil, fmt.Errorf("start transports: start SCTP: %w",sctp.ErrAssociationClosed), "WEBRTC_SCTP_ASSOCIATION_CLOSED"},
+        {"sctp_deadline_wrapped", func(o *webRTCObservation){o.phase.Store(4)}, fmt.Errorf("start transports: start SCTP: %w",context.DeadlineExceeded), "WEBRTC_SCTP_HANDSHAKE_TIMEOUT"},
+        {"ice_deadline_wrapped", func(o *webRTCObservation){o.phase.Store(2)}, fmt.Errorf("start transports: start ICE: %w",context.DeadlineExceeded), "WEBRTC_ICE_CONNECT_TIMEOUT"},
         {"channel_failure", nil, errors.New("start transports: create ReliableDataChannel: SECRET"), "WEBRTC_DATA_CHANNEL_FAILED"},
         {"offer_failure", nil, errors.New("signal offer: SECRET_SDPS"), "WEBRTC_OFFER_SEND_FAILED"},
         {"candidate_failure", nil, errors.New("signal candidate: 192.168.1.100"), "WEBRTC_CANDIDATE_SEND_FAILED"},
