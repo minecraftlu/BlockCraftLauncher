@@ -2,6 +2,8 @@ package gamebridge
 
 import (
     "context"
+    "bytes"
+    "log/slog"
     "errors"
     "io"
     "net"
@@ -95,10 +97,14 @@ func (n *localHostNetwork) Listen(string)(minecraft.NetworkListener,error){retur
 func TestLocalBedrockHandshakeAcrossAttachedNetherNetFraming(t *testing.T) {
     clientPipe, serverPipe := pairMessages()
     defer clientPipe.Close()
+    // Log only this synthetic fixture's local Bedrock errors to memory.
+    var fixtureLog bytes.Buffer
+    safeLogger := slog.New(slog.NewTextHandler(&fixtureLog,nil))
     host := &gameHostListener{conn:make(chan net.Conn,1),done:make(chan struct{})}
     host.conn <- &PacketConn{PacketTransport:serverPipe}
     listener, err := (minecraft.ListenConfig{
         AuthenticationDisabled:true,
+        ErrorLog:safeLogger,
     }).ListenNetwork(&localHostNetwork{listener:host},"127.0.0.1:19132")
     if err != nil {t.Fatalf("offline fixture listener failed: %v",err)}
     defer listener.Close()
@@ -120,8 +126,8 @@ func TestLocalBedrockHandshakeAcrossAttachedNetherNetFraming(t *testing.T) {
             _ = conn.Close()
         }
     }()
-    client,err := (minecraft.Dialer{}).DialContextNetwork(ctx,attached,ExistingSessionAddress)
-    if err != nil {t.Fatalf("local Bedrock game login failed: %v",err)}
+    client,err := (minecraft.Dialer{ErrorLog:safeLogger}).DialContextNetwork(ctx,attached,ExistingSessionAddress)
+    if err != nil {t.Fatalf("local Bedrock game login failed: %v; local fixture diagnostics: %s",err,fixtureLog.String())}
     defer client.Close()
     select {
     case err := <-accepted:
