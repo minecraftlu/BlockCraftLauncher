@@ -51,6 +51,8 @@ jobs:
         run: |
           & "dist/BlockCraft.GuestTransportLab.exe" -selftest
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "dist/BlockCraft.GuestTransportLab.exe" -protocol-selftest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload Windows transport lab
         uses: actions/upload-artifact@v4
