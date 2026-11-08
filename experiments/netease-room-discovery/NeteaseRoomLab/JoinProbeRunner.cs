@@ -49,7 +49,14 @@ namespace BlockCraft.NeteaseRoomLab
             { "ENTER_ROOM_REJECTED", "服务器明确拒绝第二账号进入该房间。" },
             { "TAN_LOGIN_ACCEPTED", "真实网易大厅登录已被服务端接受，但尚未收到房间准入回执。" },
             { "SERVER_ROOM_ADMISSION_ACCEPTED", "真实服务器入房回执成功，但游戏客户端并未连接。" },
-            { "HOST_NETHERNET_READY_GAME_NOT_CONNECTED", "大厅入房成功且房主 NetherNet 已就绪，但尚未建立 WebRTC 游戏连接。" }
+            { "HOST_NETHERNET_READY_GAME_NOT_CONNECTED", "大厅入房成功且房主 NetherNet 已就绪，但尚未建立 WebRTC 游戏连接。" },
+            { "HOST_NETHERNET_ID_INVALID", "收到房主就绪事件，但 NetherNet ID 格式不兼容。" },
+            { "SIGNALING_NODE_UNAVAILABLE", "大厅节点没有可靠的信令 WebSocket 端口。" },
+            { "SIGNALING_TICKET_DERIVATION_FAILED", "第二账号临时会话无法生成该版本信令票据。" },
+            { "SIGNALING_CONNECTION_FAILED", "大厅准入成功，但信令 WebSocket 握手或 ICE 凭据阶段没有完成。" },
+            { "SIGNALING_AUTHENTICATED_WEBRTC_PENDING", "信令已返回 ICE 凭据，但 WebRTC 尚未建立。" },
+            { "WEBRTC_NEGOTIATION_FAILED", "真实信令连接成功，但与房主的 ICE/DTLS/SCTP 协商失败。" },
+            { "WEBRTC_TRANSPORT_CONNECTED_GAME_NOT_JOINED", "已完成房主 NetherNet/WebRTC 传输连接；未进行 Minecraft 游戏握手或加载世界。" }
         };
 
         public static bool IsEmbedded
@@ -110,12 +117,45 @@ namespace BlockCraft.NeteaseRoomLab
                     return "JOIN_PROBE_IPC_INCONSISTENT：子进程状态标志不一致，未判定成功。";
 
                 string status = (string)statusObject;
-                bool isRoomAccepted = status == "SERVER_ROOM_ADMISSION_ACCEPTED";
-                bool isHostReady = status == "HOST_NETHERNET_READY_GAME_NOT_CONNECTED";
-                if ((isRoomAccepted && (!login || !admitted || hostReady))
-                    || (isHostReady && (!login || !admitted || !hostReady))
-                    || (admitted && !isRoomAccepted && !isHostReady))
-                    return "JOIN_PROBE_IPC_INCONSISTENT：服务端准入标记与状态不匹配。";
+                bool signaling = false, rtc = false;
+                object optional;
+                if (response.TryGetValue("signaling_authenticated", out optional))
+                {
+                    if (!(optional is bool))
+                        return "JOIN_PROBE_IPC_SCHEMA_ERROR：信令状态格式不正确。";
+                    signaling = (bool)optional;
+                }
+                if (response.TryGetValue("webrtc_transport_connected", out optional))
+                {
+                    if (!(optional is bool))
+                        return "JOIN_PROBE_IPC_SCHEMA_ERROR：WebRTC 状态格式不正确。";
+                    rtc = (bool)optional;
+                }
+                if ((signaling && !hostReady) || (rtc && !signaling))
+                    return "JOIN_PROBE_IPC_INCONSISTENT：WebRTC 状态与大厅准入不一致。";
+
+                string status = (string)statusObject;
+                bool acceptedOnly = status == "SERVER_ROOM_ADMISSION_ACCEPTED";
+                bool readyOnly = status == "HOST_NETHERNET_READY_GAME_NOT_CONNECTED";
+                bool signalingError = status == "HOST_NETHERNET_ID_INVALID"
+                    || status == "SIGNALING_NODE_UNAVAILABLE"
+                    || status == "SIGNALING_TICKET_DERIVATION_FAILED"
+                    || status == "SIGNALING_CONNECTION_FAILED";
+                bool pending = status == "SIGNALING_AUTHENTICATED_WEBRTC_PENDING";
+                bool negotiationFailure = status == "WEBRTC_NEGOTIATION_FAILED";
+                bool rtcComplete = status == "WEBRTC_TRANSPORT_CONNECTED_GAME_NOT_JOINED";
+                bool isPostAdmission = acceptedOnly || readyOnly || signalingError
+                    || pending || negotiationFailure || rtcComplete;
+                if ((acceptedOnly && (!login || !admitted || hostReady))
+                    || (readyOnly && (!login || !admitted || !hostReady))
+                    || (admitted && !isPostAdmission)
+                    || (isPostAdmission && (!login || !admitted))
+                    || ((signalingError || pending || negotiationFailure || rtcComplete) && !hostReady)
+                    || (signalingError && (signaling || rtc))
+                    || ((pending || negotiationFailure) && (!signaling || rtc))
+                    || (rtcComplete && (!signaling || !rtc))
+                    || (rtc && !rtcComplete))
+                    return "JOIN_PROBE_IPC_INCONSISTENT：服务器准入、信令和 WebRTC 状态不匹配。";
                 if (status == "TAN_LOGIN_ACCEPTED" && !login)
                     return "JOIN_PROBE_IPC_INCONSISTENT：服务器登录标记与状态不匹配。";
 
@@ -169,7 +209,12 @@ namespace BlockCraft.NeteaseRoomLab
             }
         }
 
-        public static async Task<string> RunAsync(string room, string helperPath)
+        public static Task<string> RunAsync(string room, string helperPath)
+        {
+            return RunAsync(room, helperPath, false);
+        }
+
+        public static async Task<string> RunAsync(string room, string helperPath, bool tryWebRTC)
         {
             if (String.IsNullOrWhiteSpace(room) || room.Length > 10)
                 return "JOIN_PROBE_INPUT_INVALID：房间号无效。";
@@ -198,7 +243,8 @@ namespace BlockCraft.NeteaseRoomLab
                     Arguments = "-room \"" + room + "\""
                         + " -helper \"" + Path.GetFullPath(helperPath) + "\""
                         + " -cookie \"" + cookie + "\""
-                        + " -host-consent -try-join -timeout 90s -machine-json",
+                        + " -host-consent -try-join -timeout 90s -machine-json"
+                        + (tryWebRTC ? " -try-webrtc" : ""),
                     WorkingDirectory = Path.GetDirectoryName(localExecutable),
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
