@@ -120,14 +120,16 @@ namespace BlockCraftLauncher.Wpf.Services
                 try
                 {
                     var deadline = DateTime.UtcNow.AddSeconds(4);
+                    Task<UdpReceiveResult> receive = null;
                     while (DateTime.UtcNow < deadline)
                     {
                         ct.ThrowIfCancellationRequested();
-                        var receive = client.ReceiveAsync();
+                        if (receive == null) receive = client.ReceiveAsync();
                         var pause = Task.Delay(TimeSpan.FromMilliseconds(
                             Math.Min(1000, Math.Max(1, (deadline - DateTime.UtcNow).TotalMilliseconds))), ct);
                         if (await Task.WhenAny(receive, pause) != receive) continue;
                         var packet = await receive;
+                        receive = null;
                         string message = Encoding.UTF8.GetString(packet.Buffer);
                         string motd = Extract(message, "[MOTD]", "[/MOTD]");
                         string portText = Extract(message, "[AD]", "[/AD]");
