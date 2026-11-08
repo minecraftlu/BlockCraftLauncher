@@ -72,3 +72,34 @@ CubeDock 在 vendor-src/nemc-tan-lobby-solver/core/nethernet/dial.go 中提供�
 5. 最终才对接 Java/网易基岩协议转换及合法 Minecraft 客户端。严格区别房间元数据成功、会话成功、传输成功和游戏成功。
 
 本实验仍不包括任何账号认证、网络扫描、凭据提取或无授权连接请求。
+
+
+## 第三阶段真实 Windows 自检结果：已通过（用户截图）
+
+- 用户从 Windows PowerShell 5.1 运行 `BlockCraftGuestStage3.exe -selftest`。
+- 程序输出 `status: LOCAL_WEBRTC_DATA_CHANNEL_OK`、`scope: same_process_loopback_only`、`guest_transport_ready: true`。
+- 同时明确输出 `official_room_joined: false`、`authenticated: false`。
+- 命令以 `LOCAL_SELFTEST_PASS (no external network session)` 结束，无异常。
+- 以上证明 Windows 本机 mock guest 和 mock host 通过 ICE/DTLS/SCTP ReliableDataChannel 完成消息往返；**没有实际连接网易服务器或房主手机**。
+
+## 无第二账号条件下：社区游客登录能力核查
+
+- Opentransfer `docs/login.md` 列出 `-login-method guest`，其 `internal/authengine/guest.go` 中有 `CreateGuest` 方法。
+- `internal/loginflow/providers.go` 的 `guest()` 流程是创建独立游客身份，随后调用 `CheckCookie`。可能触发平台短信验证、实名验证和进一步的认证限制。
+- `CheckCookie` 认证通过只表示账号状态；尚未证明获得房间 453649 这种六位数网易本地联机房间的游客入房资格。
+- 尤其不能直接把自己手机客户端已登录的房主凭据复用为电脑端游客，这既不能模拟两个独立玩家，也可能导致房主掉线。
+- 不能把社区项目的第三方登录程序等同于网易授权的第三方接入方式。不能要求用户分享姓名、身份证号、密码、Cookie、token 或 sessionid。
+
+参考源码：
+- https://github.com/XiaoXiao-2026Max/Opentransfer/blob/main/docs/login.md
+- https://github.com/XiaoXiao-2026Max/Opentransfer/blob/main/internal/loginflow/providers.go
+- https://github.com/XiaoXiao-2026Max/Opentransfer/blob/main/internal/authengine/guest.go
+
+## 下一阶段的明确验收门槛
+
+1. 独立游客身份合法获认证（若平台允许），且与手机房主不是同一个账号。
+2. 对六位数本地联机房间获得真实、被认可的游客入房回执，能判别权限拒绝 / 版本不匹配 / 房间已满等状态。
+3. 在获授权的会话上下文中得到房主 NetworkID 和信令资料，真正建立到手机房主的 WebRTC 通道。
+4. 才开始基岩游戏协议协商并检查角色进入世界、方块交互与 Java 转换。
+
+**请勿将 Stage 3 的自检当作 Stage 4 的真实网络连通，两个验收指标不同。**
