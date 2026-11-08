@@ -444,6 +444,51 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 if (!invalid.Contains("JOIN_PROBE_IPC_INCONSISTENT"))
                     throw new InvalidOperationException("Stage10.1 diagnostic without room admission: " + code);
             }
+            // Stage10.5 never promotes a simple WebRTC dial success into a
+            // claim of continuous transport health or Minecraft world join.
+            const string stableFixture = @"{""status"":""WEBRTC_TRANSPORT_STABLE_8S_GAME_NOT_JOINED"","
+                + @"""login_accepted"":true,""room_admission_accepted"":true,"
+                + @"""host_ready_seen"":true,""signaling_authenticated"":true,"
+                + @"""webrtc_transport_connected"":true,""transport_stable"":true,"
+                + @"""minecraft_world_joined"":false}";
+            string healthy = JoinProbeRunner.ParseMachineOutput(prefix + stableFixture);
+            if (!healthy.Contains("WEBRTC_TRANSPORT_STABLE_8S_GAME_NOT_JOINED")
+                || healthy.Contains("JOIN_PROBE_IPC_"))
+                throw new InvalidOperationException("Stage10.5 stable transport result not accepted.");
+
+            string fakeStable = stableFixture.Replace(@"""room_admission_accepted"":true",
+                @"""room_admission_accepted"":false");
+            string fakeConnected = stableFixture.Replace(@"""webrtc_transport_connected"":true",
+                @"""webrtc_transport_connected"":false");
+            string misleading = stableFixture.Replace(@"""minecraft_world_joined"":false",
+                @"""minecraft_world_joined"":true");
+            foreach (var invalid in new[] {fakeStable, fakeConnected, misleading})
+            {
+                if (!JoinProbeRunner.ParseMachineOutput(prefix + invalid)
+                    .Contains("JOIN_PROBE_IPC_INCONSISTENT"))
+                    throw new InvalidOperationException("False stable-game status was accepted.");
+            }
+
+            string earlyClose = stableFixture
+                .Replace("WEBRTC_TRANSPORT_STABLE_8S_GAME_NOT_JOINED",
+                    "WEBRTC_EARLY_DISCONNECT_GAME_NOT_JOINED")
+                .Replace(@"""transport_stable"":true", @"""transport_stable"":false")
+                .Replace(@"""webrtc_transport_connected"":true",
+                    @"""webrtc_transport_connected"":false");
+            if (!JoinProbeRunner.ParseMachineOutput(prefix + earlyClose)
+                .Contains("WEBRTC_EARLY_DISCONNECT_GAME_NOT_JOINED"))
+                throw new InvalidOperationException("Early close was incorrectly promoted to stable.");
+
+            const string cancelFrame = @"{""status"":""LOCAL_PROBE_CANCELLED"","
+                + @"""login_accepted"":false,""room_admission_accepted"":false,"
+                + @"""host_ready_seen"":false,""signaling_authenticated"":false,"
+                + @"""webrtc_transport_connected"":false,""transport_stable"":false,"
+                + @"""minecraft_world_joined"":false}";
+            if (!JoinProbeRunner.ParseMachineOutput(prefix + cancelFrame)
+                .Contains("LOCAL_PROBE_CANCELLED"))
+                throw new InvalidOperationException("Local cancellation was reported as a server refusal.");
+
+            Console.WriteLine("PASS: Stage10.5 8s stability window, early disconnect, and cancellation status integrity");
             Console.WriteLine("PASS: Stage10.1 fixed signaling, answer, ICE/DTLS/SCTP failure statuses");
             Console.WriteLine("PASS: Stage10 signaling and WebRTC success/failure state validation");
 
