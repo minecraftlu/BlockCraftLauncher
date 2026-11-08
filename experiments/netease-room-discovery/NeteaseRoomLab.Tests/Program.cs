@@ -130,9 +130,11 @@ namespace BlockCraft.NeteaseRoomLab.Tests
 
             string missingMode = GuestG79Verifier.ClassifyResult(0,
                 "uid=2345\nlogin_token=DO_NOT_PRINT\nplatform=2\n", false);
-            if (!missingMode.Contains("mode_category=missing") ||
-                missingMode.Contains("DO_NOT_PRINT"))
-                throw new InvalidOperationException("Missing mode category or secret leak.");
+            if (!missingMode.Contains("PE_SESSION_REPORTED_MODE_UNCONFIRMED") ||
+                missingMode.Contains("G79_HELPER_LOGIN_ACCEPTED") ||
+                missingMode.Contains("DO_NOT_PRINT") ||
+                missingMode.Contains("2345"))
+                throw new InvalidOperationException("Missing-mode PE session classification or secret leak.");
 
             string unexpectedMode = GuestG79Verifier.ClassifyResult(0,
                 "uid=2345\nlogin_token=DO_NOT_PRINT\nauth_mode=SECRET_MODE_VALUE\nplatform=2\n", false);
