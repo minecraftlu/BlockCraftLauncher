@@ -21,6 +21,8 @@ namespace BlockCraft.NeteaseRoomLab
         private bool g79CheckRunning;
         private bool livePreflightRunning;
         private bool joinProbeRunning;
+        private bool stage12OfflineRunning;
+        private CancellationTokenSource activeStage12Cancellation;
         // All real room tests share this cancellation scope; it is never
         // reused after completion and is cancelled when the window closes.
         private CancellationTokenSource activeProbeCancellation;
@@ -28,6 +30,9 @@ namespace BlockCraft.NeteaseRoomLab
         public MainWindow()
         {
             InitializeComponent();
+            Stage12OfflineButton.IsEnabled = Stage12OfflineBridge.IsEmbedded;
+            if (!Stage12OfflineBridge.IsEmbedded)
+                Stage12OfflineStatusText.Text = "STAGE12_OFFLINE_BRIDGE_UNAVAILABLE：本 EXE 未嵌入 Stage 12 组件。";
         }
 
         protected override void OnClosing(CancelEventArgs e)
@@ -36,7 +41,42 @@ namespace BlockCraft.NeteaseRoomLab
             // WebRTC before the WPF owner disappears; no forced loop.
             if (activeProbeCancellation != null)
                 activeProbeCancellation.Cancel();
+            if (activeStage12Cancellation != null)
+                activeStage12Cancellation.Cancel();
             base.OnClosing(e);
+        }
+
+        private async void Stage12Offline_Click(object sender, RoutedEventArgs e)
+        {
+            if (stage12OfflineRunning || joinProbeRunning || livePreflightRunning
+                || authHelperRunning || g79CheckRunning) return;
+            if (!Stage12OfflineBridge.IsEmbedded)
+            {
+                Stage12OfflineStatusText.Text = "STAGE12_OFFLINE_BRIDGE_UNAVAILABLE：缺少内置测试组件。";
+                return;
+            }
+            stage12OfflineRunning = true;
+            activeStage12Cancellation = new CancellationTokenSource();
+            UpdateAuthButtons();
+            Stage12OfflineStatusText.Text = "STAGE12_OFFLINE_BRIDGE_RUNNING：正在本机测试，不访问网易服务器。";
+            try
+            {
+                Stage12OfflineStatusText.Text = await Stage12OfflineBridge.RunAsync(activeStage12Cancellation.Token);
+            }
+            catch (Exception)
+            {
+                Stage12OfflineStatusText.Text = "STAGE12_OFFLINE_BRIDGE_FAILED_GAME_NOT_JOINED：本机自检异常。";
+            }
+            finally
+            {
+                stage12OfflineRunning = false;
+                if (activeStage12Cancellation != null)
+                {
+                    activeStage12Cancellation.Dispose();
+                    activeStage12Cancellation = null;
+                }
+                UpdateAuthButtons();
+            }
         }
 
         private void CancelProbe_Click(object sender, RoutedEventArgs e)
@@ -145,6 +185,10 @@ namespace BlockCraft.NeteaseRoomLab
         private void UpdateAuthButtons()
         {
             if (EmailAuthButton == null || AuthConsentBox == null) return;
+            if (Stage12OfflineButton != null)
+                Stage12OfflineButton.IsEnabled = Stage12OfflineBridge.IsEmbedded
+                    && !stage12OfflineRunning && !joinProbeRunning && !livePreflightRunning
+                    && !authHelperRunning && !g79CheckRunning;
             // Prevent the visible room number and node query from changing
             // during the one expressly authorized real connection attempt.
             if (RoomIdBox != null) RoomIdBox.IsEnabled = !joinProbeRunning;
