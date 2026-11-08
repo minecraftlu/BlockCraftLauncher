@@ -32,6 +32,7 @@ namespace BlockCraftLauncher.Wpf
         TextBox serverName, serverAddress;
         TextBox packSearchQuery;
         ListBox packSearchResults;
+        ListBox modUpgradeResults;
         TextBox cfSearchQuery;
         ListBox cfSearchResults;
         CheckBox settingsMcim;
@@ -508,8 +509,58 @@ namespace BlockCraftLauncher.Wpf
                 Row(Btn("刷新列表", RefreshLocalResourceList),
                     Btn("打开实例目录", OpenGameFolder)),
                 Txt("离线管理不等同于在线更新：自动版本匹配和更新前备份仍待完成。", 12, false, true))));
+            modUpgradeResults = new ListBox { Height = 210, Margin = new Thickness(0, 8, 0, 10) };
+            root.Children.Add(Card(Col(Txt("Modrinth 已登记资源更新", 18, true),
+                Btn("检查 Modrinth 更新", async () => await CheckManagedUpdatesAsync(), true),
+                modUpgradeResults,
+                Row(Btn("更新选中", async () => await ApplyManagedUpdatesAsync(false)),
+                    Btn("更新全部兼容资源", async () => await ApplyManagedUpdatesAsync(true))),
+                Txt("更新前备份；跳过旧文件哈希不符或未登记的资源。", 12, false, true))));
             RefreshLocalResourceList();
             return root;
+        }
+        async Task CheckManagedUpdatesAsync()
+        {
+            if (activeProfile == null || modUpgradeResults == null) return;
+            if (currentOperation != null) { MessageBox.Show("已有安装操作进行中"); return; }
+            currentOperation = new CancellationTokenSource();
+            try
+            {
+                Status("正在检查已登记的 Modrinth 资源更新...");
+                var updates = await new ManagedModUpdateService(settings).CheckAsync(activeProfile, currentOperation.Token);
+                modUpgradeResults.ItemsSource = updates;
+                Status("发现兼容更新：" + updates.Count + " 项");
+            }
+            catch (OperationCanceledException) { Status("更新检查已取消"); }
+            catch (Exception ex) { ShowError("Modrinth 更新检查失败", ex); }
+            finally { currentOperation.Dispose(); currentOperation = null; }
+        }
+        async Task ApplyManagedUpdatesAsync(bool all)
+        {
+            if (activeProfile == null || modUpgradeResults == null) return;
+            if (currentOperation != null) { MessageBox.Show("已有安装操作进行中"); return; }
+            var updates = all
+                ? modUpgradeResults.Items.OfType<ResourceUpgrade>().ToList()
+                : new[] { modUpgradeResults.SelectedItem as ResourceUpgrade }.Where(x => x != null).ToList();
+            if (updates.Count == 0) { MessageBox.Show("没有选择可用更新"); return; }
+            if (MessageBox.Show("将更新 " + updates.Count + " 个已登记资源，更新前自动备份旧文件。确认？",
+                    "模组更新", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            currentOperation = new CancellationTokenSource();
+            try
+            {
+                var manager = new ManagedModUpdateService(settings);
+                foreach (var item in updates)
+                {
+                    Status("正在更新：" + item.Old.Title);
+                    await manager.ApplyAsync(activeProfile, item, currentOperation.Token);
+                }
+                Status("Modrinth 资源更新完成：" + updates.Count + " 项");
+                modUpgradeResults.ItemsSource = null;
+                RefreshLocalResourceList();
+            }
+            catch (OperationCanceledException) { Status("模组更新已取消"); }
+            catch (Exception ex) { ShowError("资源更新失败", ex); }
+            finally { currentOperation.Dispose(); currentOperation = null; }
         }
         void RefreshLocalResourceList()
         {
