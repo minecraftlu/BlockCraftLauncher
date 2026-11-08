@@ -1,5 +1,9 @@
 using System;
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
+using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
 
@@ -11,6 +15,8 @@ namespace BlockCraft.NeteaseRoomLab
         private readonly LobbyNodeClient lobbyNodeClient = new LobbyNodeClient();
         private string lastNodeId = "";
         private string lastRoomReport = "";
+        private string selectedAuthHelper = "";
+        private bool authHelperRunning;
 
         public MainWindow()
         {
@@ -89,6 +95,132 @@ namespace BlockCraft.NeteaseRoomLab
                 BusyBar.Visibility = Visibility.Collapsed;
                 LookupButton.IsEnabled = true;
                 NodeLookupButton.IsEnabled = !string.IsNullOrEmpty(lastNodeId);
+            }
+        }
+
+        private void AuthConsent_Changed(object sender, RoutedEventArgs e)
+        {
+            UpdateAuthButtons();
+        }
+
+        private void UpdateAuthButtons()
+        {
+            if (EmailAuthButton == null || AuthConsentBox == null) return;
+            EmailAuthButton.IsEnabled = !authHelperRunning
+                && AuthConsentBox.IsChecked == true
+                && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
+                && File.Exists(selectedAuthHelper);
+            if (DeleteAuthButton != null) DeleteAuthButton.IsEnabled = !authHelperRunning;
+        }
+
+        private void ChooseAuthHelper_Click(object sender, RoutedEventArgs e)
+        {
+            if (authHelperRunning) return;
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "手动选择你已审查且信任的 Opentransfer connect.exe",
+                Filter = "connect.exe|connect.exe",
+                CheckFileExists = true,
+                Multiselect = false
+            };
+            if (dialog.ShowDialog(this) != true) return;
+
+            try
+            {
+                if (!GuestEmailAuth.IsAllowedHelperPath(dialog.FileName))
+                {
+                    AuthStatusText.Text = "AUTH_HELPER_REJECTED：只接受明确选择的 connect.exe。";
+                    return;
+                }
+                selectedAuthHelper = Path.GetFullPath(dialog.FileName);
+                string hash = GuestEmailAuth.GetHelperSha256(selectedAuthHelper);
+                AuthStatusText.Text = "AUTH_HELPER_SELECTED：本机已选择外部工具；SHA-256 "
+                    + hash + Environment.NewLine
+                    + "请独立核对工具的来源与哈希值。选择工具并不意味着它安全或得到网易授权。";
+            }
+            catch (Exception)
+            {
+                selectedAuthHelper = "";
+                AuthStatusText.Text = "AUTH_HELPER_REJECTED：读取本地工具失败，未尝试登录。";
+            }
+            finally
+            {
+                UpdateAuthButtons();
+            }
+        }
+
+        private async void EmailAuth_Click(object sender, RoutedEventArgs e)
+        {
+            if (authHelperRunning || AuthConsentBox.IsChecked != true ||
+                !GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper) ||
+                !File.Exists(selectedAuthHelper)) return;
+
+            var confirmation = MessageBox.Show(
+                "登录将启动第三方 connect.exe 独立窗口。你会在该窗口输入网易邮箱与密码。"
+                + Environment.NewLine
+                + "BlockCraft 不读取凭据；但第三方程序本身会处理密码，存在账户与服务条款风险。"
+                + Environment.NewLine
+                + "仅当你已审查其来源并接受风险时继续。",
+                "确认启动外部认证助手", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (confirmation != MessageBoxResult.Yes) return;
+
+            Process helper = null;
+            try
+            {
+                helper = GuestEmailAuth.StartEmailLogin(selectedAuthHelper);
+                authHelperRunning = true;
+                UpdateAuthButtons();
+                AuthStatusText.Text = "AUTH_HELPER_RUNNING：认证助手已在独立窗口启动。"
+                    + " 请只在本机输入第二个账号的信息，不要发给任何人。";
+
+                // The external helper owns the interactive console. No stdout,
+                // stdin, credentials or cookie bytes are accessed by WPF.
+                int exitCode = await Task.Run(() =>
+                {
+                    helper.WaitForExit();
+                    return helper.ExitCode;
+                });
+                AuthStatusText.Text = GuestEmailAuth.ExplainExit(
+                    exitCode, GuestEmailAuth.CredentialFileExists());
+            }
+            catch (Win32Exception)
+            {
+                AuthStatusText.Text = "AUTH_HELPER_START_FAILED：Windows 未能启动选定程序。";
+            }
+            catch (UnauthorizedAccessException)
+            {
+                AuthStatusText.Text = "AUTH_HELPER_ACCESS_DENIED：当前用户无法启动或创建私有目录。";
+            }
+            catch (Exception)
+            {
+                AuthStatusText.Text = "AUTH_HELPER_FAILED：本机启动过程遇到错误。"
+                    + " 未输出邮箱、密码、Cookie 或原始日志。";
+            }
+            finally
+            {
+                if (helper != null) helper.Dispose();
+                authHelperRunning = false;
+                UpdateAuthButtons();
+            }
+        }
+
+        private void DeleteAuth_Click(object sender, RoutedEventArgs e)
+        {
+            if (authHelperRunning) return;
+            if (MessageBox.Show(
+                "仅删除 BlockCraft 实验目录中的邮箱 Cookie 输出文件；"
+                + "第三方助手保存的设备绑定信息不会被清除。是否继续？",
+                "删除本地文件", MessageBoxButton.YesNo, MessageBoxImage.Warning)
+                != MessageBoxResult.Yes) return;
+            try
+            {
+                AuthStatusText.Text = GuestEmailAuth.DeleteCredentialFile()
+                    ? "LOCAL_CREDENTIAL_FILE_DELETED：仅删除了本次实验的 Cookie 文件。"
+                    : "LOCAL_CREDENTIAL_FILE_NOT_FOUND：实验目录下没有 Cookie 文件。";
+            }
+            catch (Exception)
+            {
+                AuthStatusText.Text = "LOCAL_CREDENTIAL_DELETE_FAILED：删除失败，请检查当前用户权限。";
             }
         }
 
