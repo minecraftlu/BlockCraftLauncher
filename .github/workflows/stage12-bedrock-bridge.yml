@@ -97,8 +97,12 @@ jobs:
         shell: pwsh
         run: |
           $out = Join-Path $env:GITHUB_WORKSPACE ".stage12-ci"
-          & (Join-Path $out "Stage12IPCFixture.exe") -offline-ipc-selftest -worker (Join-Path $out "Stage12Worker.exe")
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Repeated real Windows child-process startup/shutdown catches
+          # intermittent pipe deadlocks and resource cleanup regressions.
+          for ($attempt = 1; $attempt -le 10; $attempt++) {
+            & (Join-Path $out "Stage12IPCFixture.exe") -offline-ipc-selftest -worker (Join-Path $out "Stage12Worker.exe")
+            if ($LASTEXITCODE -ne 0) { throw "offline IPC attempt $attempt failed" }
+          }
 
   proven-netease-transport:
     runs-on: windows-latest
