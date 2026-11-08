@@ -128,7 +128,9 @@ func classifyWebRTCFailure(err error, o *webRTCObservation) string {
         // timed-out SCTP Start is incorrectly classified as a non-timeout.
         switch o.phase.Load() {
         case 6, 5, 4:
-            return "WEBRTC_SCTP_HANDSHAKE_TIMEOUT"
+            // This is the outer probe deadline, NOT a native SCTP
+            // handshake timer. Never infer that the host rejected INIT.
+            return "WEBRTC_SCTP_PROBE_DEADLINE"
         case 3:
             return "WEBRTC_DTLS_HANDSHAKE_TIMEOUT"
         case 2:
