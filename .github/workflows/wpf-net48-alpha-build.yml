@@ -67,6 +67,42 @@ jobs:
             throw "Offline downloader selftest failed: $($process.ExitCode)"
           }
           Write-Host 'PASS: Mojang/BMCLAPI routes and Minecraft release/snapshot categorization'
+      - name: Smoke test download management page and read-only progress binding
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--download-ui-selftest' -PassThru
+          if (-not $process.WaitForExit(35000)) {
+            $process.Kill()
+            throw 'WPF download page smoke test timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 35 }
+            throw "WPF download page binding test failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: WPF download page binds read-only Percent using OneWay'
+      - name: Smoke test download page from single EXE
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.27-WPF-OneFile-Windows-x64.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--download-ui-selftest' -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            $process.Kill()
+            throw 'Single EXE download page binding test timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/onefile/bootstrap-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 35 }
+            throw "Single EXE download page binding test failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: single EXE opens download management page without readonly binding error'
       - name: Smoke test single EXE payload extraction and startup
         shell: pwsh
         working-directory: wpf-net48

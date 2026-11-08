@@ -31,6 +31,7 @@ namespace BlockCraftLauncher.Wpf
         ComboBox versionCategory, settingsNetworkMode;
         TextBox settingsDownloadThreads, settingsDownloadRetries;
         ListBox downloadList;
+        ProgressBar downloadProgressBar;
         readonly ObservableCollection<ResourceHit> resourceResults = new ObservableCollection<ResourceHit>();
         readonly Dictionary<string, Button> sidebarButtons = new Dictionary<string, Button>();
         readonly List<string> logs = new List<string>();
@@ -342,36 +343,92 @@ namespace BlockCraftLauncher.Wpf
         UIElement BuildDownloadCenter()
         {
             var root = Col(Txt("下载管理", 24, true),
-                Txt("Minecraft 下载、加载器和 Modrinth 资源使用统一任务列表。可取消任务，失败后可重试。", 12, false, true));
-            downloadList = new ListBox { ItemsSource = downloads.Jobs, Height = 335,
-                DisplayMemberPath = "Title", Margin = new Thickness(0, 8, 0, 12) };
+                Txt("Minecraft、加载器、Modrinth、整合包与 CurseForge 任务集中查看。支持进度、取消和失败重试。", 12, false, true));
+            root.Children.Add(Txt("下载任务", 17, true));
+            downloadList = new ListBox { ItemsSource = downloads.Jobs, Height = 230,
+                DisplayMemberPath = "Title", Margin = new Thickness(0, 6, 0, 10) };
             root.Children.Add(Card(downloadList));
 
-            var heading = Txt("选择任务查看详细进度", 17, true);
+            var heading = Txt("选中任务详情", 17, true);
             var status = Txt("", 14);
-            status.SetBinding(TextBlock.TextProperty,
-                new Binding("SelectedItem.Status") { Source = downloadList, FallbackValue = "等待任务" });
+            status.SetBinding(TextBlock.TextProperty, new Binding("SelectedItem.Status")
+            {
+                Source = downloadList, Mode = BindingMode.OneWay, FallbackValue = "等待任务"
+            });
             var detail = Txt("", 12, false, true);
-            detail.SetBinding(TextBlock.TextProperty,
-                new Binding("SelectedItem.Detail") { Source = downloadList, FallbackValue = "请选择任务" });
+            detail.SetBinding(TextBlock.TextProperty, new Binding("SelectedItem.Detail")
+            {
+                Source = downloadList, Mode = BindingMode.OneWay, FallbackValue = "请选择任务"
+            });
             var bytesLabel = Txt("", 13);
-            bytesLabel.SetBinding(TextBlock.TextProperty,
-                new Binding("SelectedItem.BytesLabel") { Source = downloadList, FallbackValue = "" });
+            bytesLabel.SetBinding(TextBlock.TextProperty, new Binding("SelectedItem.BytesLabel")
+            {
+                Source = downloadList, Mode = BindingMode.OneWay, FallbackValue = ""
+            });
             var speedLabel = Txt("", 13);
-            speedLabel.SetBinding(TextBlock.TextProperty,
-                new Binding("SelectedItem.Speed") { Source = downloadList, FallbackValue = "" });
-            var bar = new ProgressBar { Minimum = 0, Maximum = 100, Height = 18,
+            speedLabel.Margin = new Thickness(24, 0, 0, 9);
+            speedLabel.SetBinding(TextBlock.TextProperty, new Binding("SelectedItem.Speed")
+            {
+                Source = downloadList, Mode = BindingMode.OneWay, FallbackValue = ""
+            });
+            var percentLabel = Txt("", 13, true);
+            percentLabel.Margin = new Thickness(24, 0, 0, 9);
+            percentLabel.SetBinding(TextBlock.TextProperty, new Binding("SelectedItem.PercentLabel")
+            {
+                Source = downloadList, Mode = BindingMode.OneWay, FallbackValue = ""
+            });
+            downloadProgressBar = new ProgressBar { Minimum = 0, Maximum = 100, Height = 18,
                 Margin = new Thickness(0, 8, 0, 10) };
-            bar.SetBinding(ProgressBar.ValueProperty, new Binding("SelectedItem.Percent") { Source = downloadList });
-            bar.SetBinding(ProgressBar.IsIndeterminateProperty,
-                new Binding("SelectedItem.IsIndeterminate") { Source = downloadList });
-            root.Children.Add(Card(Col(heading, status, detail, bar,
-                Row(bytesLabel, speedLabel),
+            // ProgressBar.Value inherits RangeBase's TwoWay binding default.
+            // Percent has a private setter, so both bindings MUST be OneWay.
+            downloadProgressBar.SetBinding(ProgressBar.ValueProperty, new Binding("SelectedItem.Percent")
+            {
+                Source = downloadList, Mode = BindingMode.OneWay, FallbackValue = 0d
+            });
+            downloadProgressBar.SetBinding(ProgressBar.IsIndeterminateProperty,
+                new Binding("SelectedItem.IsIndeterminate")
+                {
+                    Source = downloadList, Mode = BindingMode.OneWay, FallbackValue = false
+                });
+            root.Children.Add(Card(Col(heading, status, detail, downloadProgressBar,
+                Row(bytesLabel, speedLabel, percentLabel),
                 Row(Btn("取消选中任务", () => downloads.Cancel(downloadList.SelectedItem as DownloadJob)),
                     Btn("重试失败任务", () => downloads.Retry(downloadList.SelectedItem as DownloadJob), true),
                     Btn("返回游戏下载", () => Navigate("游戏版本"))),
-                Txt("资源下载支持校验和断点续传；部分第三方加载器安装步骤无法中途强制终止。", 12, false, true))));
+                Txt("速度为当前进度的估算，可能包含缓存和校验步骤；部分加载器安装步骤无法即时取消。", 12, false, true))));
+            if (downloads.Jobs.Count > 0)
+                downloadList.SelectedIndex = 0;
             return root;
+        }
+
+        /// <summary>
+        /// Windows CI checks the real navigation/binding path that previously
+        /// crashed when selecting a completed download (read-only Percent).
+        /// No network or game files are touched.
+        /// </summary>
+        internal void VerifyDownloadPageBindings()
+        {
+            Navigate("下载管理");
+            if (downloadList == null || downloadProgressBar == null)
+                throw new InvalidOperationException("下载管理页面或进度条未建立");
+            var valueBinding = BindingOperations.GetBinding(downloadProgressBar, ProgressBar.ValueProperty);
+            var busyBinding = BindingOperations.GetBinding(downloadProgressBar, ProgressBar.IsIndeterminateProperty);
+            if (valueBinding == null || valueBinding.Mode != BindingMode.OneWay ||
+                busyBinding == null || busyBinding.Mode != BindingMode.OneWay)
+                throw new InvalidOperationException("下载进度只读属性必须采用 OneWay 绑定");
+
+            // Selecting a concrete DownloadJob forces WPF to resolve all
+            // SelectedItem.* bindings, even if the original queue is empty.
+            var sample = new DownloadJob("自检", "下载进度绑定验证",
+                (token, stage, bytes) => Task.CompletedTask);
+            downloads.Jobs.Insert(0, sample);
+            downloadList.SelectedItem = sample;
+            PageHost.UpdateLayout();
+            downloadList.UpdateLayout();
+            downloadProgressBar.UpdateLayout();
+            BindingOperations.GetBindingExpression(downloadProgressBar, ProgressBar.ValueProperty)?.UpdateTarget();
+            BindingOperations.GetBindingExpression(downloadProgressBar,
+                ProgressBar.IsIndeterminateProperty)?.UpdateTarget();
         }
 
         UIElement BuildResources(string type)

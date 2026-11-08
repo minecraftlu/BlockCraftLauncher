@@ -23,7 +23,9 @@ namespace BlockCraftLauncher.Wpf
 
             bool downloadSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--download-selftest", StringComparison.OrdinalIgnoreCase));
-            smokeTest = downloadSelfTest || e.Args.Any(arg =>
+            bool downloadPageSelfTest = e.Args.Any(arg =>
+                string.Equals(arg, "--download-ui-selftest", StringComparison.OrdinalIgnoreCase));
+            smokeTest = downloadSelfTest || downloadPageSelfTest || e.Args.Any(arg =>
                 string.Equals(arg, "--smoke-test", StringComparison.OrdinalIgnoreCase));
             // The CI probe must never open a browser, download Minecraft,
             // touch account tokens, or display a GUI message. Both ordinary
@@ -78,7 +80,11 @@ namespace BlockCraftLauncher.Wpf
                     if (window.Content == null)
                         throw new InvalidOperationException("WPF 主窗口没有初始化内容");
                     if (smokeTest)
+                    {
+                        if (downloadPageSelfTest)
+                            window.VerifyDownloadPageBindings();
                         Shutdown(0);
+                    }
                     else
                     {
                         MainWindow = window;

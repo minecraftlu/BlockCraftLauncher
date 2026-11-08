@@ -22,7 +22,9 @@ namespace BlockCraftLauncher.OneFile
         [STAThread]
         private static int Main(string[] args)
         {
-            bool probe = args.Length == 1 && string.Equals(args[0], "--smoke-test", StringComparison.OrdinalIgnoreCase);
+            bool probe = args.Length == 1 &&
+                (string.Equals(args[0], "--smoke-test", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(args[0], "--download-ui-selftest", StringComparison.OrdinalIgnoreCase));
             try
             {
                 var package = ReadPackage();
