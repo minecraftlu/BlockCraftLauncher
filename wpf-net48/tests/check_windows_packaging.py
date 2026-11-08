@@ -7,6 +7,8 @@ project = ET.parse(ROOT / 'src/BlockCraftLauncher.Wpf/BlockCraftLauncher.Wpf.csp
 assert project.findtext('.//TargetFramework') == 'net48'
 assert project.findtext('.//UseWPF') == 'true'
 assert project.findtext('.//OutputType') == 'WinExe'
+assert project.findtext('.//PlatformTarget') == 'x64'
+assert project.findtext('.//Prefer32Bit') == 'false'
 
 script = (ROOT / 'build/build-windows.bat').read_text('utf8')
 workflow_path = ROOT / '.github/workflows/wpf-alpha-build.yml'
@@ -17,8 +19,11 @@ packager = (ROOT / 'build/package-windows.ps1').read_text('utf8')
 
 assert 'vswhere.exe' in script and '-restore' in script and 'MSBUILD_EXE' in script
 assert 'package-windows.ps1' in script
+assert '-p:PlatformTarget=x64' in script
 assert 'windows-2022' in workflow and 'microsoft/setup-msbuild@v2' in workflow
 assert 'upload-artifact@v4' in workflow and 'build-windows.bat' in workflow
 assert 'Get-FileHash' in packager and 'Compress-Archive' in packager
 assert 'BlockCraftLauncher.Wpf.exe' in packager
+assert 'WebView2Loader.dll' in packager
+assert '0x8664' in packager and 'win-x64' in packager
 print('PASS: Windows MSBuild/packaging contract (static checks only)')

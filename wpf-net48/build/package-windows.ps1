@@ -10,6 +10,48 @@ $stream = [System.IO.File]::OpenRead($exe)
 try { [void]$stream.Read($header, 0, 2) } finally { $stream.Dispose() }
 if ($header[0] -ne 0x4d -or $header[1] -ne 0x5a) { throw 'EXE lacks the Windows MZ header' }
 
+# Prevent x86 WebView2Loader from being placed beside an x64 WPF process.
+# The Microsoft.Web.WebView2 NuGet package supplies architecture-specific
+# native loaders; the .NET Framework build may otherwise stage the x86 one.
+function Get-PeMachine([string]$path) {
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "File not found: $path" }
+    $file = [System.IO.File]::OpenRead($path)
+    $reader = [System.IO.BinaryReader]::new($file)
+    try {
+        if ($reader.ReadUInt16() -ne 0x5A4D) { throw "Not a Windows PE image: $path" }
+        [void]$file.Seek(0x3C, [System.IO.SeekOrigin]::Begin)
+        $offset = $reader.ReadInt32()
+        [void]$file.Seek($offset, [System.IO.SeekOrigin]::Begin)
+        if ($reader.ReadUInt32() -ne 0x00004550) { throw "Invalid PE signature: $path" }
+        return $reader.ReadUInt16()
+    }
+    finally { $reader.Dispose() }
+}
+if ((Get-PeMachine $exe) -ne 0x8664) {
+    throw 'WPF EXE must be x64 (PE machine AMD64), refusing architecture-mismatched package'
+}
+$loader = Join-Path $folder 'WebView2Loader.dll'
+if (-not (Test-Path -LiteralPath $loader) -or (Get-PeMachine $loader) -ne 0x8664) {
+    # Copy the actual x64 native library from the restored NuGet dependency.
+    $assetsFile = Join-Path $root 'src\BlockCraftLauncher.Wpf\obj\project.assets.json'
+    if (-not (Test-Path -LiteralPath $assetsFile)) { throw 'NuGet assets file missing; cannot resolve x64 WebView2Loader' }
+    $assets = Get-Content -LiteralPath $assetsFile -Raw -Encoding UTF8 | ConvertFrom-Json
+    $webviewRef = @($assets.libraries.PSObject.Properties.Name | Where-Object { $_ -like 'Microsoft.Web.WebView2/*' } | Select-Object -First 1)
+    if ($webviewRef.Count -eq 0) { throw 'Microsoft.Web.WebView2 package not found in project.assets.json' }
+    $relative = $webviewRef[0].ToLowerInvariant() -replace '/', '\'
+    $candidate = $null
+    foreach ($rootFolder in $assets.packageFolders.PSObject.Properties.Name) {
+        $path = Join-Path $rootFolder ($relative + '\runtimes\win-x64\native\WebView2Loader.dll')
+        if (Test-Path -LiteralPath $path) { $candidate = $path; break }
+    }
+    if (-not $candidate) { throw '64-bit WebView2Loader.dll not present in NuGet restore' }
+    Copy-Item -LiteralPath $candidate -Destination $loader -Force
+}
+if ((Get-PeMachine $loader) -ne 0x8664) {
+    throw 'WebView2Loader.dll is not x64; refusing to package an incompatible Microsoft login dependency'
+}
+Write-Host 'Verified x64 WPF EXE and x64 WebView2Loader.dll'
+
 $dist = Join-Path $root 'dist'
 New-Item -Path $dist -ItemType Directory -Force | Out-Null
 $name = 'BlockCraftLauncher-v0.9.27-WPF-net48-Alpha-Windows-x64'

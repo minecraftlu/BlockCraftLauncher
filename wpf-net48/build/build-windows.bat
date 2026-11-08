@@ -30,7 +30,7 @@ if not exist "%TARGET_REF%" (
   exit /b 3
 )
 
-"%MSBUILD_EXE%" "BlockCraftLauncher-WPF.sln" -restore -t:Build -p:Configuration=Release -p:Platform="Any CPU" -p:RestoreIgnoreFailedSources=false -m -v:minimal
+"%MSBUILD_EXE%" "BlockCraftLauncher-WPF.sln" -restore -t:Build -p:Configuration=Release -p:Platform="Any CPU" -p:PlatformTarget=x64 -p:Prefer32Bit=false -p:RestoreIgnoreFailedSources=false -m -v:minimal
 if errorlevel 1 (
   echo BUILD FAILED. See MSBuild errors above.
   exit /b 1
