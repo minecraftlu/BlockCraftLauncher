@@ -488,6 +488,64 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 .Contains("LOCAL_PROBE_CANCELLED"))
                 throw new InvalidOperationException("Local cancellation was reported as a server refusal.");
 
+            // Stage11.1: no codepath may display DataChannel OPEN or
+            // application-message statistics without admission, signaling,
+            // reliable+unreliable OPEN states and an observed time window.
+            const string channelFrame = @"{""status"":""WEBRTC_CHANNELS_OPEN_30S_NO_DATA_GAME_NOT_JOINED"","
+                + @"""login_accepted"":true,""room_admission_accepted"":true,"
+                + @"""host_ready_seen"":true,""signaling_authenticated"":true,"
+                + @"""webrtc_transport_connected"":true,""transport_stable"":true,"
+                + @"""reliable_channel_open"":true,""unreliable_channel_open"":true,"
+                + @"""reliable_messages"":0,""unreliable_messages"":0,"
+                + @"""reliable_bytes"":0,""unreliable_bytes"":0,"
+                + @"""observation_seconds"":30,""minecraft_world_joined"":false}";
+            string noData = JoinProbeRunner.ParseMachineOutput(prefix + channelFrame);
+            if (!noData.Contains("WEBRTC_CHANNELS_OPEN_30S_NO_DATA_GAME_NOT_JOINED")
+                || !noData.Contains("可靠 0 条 / 0 字节")
+                || noData.Contains("JOIN_PROBE_IPC_"))
+                throw new InvalidOperationException("Valid Stage11.1 idle data channels not recognized.");
+
+            string active = channelFrame
+                .Replace("OPEN_30S_NO_DATA", "OPEN_30S_DATA_OBSERVED")
+                .Replace(@"""reliable_messages"":0", @"""reliable_messages"":2")
+                .Replace(@"""reliable_bytes"":0", @"""reliable_bytes"":128");
+            string activeDisplay = JoinProbeRunner.ParseMachineOutput(prefix + active);
+            if (!activeDisplay.Contains("WEBRTC_CHANNELS_OPEN_30S_DATA_OBSERVED_GAME_NOT_JOINED")
+                || !activeDisplay.Contains("可靠 2 条 / 128 字节")
+                || activeDisplay.Contains("JOIN_PROBE_IPC_"))
+                throw new InvalidOperationException("Valid read-only channel packet counters rejected.");
+
+            string minute = channelFrame.Replace("OPEN_30S", "OPEN_60S")
+                .Replace(@"""observation_seconds"":30", @"""observation_seconds"":60");
+            if (!JoinProbeRunner.ParseMachineOutput(prefix + minute)
+                    .Contains("WEBRTC_CHANNELS_OPEN_60S_NO_DATA_GAME_NOT_JOINED"))
+                throw new InvalidOperationException("60 second read-only observation rejected.");
+
+            string[] invalidChannelFrames = {
+                active.Replace(@"""room_admission_accepted"":true", @"""room_admission_accepted"":false"),
+                active.Replace(@"""minecraft_world_joined"":false", @"""minecraft_world_joined"":true"),
+                active.Replace(@"""unreliable_channel_open"":true", @"""unreliable_channel_open"":false"),
+                active.Replace(@"""observation_seconds"":30", @"""observation_seconds"":60"),
+                active.Replace(@"""transport_stable"":true", @"""transport_stable"":false"),
+                active.Replace(@"""webrtc_transport_connected"":true", @"""webrtc_transport_connected"":false"),
+                channelFrame.Replace(@"""reliable_messages"":0", @"""reliable_messages"":2"),
+            };
+            foreach (string invalidFrame in invalidChannelFrames)
+            {
+                if (!JoinProbeRunner.ParseMachineOutput(prefix + invalidFrame)
+                    .Contains("JOIN_PROBE_IPC_INCONSISTENT"))
+                    throw new InvalidOperationException("Unverified Stage11.1 data-channel state was accepted.");
+            }
+            if (!JoinProbeRunner.ParseMachineOutput(prefix
+                + active.Replace(@"""reliable_messages"":2", @"""reliable_messages"":-1"))
+                    .Contains("JOIN_PROBE_IPC_SCHEMA_ERROR"))
+                throw new InvalidOperationException("Negative received-packet count was accepted.");
+            string durationRejected = JoinProbeRunner.RunAsync("643871", "", true, 17,
+                System.Threading.CancellationToken.None).GetAwaiter().GetResult();
+            if (!durationRejected.Contains("OBSERVATION_DURATION_INVALID"))
+                throw new InvalidOperationException("Non-allowlisted observation duration accepted.");
+            Console.WriteLine("PASS: Stage11.1 two channels OPEN, 30/60s, safe passive counts and strict admission");
+
             Console.WriteLine("PASS: Stage10.5 8s stability window, early disconnect, and cancellation status integrity");
             Console.WriteLine("PASS: Stage10.1 fixed signaling, answer, ICE/DTLS/SCTP failure statuses");
             Console.WriteLine("PASS: Stage10 signaling and WebRTC success/failure state validation");
