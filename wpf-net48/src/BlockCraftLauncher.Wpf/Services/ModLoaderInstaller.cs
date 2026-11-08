@@ -26,8 +26,12 @@ namespace BlockCraftLauncher.Wpf.Services
             IProgress<string> progress, CancellationToken token)
             => InstallAsync(minecraftVersion, loader, null, progress, token);
 
-        public async Task<GameProfile> InstallAsync(string minecraftVersion, string loader, string loaderVersion,
+        public Task<GameProfile> InstallAsync(string minecraftVersion, string loader, string loaderVersion,
             IProgress<string> progress, CancellationToken token)
+            => InstallAsync(minecraftVersion, loader, loaderVersion, progress, null, token);
+
+        public async Task<GameProfile> InstallAsync(string minecraftVersion, string loader, string loaderVersion,
+            IProgress<string> progress, IProgress<DownloadBytes> bytes, CancellationToken token)
         {
             if (string.IsNullOrWhiteSpace(minecraftVersion)) throw new ArgumentException("未选择游戏版本");
             if (loader != "原版" && loader != "Fabric" && loader != "Quilt" && loader != "Forge" && loader != "NeoForge")
@@ -35,12 +39,19 @@ namespace BlockCraftLauncher.Wpf.Services
             token.ThrowIfCancellationRequested();
             var path = new MinecraftPath(settings.Root);
             var launcher = new MinecraftLauncher(path);
+            launcher.ByteProgressChanged += (sender, e) =>
+                bytes?.Report(new DownloadBytes(e.ProgressedBytes, e.TotalBytes));
+            launcher.FileProgressChanged += (sender, e) =>
+            {
+                if (e.TotalTasks > 0 && e.ProgressedTasks % 40 == 0)
+                    progress?.Report("游戏文件 " + e.ProgressedTasks + "/" + e.TotalTasks + " · " + e.Name);
+            };
             string installedId = minecraftVersion;
             progress?.Report("正在准备 Minecraft " + minecraftVersion);
             if (loader != "原版")
             {
                 // Install the base game before applying a mod loader.
-                await launcher.InstallAsync(minecraftVersion);
+                await launcher.InstallAsync(minecraftVersion, token);
                 token.ThrowIfCancellationRequested();
                 progress?.Report("正在安装 " + loader + " 加载器...");
                 if (loader == "Fabric" || loader == "Quilt")
@@ -79,7 +90,7 @@ namespace BlockCraftLauncher.Wpf.Services
             token.ThrowIfCancellationRequested();
             if (string.IsNullOrWhiteSpace(installedId)) throw new IOException("加载器没有返回有效的版本 ID");
             progress?.Report("正在下载游戏依赖和运行库：" + installedId);
-            await launcher.InstallAsync(installedId);
+            await launcher.InstallAsync(installedId, token);
             token.ThrowIfCancellationRequested();
             string metadata = Path.Combine(settings.Root, "versions", installedId, installedId + ".json");
             if (!File.Exists(metadata)) throw new IOException("安装完成后未找到版本元数据：" + metadata);
