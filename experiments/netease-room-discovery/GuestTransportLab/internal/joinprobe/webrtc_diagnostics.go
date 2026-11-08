@@ -8,7 +8,7 @@ import (
     "sync/atomic"
 
     "github.com/Happy2018new/nemc-tan-lobby-solver/core/nethernet"
-    "github.com/pion/sctp"
+    "github.com/Happy2018new/nemc-tan-lobby-solver/core/sctp"
 )
 
 // webRTCObservation only keeps presence/phase bits. It intentionally does
