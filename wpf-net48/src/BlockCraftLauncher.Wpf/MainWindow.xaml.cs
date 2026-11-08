@@ -32,6 +32,9 @@ namespace BlockCraftLauncher.Wpf
         TextBox serverName, serverAddress;
         TextBox packSearchQuery;
         ListBox packSearchResults;
+        TextBox cfSearchQuery;
+        ListBox cfSearchResults;
+        CheckBox settingsMcim;
         GameProfile activeProfile;
         string currentPage = "首页";
         ComboBox homeProfile, versionLoader, settingsTheme;
@@ -100,7 +103,7 @@ namespace BlockCraftLauncher.Wpf
         {
             SideMenu.Children.Clear(); sidebarButtons.Clear();
             AddNavSection(SideMenu, "游戏", new[] { "首页", "游戏版本" }, Navigate, sidebarButtons);
-            AddNavSection(SideMenu, "资源下载", new[] { "资源中心", "光影引擎", "整合包" }, Navigate, sidebarButtons);
+            AddNavSection(SideMenu, "资源下载", new[] { "资源中心", "光影引擎", "整合包", "CurseForge" }, Navigate, sidebarButtons);
             AddNavSection(SideMenu, "管理与工具", new[] { "模组更新", "多人联机", "启动器更新", "设置", "运行日志" }, Navigate, sidebarButtons);
             SideMenu.Children.Add(Txt("当前账号", 12, true, true));
             SideMenu.Children.Add(Txt(settings.AccountMode == "offline" ? "离线：" + settings.OfflineName :
@@ -126,6 +129,7 @@ namespace BlockCraftLauncher.Wpf
                 case "资源中心": PageHost.Content = BuildResources("mod"); break;
                 case "光影引擎": PageHost.Content = BuildResources("shader"); break;
                 case "整合包": PageHost.Content = BuildModpacks(); break;
+                case "CurseForge": PageHost.Content = BuildCurseForge(); break;
                 case "模组更新": PageHost.Content = BuildModUpdates(); break;
                 case "多人联机": PageHost.Content = BuildMultiplayer(); break;
                 case "启动器更新": PageHost.Content = BuildLauncherUpdates(); break;
@@ -343,6 +347,57 @@ namespace BlockCraftLauncher.Wpf
             return Col(Txt(title, 24, true), Card(Col(Txt("迁移状态：尚未完成", 18, true),
                 Txt(details, 14, false, true), Txt("为保证存档和账户安全，此处不会运行未经迁移验证的下载/安装逻辑。", 12, false, true))));
         }
+        UIElement BuildCurseForge()
+        {
+            var root = Col(Txt("CurseForge 模组 · MCIM 镜像", 24, true),
+                Txt("独立可选服务，不使用第三方程序的 API Key；文件下载必须有授权 URL、兼容版本和 SHA-1。", 12, false, true));
+            if (!settings.McimEnabled)
+                return Col(Txt("MCIM 当前未启用。请在设置中启用并确认该镜像的服务与下载条款。"),
+                    Btn("前往设置", () => Navigate("设置"), true));
+            cfSearchQuery = new TextBox { Width = 340, ToolTip = "CurseForge 模组关键词" };
+            root.Children.Add(Card(Row(cfSearchQuery, Btn("搜索 CurseForge", async () => await SearchCurseForgeAsync(), true))));
+            cfSearchResults = new ListBox { Height = 385 };
+            root.Children.Add(Card(cfSearchResults));
+            root.Children.Add(Card(Col(Txt("选中模组与依赖安装", 18, true),
+                Row(Btn("安装选中模组", async () => await InstallCurseForgeAsync(), true),
+                    Btn("取消下载", () => currentOperation?.Cancel())),
+                Txt("自动选择当前实例兼容版本、检查必要依赖；已存在同名 JAR 时拒绝覆盖。", 12, false, true))));
+            return root;
+        }
+        async Task SearchCurseForgeAsync()
+        {
+            try
+            {
+                Status("正在通过 MCIM 查询 CurseForge...");
+                using (var client = new CurseForgeMirrorClient(settings))
+                    cfSearchResults.ItemsSource = await client.SearchAsync(cfSearchQuery.Text, CancellationToken.None);
+                Status("CurseForge 查询已完成");
+            }
+            catch (Exception ex) { ShowError("CurseForge 查询失败", ex); }
+        }
+        async Task InstallCurseForgeAsync()
+        {
+            var hit = cfSearchResults?.SelectedItem as CurseForgeHit;
+            if (hit == null || activeProfile == null) { MessageBox.Show("请先选择模组和游戏实例"); return; }
+            if (currentOperation != null) { MessageBox.Show("已有下载/安装操作正在进行"); return; }
+            if (MessageBox.Show("将为 " + activeProfile.Name + " 下载 " + hit.Name +
+                " 及必要依赖。仅从许可镜像/官方 CDN 下载，不覆盖已有文件。\n\n继续？",
+                "CurseForge 安装确认", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            currentOperation = new CancellationTokenSource();
+            try
+            {
+                var progress = new Progress<string>(Status);
+                using (var client = new CurseForgeMirrorClient(settings))
+                {
+                    var files = await client.InstallAsync(hit.Id, activeProfile, progress, currentOperation.Token);
+                    Status("CurseForge 安装完成：" + files.Count + " 个文件");
+                }
+            }
+            catch (OperationCanceledException) { Status("CurseForge 下载已取消"); }
+            catch (Exception ex) { ShowError("CurseForge 安装失败", ex); }
+            finally { currentOperation.Dispose(); currentOperation = null; }
+        }
+
         UIElement BuildModpacks()
         {
             var root = Col(Txt("Modrinth 整合包", 24, true),
@@ -638,6 +693,10 @@ namespace BlockCraftLauncher.Wpf
             settingsJava = new TextBox { Text = settings.JavaPath }; paths.Children.Add(settingsJava);
             paths.Children.Add(Txt("HTTP/HTTPS 代理", 13, false, true));
             settingsProxy = new TextBox { Text = settings.Proxy }; paths.Children.Add(settingsProxy);
+            settingsMcim = new CheckBox { IsChecked = settings.McimEnabled,
+                Content = "启用可选 MCIM 镜像（CurseForge 元数据和部分 JAR 下载）" };
+            paths.Children.Add(settingsMcim);
+            paths.Children.Add(Txt("MCIM 是非官方镜像。启用前请确认有权接入该服务，并遵守资源作者的下载/分发限制。", 12, false, true));
             paths.Children.Add(Txt("离线玩家名称", 13, false, true));
             settingsPlayer = new TextBox { Text = settings.OfflineName }; paths.Children.Add(settingsPlayer);
             paths.Children.Add(Txt("内存（MB）", 13, false, true));
@@ -649,6 +708,7 @@ namespace BlockCraftLauncher.Wpf
         {
             settings.Root = settingsRoot?.Text ?? settings.Root;
             settings.Proxy = settingsProxy?.Text ?? settings.Proxy;
+            settings.McimEnabled = settingsMcim?.IsChecked == true;
             settings.JavaPath = settingsJava?.Text ?? settings.JavaPath;
             settings.OfflineName = settingsPlayer?.Text ?? settings.OfflineName;
             if (int.TryParse(settingsMemory?.Text, out var mb)) settings.MemoryMb = Math.Max(512, mb);
