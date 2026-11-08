@@ -57,6 +57,7 @@ type Report struct {
     HostReadySeen bool `json:"host_ready_seen"`
     SignalingAuthenticated bool `json:"signaling_authenticated"`
     WebRTCTransportConnected bool `json:"webrtc_transport_connected"`
+    TransportStable bool `json:"transport_stable"`
     MinecraftWorldJoined bool `json:"minecraft_world_joined"`
     ModeConfirmed bool `json:"g79_mode_confirmed"`
     Detail string `json:"detail"`
@@ -551,10 +552,31 @@ func probeWebRTC(ctx context.Context, session login, node server,
         return result
     }
     defer rtc.Close()
-    result.WebRTCTransportConnected=true
-    result.Status="WEBRTC_TRANSPORT_CONNECTED_GAME_NOT_JOINED"
-    result.Detail="NetherNet 协商已完成，WebRTC 传输已建立；未发送 Minecraft 游戏握手或加载世界。"
-    return result
+    // A successful DialContext alone only proves that the transport was
+    // constructed. Do not call it stable until both data channels have
+    // survived a bounded passive observation window. The observer sends
+    // zero Minecraft packets and never inspects payload bytes.
+    switch holdTransport(signalCtx, rtc, defaultStabilityWindow) {
+    case stabilityRemoteClosed:
+        result.Status="WEBRTC_EARLY_DISCONNECT_GAME_NOT_JOINED"
+        result.Detail="完成 WebRTC 协商后，手机房主连接在短暂观察期内断开。"
+        return result
+    case stabilityCancelled:
+        if errors.Is(signalCtx.Err(), context.DeadlineExceeded) {
+            result.Status="WEBRTC_STABILITY_WINDOW_INTERRUPTED"
+            result.Detail="在连接稳定性检查结束前，整体有界协商时限已到。"
+        } else {
+            result.Status="WEBRTC_PROBE_CANCELLED"
+            result.Detail="已请求取消并释放 WebRTC 连接。"
+        }
+        return result
+    default:
+        result.WebRTCTransportConnected=true
+        result.TransportStable=true
+        result.Status="WEBRTC_TRANSPORT_STABLE_8S_GAME_NOT_JOINED"
+        result.Detail="WebRTC 数据通道已建立且在 8 秒被动检查期间未断开；未发送游戏包或进入世界。"
+        return result
+    }
 }
 
 func Run(ctx context.Context, req Request) Report {
