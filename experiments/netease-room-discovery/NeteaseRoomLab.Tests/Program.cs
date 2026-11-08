@@ -28,6 +28,7 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 TestG79AuthConfigAndRedaction();
                 TestAdmissionResponseContract();
                 TestLiveRoomPreflightContracts();
+                TestRealJoinProbeResultRedaction();
                 Console.WriteLine("Room/node parser and local email-helper safety tests passed. No network requests or credentials used.");
                 return 0;
             }
@@ -293,6 +294,38 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 if (b != 0) throw new InvalidOperationException("Secret material not cleared.");
 
             Console.WriteLine("PASS: live-room preflight parsers and volatile session key derivation (offline mocks)");
+        }
+
+        private static void TestRealJoinProbeResultRedaction()
+        {
+            const string secret = "DO_NOT_SHOW_MOCK_SESSION_TOKEN";
+            string accepted = JoinProbeRunner.ReportStatus(
+                "{\"status\":\"SERVER_ROOM_ADMISSION_ACCEPTED\","
+                + "\"login_accepted\":true,\"room_admission_accepted\":true,"
+                + "\"minecraft_world_joined\":false,"
+                + "\"detail\":\""+secret+"\"}");
+            if (!accepted.Contains("SERVER_ROOM_ADMISSION_ACCEPTED")
+                || accepted.Contains(secret)
+                || accepted.Contains("进入 Minecraft 世界成功"))
+                throw new InvalidOperationException("Join probe room admission statement leaked a credential.");
+
+            string unknown = JoinProbeRunner.ReportStatus(
+                "{\"status\":\"MALICIOUS_STATUS_"+secret+"\","
+                + "\"detail\":\""+secret+"\"}");
+            if (unknown.Contains(secret) || !unknown.Contains("JOIN_PROBE_STATUS_UNKNOWN"))
+                throw new InvalidOperationException("Unknown status echoed private payload.");
+
+            string unverified = JoinProbeRunner.ReportStatus(
+                "{\"status\":\"TAN_LOGIN_RESPONSE_MISSING\",\"detail\":\""+secret+"\"}");
+            if (!unverified.Contains("TAN_LOGIN_RESPONSE_MISSING")
+                || unverified.Contains(secret)
+                || unverified.Contains("SERVER_ROOM_ADMISSION_ACCEPTED"))
+                throw new InvalidOperationException("Unverified admission improperly promoted.");
+
+            if (!JoinProbeRunner.ReportStatus("not-json").Contains("JOIN_PROBE_OUTPUT_INVALID"))
+                throw new InvalidOperationException("Malformed probe output was not rejected.");
+
+            Console.WriteLine("PASS: real RakNet join probe allowlist and user-secret redaction");
         }
 
         private static void ExpectNode(bool shouldFind, string testName, string json)
