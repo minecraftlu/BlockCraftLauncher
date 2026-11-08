@@ -41,8 +41,8 @@ func TestWebRTCPhaseClassifierUsesOnlyFixedLabels(t *testing.T) {
             if tt.setup!=nil {tt.setup(obs)}
             actual:=classifyWebRTCFailure(tt.err,obs)
             if actual!=tt.status {t.Fatalf("got %q want %q",actual,tt.status)}
-            if strings.Contains(actual,"SECRET") || strings.Contains(actual,"192.168")
-                || strings.Contains(actual,"PRIVATE") {
+            if strings.Contains(actual,"SECRET") || strings.Contains(actual,"192.168") ||
+                strings.Contains(actual,"PRIVATE") {
                 t.Fatal("Classification leaked raw network or account data")
             }
         })
