@@ -45,9 +45,9 @@ namespace BlockCraftLauncher.Wpf.Services
                 "快照版分类");
             Require(versions.Any(x => x.Id == "b1.7.3" && x.Category == "远古 Beta"),
                 "远古版本分类");
-            Require(DownloadTaskCenter.Format(1536).Contains("KiB"),
+            Require(DownloadJob.Format(1536).Contains("KiB"),
                 "下载速率字节单位");
-            Require(DownloadTaskCenter.Format(5L * 1024 * 1024).Contains("MiB"),
+            Require(DownloadJob.Format(5L * 1024 * 1024).Contains("MiB"),
                 "下载大小单位");
         }
     }
