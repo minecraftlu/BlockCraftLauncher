@@ -88,7 +88,7 @@ namespace BlockCraft.NeteaseRoomLab
             { "OBSERVATION_DURATION_INVALID", "被动观察仅支持 8、30 或 60 秒。" },
             { "WEBRTC_CHANNEL_OBSERVER_UNAVAILABLE", "此 EXE 缺少两条数据通道的本地只读诊断模块。" },
             { "WEBRTC_CHANNELS_NOT_OPEN_GAME_NOT_JOINED", "WebRTC 已协商，但观察结束时可靠和不可靠数据通道未同时处于 OPEN。" },
-            { "WEBRTC_CHANNELS_EARLY_CLOSED_GAME_NOT_JOINED", "观察期间房主传输断开，不能判定连接稳定。" },
+            { "WEBRTC_CHANNELS_EARLY_CLOSED_GAME_NOT_JOINED", "观察期间数据通道关闭或房主传输断开，不能判定连接稳定。" },
             { "WEBRTC_CHANNELS_OBSERVATION_INTERRUPTED", "观察时限中断，没有完成 30 或 60 秒测试。" },
             { "WEBRTC_CHANNELS_OPEN_30S_NO_DATA_GAME_NOT_JOINED", "两条数据通道均为 OPEN；30 秒被动观察内没有收到应用消息。尚未进入世界。" },
             { "WEBRTC_CHANNELS_OPEN_30S_DATA_OBSERVED_GAME_NOT_JOINED", "两条数据通道均为 OPEN；30 秒被动观察收到数据通道消息。尚未验证 Minecraft 游戏协议。" },
