@@ -45,6 +45,30 @@ namespace BlockCraft.NeteaseRoomLab
                 + "\" -auth-data-dir \"" + dataDir + "\"";
         }
 
+        /// <summary>
+        /// Builds a PowerShell command for manual local diagnosis. The command
+        /// contains only paths and fixed flags, never email/password/token.
+        /// Users can paste it into an existing PowerShell window to retain
+        /// the helper's original error message after the process exits.
+        /// </summary>
+        public static string GetPowerShellDiagnosticCommand(string helperPath)
+        {
+            if (!IsAllowedHelperPath(helperPath))
+                throw new ArgumentException("Select an absolute connect.exe path first.");
+            string quotedExe = QuotePowerShell(Path.GetFullPath(helperPath));
+            string quotedCredential = QuotePowerShell(GetCredentialFile());
+            string quotedDevice = QuotePowerShell(Path.Combine(GetWorkspace(), "device"));
+            return "& " + quotedExe + " -login -login-method email"
+                + " -cookie-out " + quotedCredential
+                + " -auth-data-dir " + quotedDevice
+                + "; Write-Host ('AUTH_HELPER_EXIT_CODE=' + $LASTEXITCODE)";
+        }
+
+        private static string QuotePowerShell(string value)
+        {
+            return "'" + value.Replace("'", "''") + "'";
+        }
+
         public static string GetWorkspace()
         {
             return Path.Combine(Environment.GetFolderPath(
@@ -142,7 +166,9 @@ namespace BlockCraft.NeteaseRoomLab
         public static string ExplainExit(int exitCode, bool credentialFileFound)
         {
             if (exitCode != 0)
-                return "AUTH_HELPER_EXITED_WITH_ERROR: 认证助手报告失败；请只在本机查看详细原因。";
+                return "AUTH_HELPER_EXITED_WITH_ERROR (exit code " + exitCode
+                    + "): 外部认证助手运行失败，不能判断是账号问题还是网络问题。"
+                    + " 请使用诊断命令在 PowerShell 查看原始错误，切勿公开凭据。";
             if (!credentialFileFound)
                 return "AUTH_HELPER_EXITED_NO_CREDENTIAL: 认证助手已退出，但未发现本地凭据文件。";
             return "LOCAL_CREDENTIAL_FILE_PRESENT_UNVERIFIED: 认证助手已保存本地文件。"
