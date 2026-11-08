@@ -45,6 +45,9 @@ if (-not (Test-Path -LiteralPath $patchedFile)) {
     throw "Local pinned fork copy was incomplete."
 }
 
+# Go's download cache marks module files read-only; copied attributes must
+# be normalized before writing into this disposable source fork.
+[System.IO.File]::SetAttributes($patchedFile, [System.IO.FileAttributes]::Normal)
 $patched = [System.IO.File]::ReadAllText($patchedFile)
 foreach ($change in $changes) {
     $patched = $patched.Replace($change.Old, $change.New)
