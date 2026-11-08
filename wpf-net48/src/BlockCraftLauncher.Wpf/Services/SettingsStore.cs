@@ -37,6 +37,7 @@ namespace BlockCraftLauncher.Wpf.Services
                     config.Root = S(data, "root", config.Root);
                     config.JavaPath = S(data, "java");
                     config.Proxy = S(data, "proxy");
+                    config.McimEnabled = S(data, "mcim_enabled", "False").Equals("True", StringComparison.OrdinalIgnoreCase);
                     config.NetworkMode = S(data, "network_mode", "auto");
                     config.Theme = S(data, "ui_mode", "深色");
                     config.Accent = S(data, "ui_accent", "#1875CE");
@@ -64,6 +65,7 @@ namespace BlockCraftLauncher.Wpf.Services
         {
             var data = new Dictionary<string, object>(c.Raw);
             data["root"] = c.Root; data["java"] = c.JavaPath; data["proxy"] = c.Proxy;
+            data["mcim_enabled"] = c.McimEnabled;
             data["network_mode"] = c.NetworkMode; data["ui_mode"] = c.Theme; data["ui_accent"] = c.Accent;
             data["ui_zoom"] = c.Zoom; data["memory_mb"] = c.MemoryMb; data["download_threads"] = c.DownloadThreads;
             data["download_retries"] = c.DownloadRetries; data["account_mode"] = c.AccountMode;
