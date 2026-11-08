@@ -21,7 +21,7 @@ func TestParseSecondAccountSession(t *testing.T) {
     for _, keyLen := range []int{16, 24, 32} {
         sample := strings.Repeat("A", keyLen)
         attempt, err := parseLogin([]byte(
-            "uid=10001\\nnickname=LocalGuest\\nplatform=2\\nlogin_token=" + sample + "\\n"))
+            "uid=10001\nnickname=LocalGuest\nplatform=2\nlogin_token=" + sample + "\n"))
         if err != nil || len(attempt.token) != keyLen {
             t.Fatal("AES-compatible PE session token was rejected")
         }
