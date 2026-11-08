@@ -136,3 +136,49 @@ func TestMissingOrCancelledEndpointsRejected(t *testing.T) {
     defer w.Close()
     if err:=Run(ctx,game,r,w);!errors.Is(err,context.Canceled){t.Fatal(err)}
 }
+
+func TestWorkerStopAcknowledgedWithoutFakeGameSuccess(t *testing.T) {
+    f:=startFixture(t)
+    ack:=make(chan error,1)
+    go func(){
+        if err:=f.worker.RequestStop();err!=nil{ack<-err;return}
+        ack<-f.worker.ReadStopped()
+    }()
+    select{
+    case err:=<-ack:
+        if err!=nil{t.Fatalf("worker Stop did not receive Stopped: %v",err)}
+    case <-time.After(time.Second):t.Fatal("worker Stop acknowledgement stalled")
+    }
+    select{
+    case err:=<-f.result:
+        if err!=nil{t.Fatalf("explicit Stop should be clean: %v",err)}
+        f.result<-err
+    case <-time.After(time.Second):t.Fatal("relay stayed alive after explicit worker Stop")
+    }
+    select{
+    case <-f.source.done:
+    default:t.Fatal("game transport remained open after Stop")
+    }
+}
+
+type shortWriteTransport struct{*fakeTransport}
+func (*shortWriteTransport) Write(p []byte)(int,error){return len(p)-1,nil}
+
+func TestShortGameWriteFailsClosed(t *testing.T) {
+    workerIn,guestOut:=io.Pipe()
+    guestIn,workerOut:=io.Pipe()
+    defer workerIn.Close()
+    defer workerOut.Close()
+    ctx,cancel:=context.WithTimeout(context.Background(),3*time.Second)
+    defer cancel()
+    game:=&shortWriteTransport{newFakeTransport()}
+    done:=make(chan error,1)
+    go func(){done<-Run(ctx,game,guestIn,guestOut)}()
+    worker:=wire.NewPacketStream(workerIn,workerOut)
+    if err:=worker.SendPacket([]byte{0x02,0x2a,0x2b});err!=nil{t.Fatal(err)}
+    select{
+    case err:=<-done:
+        if !errors.Is(err,io.ErrShortWrite){t.Fatalf("short game write not detected: %v",err)}
+    case <-time.After(time.Second):t.Fatal("short game write stalled")
+    }
+}
