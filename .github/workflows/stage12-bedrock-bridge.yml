@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'experiments/netease-room-discovery/BedrockProtocolBridge/**'
+      - 'experiments/netease-room-discovery/BridgeWire/**'
       - 'experiments/netease-room-discovery/GuestTransportLab/**'
       - '.github/workflows/stage12-bedrock-bridge.yml'
   push:
@@ -11,6 +12,7 @@ on:
       - experiment/netease-room-discovery
     paths:
       - 'experiments/netease-room-discovery/BedrockProtocolBridge/**'
+      - 'experiments/netease-room-discovery/BridgeWire/**'
       - '.github/workflows/stage12-bedrock-bridge.yml'
   workflow_dispatch:
 
@@ -46,6 +48,48 @@ jobs:
           go vet ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go build ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+
+  cross-process-offline:
+    runs-on: windows-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Validate binary framing protocol and malformed inputs
+        shell: pwsh
+        working-directory: experiments/netease-room-discovery/BridgeWire
+        run: |
+          go test -count=10 -timeout=90s ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -race -count=1 -timeout=90s ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build isolated offline worker and guest transport fixture
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:GITHUB_WORKSPACE ".stage12-ci"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          Push-Location "experiments/netease-room-discovery/BedrockProtocolBridge"
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -o (Join-Path $out "Stage12Worker.exe") ./cmd/bedrockworker
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+          Push-Location "experiments/netease-room-discovery/GuestTransportLab"
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -o (Join-Path $out "Stage12IPCFixture.exe") ./cmd/bridgefixture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+      - name: Validate actual Windows STDIO process boundary (no network)
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:GITHUB_WORKSPACE ".stage12-ci"
+          & (Join-Path $out "Stage12IPCFixture.exe") -offline-ipc-selftest -worker (Join-Path $out "Stage12Worker.exe")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   proven-netease-transport:
