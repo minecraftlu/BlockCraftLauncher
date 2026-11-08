@@ -28,7 +28,7 @@ namespace BlockCraftLauncher.Wpf
         readonly List<string> logs = new List<string>();
         readonly MultiplayerService multiplayer = new MultiplayerService();
         ComboBox localResourceKind;
-        ListBox localResourceList, serverList;
+        ListBox localResourceList, serverList, lanWorldList;
         TextBox serverName, serverAddress;
         TextBox packSearchQuery;
         ListBox packSearchResults;
@@ -613,6 +613,12 @@ namespace BlockCraftLauncher.Wpf
                     Btn("连接服务器", async () => await JoinServerAsync(), true),
                     Btn("启动当前实例", async () => await LaunchAsync())),
                 Txt("连通性仅检查 TCP 端口，不能保证游戏版本/模组/正版要求匹配。", 12, false, true))));
+            lanWorldList = new ListBox { Height = 165 };
+            root.Children.Add(Card(Col(Txt("局域网世界", 18, true),
+                Txt("接收本地网络的 Minecraft UDP 多播公告（224.0.2.60:4445），不扫描其他设备端口。", 12, false, true),
+                Row(Btn("扫描局域网", async () => await ScanLanWorldsAsync()),
+                    Btn("连接局域网世界", async () => await JoinLanWorldAsync(), true)),
+                lanWorldList)));
             serverList.SelectionChanged += (sender, args) =>
             {
                 if (serverList.SelectedItem is ServerEntry selected)
@@ -674,6 +680,25 @@ namespace BlockCraftLauncher.Wpf
                 Status("服务器地址已复制，请在 Minecraft 多人游戏中添加或连接。");
             }
             catch (Exception ex) { ShowError("复制服务器地址失败", ex); }
+        }
+        async Task ScanLanWorldsAsync()
+        {
+            try
+            {
+                Status("正在扫描 Minecraft 局域网公告...");
+                var worlds = await multiplayer.ScanLanAsync(CancellationToken.None);
+                if (lanWorldList != null) lanWorldList.ItemsSource = worlds;
+                Status("局域网发现 " + worlds.Count + " 个世界；如无结果，请检查路由器和防火墙。");
+            }
+            catch (Exception ex) { ShowError("局域网扫描失败", ex); }
+        }
+        async Task JoinLanWorldAsync()
+        {
+            var selected = lanWorldList?.SelectedItem as ServerEntry;
+            if (selected == null) { MessageBox.Show("请先选择局域网世界"); return; }
+            if (activeProfile == null) { MessageBox.Show("请先选择游戏实例"); return; }
+            try { await LaunchAsync(selected.Address); }
+            catch (Exception ex) { ShowError("连接局域网失败", ex); }
         }
         async Task JoinServerAsync()
         {
