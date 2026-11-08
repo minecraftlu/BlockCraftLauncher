@@ -39,7 +39,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 BaseVersion = version, LaunchVersion = version, Loader = "vanilla", Directory = config.Root };
         }
 
-        public async Task<Process> LaunchOfflineAsync(GameProfile profile)
+        public async Task<Process> LaunchOfflineAsync(GameProfile profile, string serverAddress = null)
         {
             if (profile == null) throw new ArgumentNullException(nameof(profile));
             if (config.AccountMode != "offline")
@@ -49,24 +49,40 @@ namespace BlockCraftLauncher.Wpf.Services
                 throw new InvalidOperationException("离线玩家名必须是 3～16 位英文字母、数字或下划线。");
             string id = string.IsNullOrWhiteSpace(profile.LaunchVersion) ? profile.BaseVersion : profile.LaunchVersion;
             var launcher = CreateLauncher();
+            var server = string.IsNullOrWhiteSpace(serverAddress) ? null : MultiplayerService.ParseAddress(serverAddress);
             var process = await launcher.BuildProcessAsync(id, new MLaunchOption {
                 Session = MSession.CreateOfflineSession(username),
-                MaximumRamMb = Math.Max(512, config.MemoryMb)
+                MaximumRamMb = Math.Max(512, config.MemoryMb),
+                JavaPath = string.IsNullOrWhiteSpace(config.JavaPath) ? null : config.JavaPath,
+                GameLauncherName = "BlockCraftLauncher",
+                GameLauncherVersion = "0.9.27",
+                ScreenWidth = 1280,
+                ScreenHeight = 720,
+                ServerIp = server == null ? null : server.Item1,
+                ServerPort = server == null ? 25565 : server.Item2
             });
             process.Start();
             return process;
         }
-        public async Task<Process> LaunchMicrosoftAsync(GameProfile profile, MSession session)
+        public async Task<Process> LaunchMicrosoftAsync(GameProfile profile, MSession session, string serverAddress = null)
         {
             if (profile == null) throw new ArgumentNullException(nameof(profile));
             if (session == null || string.IsNullOrWhiteSpace(session.AccessToken) || string.IsNullOrWhiteSpace(session.UUID))
                 throw new InvalidOperationException("请先完成微软正版登录，并确认 Minecraft Java 购买资格。");
             string version = string.IsNullOrWhiteSpace(profile.LaunchVersion) ? profile.BaseVersion : profile.LaunchVersion;
             var launcher = CreateLauncher();
+            var server = string.IsNullOrWhiteSpace(serverAddress) ? null : MultiplayerService.ParseAddress(serverAddress);
             var process = await launcher.BuildProcessAsync(version, new MLaunchOption
             {
                 Session = session,
-                MaximumRamMb = Math.Max(512, config.MemoryMb)
+                MaximumRamMb = Math.Max(512, config.MemoryMb),
+                JavaPath = string.IsNullOrWhiteSpace(config.JavaPath) ? null : config.JavaPath,
+                GameLauncherName = "BlockCraftLauncher",
+                GameLauncherVersion = "0.9.27",
+                ScreenWidth = 1280,
+                ScreenHeight = 720,
+                ServerIp = server == null ? null : server.Item1,
+                ServerPort = server == null ? 25565 : server.Item2
             });
             process.Start();
             return process;
