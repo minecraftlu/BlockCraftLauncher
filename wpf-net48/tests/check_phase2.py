@@ -17,7 +17,7 @@ def check():
     mod=(SRC/'Services/ModLoaderInstaller.cs').read_text('utf8')
     for loader in ('FabricInstaller','QuiltInstaller','ForgeInstaller','NeoForgeInstaller'):
         assert loader in mod
-    assert 'File.Exists(metadata)' in mod and 'await launcher.InstallAsync(installedId)' in mod
+    assert 'File.Exists(metadata)' in mod and 'await launcher.InstallAsync(installedId, token)' in mod
     main=(SRC/'MainWindow.xaml.cs').read_text('utf8')
     for symbol in ('LaunchMicrosoftAsync', 'GetSessionAsync','LoginMicrosoftAsync','SignOutAsync','modLoaders.InstallAsync','versionCancelButton'):
         assert symbol in main, symbol
