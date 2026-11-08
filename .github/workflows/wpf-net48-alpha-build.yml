@@ -29,6 +29,24 @@ jobs:
         shell: cmd
         working-directory: wpf-net48
         run: call build\build-windows.bat
+      - name: Smoke test WPF startup and dependency resolution
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--smoke-test' -PassThru
+          if (-not $process.WaitForExit(35000)) {
+            $process.Kill()
+            throw 'WPF startup smoke test timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 35 }
+            throw "WPF startup smoke test failed: exit code $($process.ExitCode)"
+          }
+          Write-Host 'PASS: WPF MainWindow initialized and CmlLib dependencies loaded'
       - name: Check release artifact
         shell: pwsh
         working-directory: wpf-net48

@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Windows;
 using System.Windows.Threading;
@@ -8,6 +10,8 @@ namespace BlockCraftLauncher.Wpf
 {
     public partial class App : Application
     {
+        private bool smokeTest;
+
         protected override void OnStartup(StartupEventArgs e)
         {
             DispatcherUnhandledException += OnDispatcherException;
@@ -15,18 +19,106 @@ namespace BlockCraftLauncher.Wpf
             {
                 if (args.ExceptionObject is Exception error) WriteDiagnostic(error);
             };
+
+            smokeTest = e.Args.Any(arg =>
+                string.Equals(arg, "--smoke-test", StringComparison.OrdinalIgnoreCase));
+            if (smokeTest)
+            {
+                // The CI probe must never open a browser, download Minecraft,
+                // touch account tokens, or display a GUI message.
+                StartupUri = null;
+                ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            }
+
+            try
+            {
+                VerifyCoreAssemblies();
+            }
+            catch (Exception ex)
+            {
+                string log = WriteDiagnostic(ex);
+                if (!smokeTest)
+                {
+                    MessageBox.Show(
+                        "启动器依赖检查未通过：\n" + ex.GetBaseException().Message +
+                        "\n\n请将完整 ZIP 解压到一个全新文件夹，" +
+                        "然后从该文件夹启动 BlockCraftLauncher.Wpf.exe。" +
+                        "\n不要只复制 EXE，也不要与旧版 DLL 混用。" +
+                        "\n\n诊断日志：\n" + log,
+                        "BlockCraft Launcher · DLL 依赖错误",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                Shutdown(21);
+                return;
+            }
+
             base.OnStartup(e);
+
+            if (smokeTest)
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        // Construct the same real MainWindow as ordinary startup.
+                        // This catches reflection/assembly load exceptions that
+                        // a simple 'file exists' package check cannot detect.
+                        var window = new MainWindow();
+                        if (window.Content == null)
+                            throw new InvalidOperationException("WPF 主窗口没有初始化内容");
+                        Shutdown(0);
+                    }
+                    catch (Exception ex)
+                    {
+                        WriteDiagnostic(ex);
+                        Shutdown(22);
+                    }
+                }), DispatcherPriority.ApplicationIdle);
+            }
+        }
+
+        private static void VerifyCoreAssemblies()
+        {
+            var directory = AppDomain.CurrentDomain.BaseDirectory;
+            foreach (var name in new[]
+            {
+                "CmlLib.Core.Commons",
+                "CmlLib.Core",
+                "CmlLib.Core.Auth.Microsoft",
+                "CmlLib.Core.Installer.Forge",
+                "System.Text.Json",
+                "Microsoft.Web.WebView2.Core"
+            })
+            {
+                string file = Path.Combine(directory, name + ".dll");
+                if (!File.Exists(file))
+                    throw new FileNotFoundException("缺少 " + name + ".dll。请使用完整 ZIP 解压后的文件夹。", file);
+
+                AssemblyName identity = AssemblyName.GetAssemblyName(file);
+                if (name == "CmlLib.Core.Commons" && identity.Version != new Version(4, 0, 0, 0))
+                    throw new FileLoadException("CmlLib.Core.Commons 版本不符：需要 4.0.0.0，实际为 "
+                        + identity.Version + "。请清理旧 DLL 后重新解压完整包。", file);
+
+                // Assembly.Load resolves using the same application binding
+                // redirects and probing policy as normal WPF startup.
+                Assembly.Load(identity);
+            }
         }
 
         private static void OnDispatcherException(object sender, DispatcherUnhandledExceptionEventArgs args)
         {
             string path = WriteDiagnostic(args.Exception);
-            string details = args.Exception.GetBaseException().Message;
-            MessageBox.Show("启动器发生错误：\n" + details
+            if (Current is App app && app.smokeTest)
+            {
+                args.Handled = true;
+                Current.Shutdown(23);
+                return;
+            }
+            MessageBox.Show("启动器发生错误：\n" + args.Exception.GetBaseException().Message
+                + "\n\n如涉及缺失 DLL，请完整解压新版 ZIP 后运行，勿只复制 EXE。"
                 + "\n\n诊断日志：\n" + path
                 + "\n\n如需反馈，请勿发送包含账号令牌的日志。", "BlockCraft Launcher",
                 MessageBoxButton.OK, MessageBoxImage.Error);
-            // Avoid continuing with a partially initialized main window.
             args.Handled = true;
             Current?.Shutdown(1);
         }
@@ -41,9 +133,10 @@ namespace BlockCraftLauncher.Wpf
             {
                 Directory.CreateDirectory(directory);
                 File.AppendAllText(path, DateTime.Now.ToString("u") + Environment.NewLine
+                    + "EXE directory: " + AppDomain.CurrentDomain.BaseDirectory + Environment.NewLine
                     + error + Environment.NewLine + Environment.NewLine, new UTF8Encoding(false));
             }
-            catch (Exception) { /* Never let diagnostic failure hide the original error. */ }
+            catch (Exception) { /* Do not replace the original exception. */ }
             return path;
         }
     }

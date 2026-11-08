@@ -9,6 +9,9 @@ assert project.findtext('.//UseWPF') == 'true'
 assert project.findtext('.//OutputType') == 'WinExe'
 assert project.findtext('.//PlatformTarget') == 'x64'
 assert project.findtext('.//Prefer32Bit') == 'false'
+assert project.findtext('.//CopyLocalLockFileAssemblies') == 'true'
+packages = {node.get('Include'): node.get('Version') for node in project.iter('PackageReference')}
+assert packages['CmlLib.Core.Commons'] == '4.0.0'
 
 script = (ROOT / 'build/build-windows.bat').read_text('utf8')
 workflow_path = ROOT / '.github/workflows/wpf-alpha-build.yml'
@@ -24,6 +27,12 @@ assert 'windows-2022' in workflow and 'microsoft/setup-msbuild@v2' in workflow
 assert 'upload-artifact@v4' in workflow and 'build-windows.bat' in workflow
 assert 'Get-FileHash' in packager and 'Compress-Archive' in packager
 assert 'BlockCraftLauncher.Wpf.exe' in packager
+assert 'CmlLib.Core.Commons.dll' in packager
+assert 'SHA256SUMS.txt' in packager
+app = (ROOT / 'src/BlockCraftLauncher.Wpf/App.xaml.cs').read_text('utf8')
+assert 'VerifyCoreAssemblies()' in app
+assert 'new MainWindow()' in app and '--smoke-test' in app
+assert 'Smoke test WPF startup' in workflow
 assert 'WebView2Loader.dll' in packager
 assert '0x8664' in packager and 'win-x64' in packager
 print('PASS: Windows MSBuild/packaging contract (static checks only)')

@@ -62,6 +62,42 @@ New-Item -Path $staging -ItemType Directory | Out-Null
 Get-ChildItem -LiteralPath $folder -Force | Where-Object { $_.Name -ne 'obj' } | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $staging -Recurse -Force
 }
+# Verify the actual shipped files, not merely the successful MSBuild output.
+$required = @(
+  'BlockCraftLauncher.Wpf.exe',
+  'CmlLib.Core.Commons.dll',
+  'CmlLib.Core.dll',
+  'CmlLib.Core.Auth.Microsoft.dll',
+  'CmlLib.Core.Installer.Forge.dll',
+  'System.Text.Json.dll',
+  'System.Buffers.dll',
+  'System.Memory.dll',
+  'Microsoft.Web.WebView2.Core.dll',
+  'WebView2Loader.dll'
+)
+foreach ($item in $required) {
+    $path = Join-Path $staging $item
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf) -or
+        (Get-Item -LiteralPath $path).Length -eq 0) {
+        throw "Release package missing a required DLL or EXE: $item"
+    }
+}
+$commonsName = [System.Reflection.AssemblyName]::GetAssemblyName(
+    (Join-Path $staging 'CmlLib.Core.Commons.dll'))
+if ($commonsName.Name -ne 'CmlLib.Core.Commons' -or
+    $commonsName.Version.ToString() -ne '4.0.0.0') {
+    throw "Wrong CmlLib.Core.Commons assembly identity: $commonsName"
+}
+# Preserve a complete hash manifest so users can detect mixed old/new DLLs.
+$hashList = Get-ChildItem -LiteralPath $staging -File |
+    Where-Object { $_.Extension -eq '.dll' -or $_.Extension -eq '.exe' } |
+    Sort-Object Name | ForEach-Object {
+        $digest = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        "$digest  $($_.Name)"
+    }
+$hashList | Set-Content -LiteralPath (Join-Path $staging 'SHA256SUMS.txt') -Encoding ASCII
+Write-Host "Verified bundled CmlLib.Core.Commons 4.0.0.0 and all required DLLs"
+
 $stagedExe = Join-Path $staging 'BlockCraftLauncher.Wpf.exe'
 $hash = (Get-FileHash -LiteralPath $stagedExe -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  BlockCraftLauncher.Wpf.exe" | Set-Content -LiteralPath "$stagedExe.sha256" -Encoding ASCII
@@ -70,7 +106,11 @@ BlockCraft Launcher v0.9.27 WPF Alpha - .NET Framework 4.8
 This is an incomplete migration preview. Do not overwrite the stable v0.9.26 Python/Go launcher.
 Requires Windows 10/11, .NET Framework 4.8 and Microsoft Edge WebView2 Runtime for Microsoft login.
 Some functionality (CurseForge, modpack installation, multiplayer, updater) is not yet migrated.
-Start BlockCraftLauncher.Wpf.exe in this folder and keep all DLLs and runtime files next to it.
+Start BlockCraftLauncher.Wpf.exe in the extracted folder and keep ALL DLL files next to it.
+If the app reports a missing CmlLib.Core.Commons dependency, do NOT copy the EXE alone:
+extract the entire ZIP into a brand-new directory and run from that directory.
+SHA256SUMS.txt lists checksums for all shipped executable and DLL files.
+The --smoke-test command is a noninteractive startup dependency probe for CI.
 No .NET Framework 4.8 redistributable, Minecraft assets, or login tokens are bundled.
 '@ | Set-Content -LiteralPath (Join-Path $staging 'README-ALPHA.txt') -Encoding UTF8
 $archive = Join-Path $dist "$name.zip"

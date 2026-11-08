@@ -2,6 +2,9 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net48</TargetFramework>
+    <!-- Explicitly copy transitive NuGet dependencies into the WPF EXE directory. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <!-- Explicit x64 CLR process: match 64-bit native WebView2Loader.dll -->
     <PlatformTarget>x64</PlatformTarget>
     <Prefer32Bit>false</Prefer32Bit>
@@ -17,6 +20,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="CmlLib.Core" Version="4.1.0" />
+    <PackageReference Include="CmlLib.Core.Commons" Version="4.0.0" />
     <PackageReference Include="CmlLib.Core.Auth.Microsoft" Version="3.4.0" />
     <PackageReference Include="CmlLib.Core.Installer.Forge" Version="2.0.0" />
     <Reference Include="System.Web.Extensions" />
