@@ -132,7 +132,11 @@ func classifyWebRTCFailure(err error, o *webRTCObservation) string {
         return "WEBRTC_SIGNALING_INTERRUPTED"
     }
 
-    if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+    if errors.Is(err, context.Canceled) {
+        return "WEBRTC_PROBE_CANCELLED"
+    }
+    if errors.Is(err, context.DeadlineExceeded) ||
+        strings.Contains(msg, "context deadline exceeded") {
         switch o.phase.Load() {
         case 6, 5, 4:
             return "WEBRTC_SCTP_HANDSHAKE_TIMEOUT"
