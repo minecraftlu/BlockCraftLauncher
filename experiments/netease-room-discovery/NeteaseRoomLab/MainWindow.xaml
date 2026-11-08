@@ -65,7 +65,7 @@
         </Grid.ColumnDefinitions>
         <StackPanel Grid.Column="0" Margin="0,0,14,0">
           <TextBlock Text="房间号" FontWeight="SemiBold" Margin="0,0,0,7" />
-          <TextBox x:Name="RoomIdBox" Text="453649" MaxLength="10" />
+          <TextBox x:Name="RoomIdBox" Text="280474" MaxLength="10" />
         </StackPanel>
         <StackPanel Grid.Column="1">
           <TextBlock Text="查询 UID（可选）" FontWeight="SemiBold" Margin="0,0,0,7" />
@@ -114,6 +114,14 @@
           <Button x:Name="DeleteAuthButton" Margin="10,0,0,0"
                   Style="{StaticResource SecondaryButton}" Click="DeleteAuth_Click"
                   Content="删除本地 Cookie 文件" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+          <Button x:Name="G79VerifyButton" IsEnabled="False"
+                  Style="{StaticResource PrimaryButton}" Click="G79Verify_Click"
+                  Content="验证第二账号 g79 游戏授权（只检查，不入房）" />
+          <TextBlock Margin="12,0,0,0" Foreground="#A9BAD0"
+                     VerticalAlignment="Center"
+                     Text="不会输出游戏 token 或登录凭据。" />
         </StackPanel>
         <TextBlock x:Name="AuthStatusText" Foreground="#C4D0E5" Margin="0,9,0,0"
                    TextWrapping="Wrap" Text="未选择认证组件。当前状态：AUTH_NOT_CONFIGURED。" />
