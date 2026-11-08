@@ -20,6 +20,7 @@ namespace BlockCraftLauncher.Wpf.Models
         public string Root { get; set; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BlockCraftLauncher", "minecraft");
         public string JavaPath { get; set; } = "";
         public string Proxy { get; set; } = "";
+        public bool McimEnabled { get; set; } = false;
         public string NetworkMode { get; set; } = "auto";
         public string Theme { get; set; } = "深色";
         public string Accent { get; set; } = "#1875CE";
