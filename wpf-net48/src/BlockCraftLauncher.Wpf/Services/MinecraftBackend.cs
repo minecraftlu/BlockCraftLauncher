@@ -17,7 +17,7 @@ namespace BlockCraftLauncher.Wpf.Services
     {
         readonly LauncherConfig config;
         public MinecraftBackend(LauncherConfig config) { this.config = config; }
-        MinecraftLauncher CreateLauncher() => new MinecraftLauncher(new MinecraftPath(config.Root));
+        MinecraftLauncher CreateLauncher() => MinecraftDownloadFactory.Create(new MinecraftPath(config.Root), config);
         MinecraftLauncher CreateLauncher(GameProfile profile)
         {
             // Imported modpacks have an isolated MinecraftPath, including versions and libraries.
@@ -25,7 +25,7 @@ namespace BlockCraftLauncher.Wpf.Services
             string version = string.IsNullOrWhiteSpace(profile.LaunchVersion) ? profile.BaseVersion : profile.LaunchVersion;
             string metadata = Path.Combine(profile.Directory ?? "", "versions", version, version + ".json");
             string root = File.Exists(metadata) ? profile.Directory : config.Root;
-            return new MinecraftLauncher(new MinecraftPath(root));
+            return MinecraftDownloadFactory.Create(new MinecraftPath(root), config);
         }
 
         public async Task<IReadOnlyList<string>> ListVersionsAsync()
