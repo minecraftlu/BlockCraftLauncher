@@ -8,6 +8,7 @@ import (
     "io"
     "net"
     "sync"
+    "sync/atomic"
     "testing"
     "time"
 
@@ -22,6 +23,8 @@ type messagePipe struct {
     outbound chan []byte
     done chan struct{}
     once *sync.Once
+    reads atomic.Uint64
+    writes atomic.Uint64
 }
 
 func pairMessages() (*messagePipe, *messagePipe) {
@@ -35,6 +38,7 @@ func pairMessages() (*messagePipe, *messagePipe) {
 func (p *messagePipe) ReadPacket() ([]byte, error) {
     select {
     case b := <-p.inbound:
+        p.reads.Add(1)
         return b, nil
     case <-p.done:
         return nil, net.ErrClosed
@@ -50,6 +54,7 @@ func (p *messagePipe) Write(b []byte) (int, error) {
     copied := append([]byte(nil), b...)
     select {
     case p.outbound <- copied:
+        p.writes.Add(1)
         return len(b), nil
     case <-p.done:
         return 0, net.ErrClosed
@@ -127,7 +132,7 @@ func TestLocalBedrockHandshakeAcrossAttachedNetherNetFraming(t *testing.T) {
         }
     }()
     client,err := (minecraft.Dialer{ErrorLog:safeLogger}).DialContextNetwork(ctx,attached,ExistingSessionAddress)
-    if err != nil {t.Fatalf("local Bedrock game login failed: %v; local fixture diagnostics: %s",err,fixtureLog.String())}
+    if err != nil {t.Fatalf("local Bedrock game login failed: %v; local fixture diagnostics: %s; client writes=%d reads=%d; host writes=%d reads=%d",err,fixtureLog.String(),clientPipe.writes.Load(),clientPipe.reads.Load(),serverPipe.writes.Load(),serverPipe.reads.Load())}
     defer client.Close()
     select {
     case err := <-accepted:
