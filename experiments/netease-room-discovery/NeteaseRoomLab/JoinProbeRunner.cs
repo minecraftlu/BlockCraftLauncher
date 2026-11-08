@@ -21,6 +21,7 @@ namespace BlockCraft.NeteaseRoomLab
         private const string ResourceName = "BlockCraft.JoinProbe.exe";
         private const int MaxStdout = 8 * 1024;
         private const int TimeoutMilliseconds = 115000;
+        private const string MachinePrefix = "BLOCKCRAFT_JOIN_PROBE_V1\t";
 
         private static readonly Dictionary<string, string> Messages =
             new Dictionary<string, string>(StringComparer.Ordinal)
@@ -61,6 +62,79 @@ namespace BlockCraft.NeteaseRoomLab
                     return resource != null;
                 }
             }
+        }
+
+        /// <summary>
+        /// Stage 9.1: parse precisely one framed machine record. Never scan
+        /// for the first/last braces of arbitrary console text; malformed
+        /// framing and unexpected stdout are rejected without echoing bytes.
+        /// </summary>
+        public static string ParseMachineOutput(string rawOutput)
+        {
+            if (String.IsNullOrWhiteSpace(rawOutput))
+                return "JOIN_PROBE_IPC_NO_ENVELOPE：探针没有返回版本化状态记录。";
+            if (rawOutput.Length > MaxStdout)
+                return "JOIN_PROBE_IPC_TRUNCATED：探针输出超出安全长度，已隐藏内容。";
+
+            string frame = null;
+            foreach (string rawLine in rawOutput.Split('\n'))
+            {
+                string line = rawLine.TrimEnd('\r');
+                if (line.Length == 0) continue;
+                if (!line.StartsWith(MachinePrefix, StringComparison.Ordinal)
+                    || frame != null)
+                    return "JOIN_PROBE_IPC_UNEXPECTED_OUTPUT：收到非预期或重复的子进程输出，已隐藏内容。";
+                frame = line.Substring(MachinePrefix.Length);
+            }
+            if (frame == null)
+                return "JOIN_PROBE_IPC_NO_ENVELOPE：探针没有返回版本化状态记录。";
+
+            try
+            {
+                var serializer = new JavaScriptSerializer { MaxJsonLength = MaxStdout };
+                var response = serializer.Deserialize<Dictionary<string, object>>(frame);
+                object statusObject;
+                if (response == null || !response.TryGetValue("status", out statusObject)
+                    || !(statusObject is string))
+                    return "JOIN_PROBE_IPC_SCHEMA_ERROR：探针没有返回可识别的状态字段。";
+
+                // The Go component must not claim world admission. Server
+                // acceptance booleans must also match each other and the
+                // corresponding status before the GUI describes success.
+                bool login, admitted, hostReady, worldJoined;
+                if (!ReadBool(response, "login_accepted", out login)
+                    || !ReadBool(response, "room_admission_accepted", out admitted)
+                    || !ReadBool(response, "host_ready_seen", out hostReady)
+                    || !ReadBool(response, "minecraft_world_joined", out worldJoined)
+                    || worldJoined || (admitted && !login) || (hostReady && !admitted))
+                    return "JOIN_PROBE_IPC_INCONSISTENT：子进程状态标志不一致，未判定成功。";
+
+                string status = (string)statusObject;
+                bool isRoomAccepted = status == "SERVER_ROOM_ADMISSION_ACCEPTED";
+                bool isHostReady = status == "HOST_NETHERNET_READY_GAME_NOT_CONNECTED";
+                if ((isRoomAccepted && (!login || !admitted || hostReady))
+                    || (isHostReady && (!login || !admitted || !hostReady))
+                    || (admitted && !isRoomAccepted && !isHostReady))
+                    return "JOIN_PROBE_IPC_INCONSISTENT：服务端准入标记与状态不匹配。";
+                if (status == "TAN_LOGIN_ACCEPTED" && !login)
+                    return "JOIN_PROBE_IPC_INCONSISTENT：服务器登录标记与状态不匹配。";
+
+                return ReportStatus(frame);
+            }
+            catch (Exception)
+            {
+                return "JOIN_PROBE_IPC_SCHEMA_ERROR：探针机器输出解析失败，原始内容已隐藏。";
+            }
+        }
+
+        private static bool ReadBool(Dictionary<string, object> response, string key, out bool value)
+        {
+            value = false;
+            object raw;
+            if (!response.TryGetValue(key, out raw) || !(raw is bool))
+                return false;
+            value = (bool)raw;
+            return true;
         }
 
         public static string ReportStatus(string json)
@@ -124,10 +198,12 @@ namespace BlockCraft.NeteaseRoomLab
                     Arguments = "-room \"" + room + "\""
                         + " -helper \"" + Path.GetFullPath(helperPath) + "\""
                         + " -cookie \"" + cookie + "\""
-                        + " -host-consent -try-join -timeout 90s",
+                        + " -host-consent -try-join -timeout 90s -machine-json",
                     WorkingDirectory = Path.GetDirectoryName(localExecutable),
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
+                    StandardOutputEncoding = new UTF8Encoding(false, true),
+                    StandardErrorEncoding = new UTF8Encoding(false, true),
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     ErrorDialog = false
@@ -149,13 +225,12 @@ namespace BlockCraft.NeteaseRoomLab
                 await exit;
                 string result = await stdout;
                 await stderr;
-                // Go CLI deliberately uses exit codes 3/4 for legitimate
-                // declined/incomplete admission; parse its safe status anyway.
-                int open = result.IndexOf('{');
-                int close = result.LastIndexOf('}');
-                if (open < 0 || close <= open)
-                    return "JOIN_PROBE_NO_REPORT：探针已退出但未产生结构化结果。";
-                return ReportStatus(result.Substring(open, close - open + 1));
+                // Stage 9.1 machine mode always exits 0 after emitting one
+                // status frame, including genuine denial. Failure to emit a
+                // well-formed frame is a distinct IPC error, not server denial.
+                if (process.ExitCode != 0)
+                    return "JOIN_PROBE_IPC_PROCESS_FAILURE：本机探针异常退出。未输出原始日志。";
+                return ParseMachineOutput(result);
             }
             catch (Exception)
             {
