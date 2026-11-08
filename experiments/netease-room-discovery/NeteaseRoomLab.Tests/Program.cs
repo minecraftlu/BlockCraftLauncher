@@ -20,7 +20,11 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 Expect(false, "no list", "{\"code\":0}");
                 Expect(false, "invalid JSON", "{not-json}");
                 Expect(false, "unexpected structure", "[]");
-                Console.WriteLine("All room metadata parser tests passed. No network requests made.");
+                ExpectNode(true, "node in public server list", "[{\"id\":9366,\"ip\":\"example.test\",\"ports\":[19132],\"status\":3,\"SignalWebPort\":8899,\"ServerType\":\"relay\"}]");
+                ExpectNode(false, "node not matched", "[{\"id\":123,\"ip\":\"example.test\"}]");
+                ExpectNode(false, "node bad JSON", "not-json");
+                ExpectNode(false, "node unexpected data", "{\"id\":9366}");
+                Console.WriteLine("All room and public node parser tests passed. No network requests made.");
                 return 0;
             }
             catch (Exception error)
@@ -28,6 +32,17 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 Console.Error.WriteLine(error.Message);
                 return 1;
             }
+        }
+
+        private static void ExpectNode(bool shouldFind, string testName, string json)
+        {
+            var result = LobbyNodeClient.ParseResponse("9366", json);
+            if (result.IsMapped != shouldFind)
+            {
+                throw new InvalidOperationException(
+                    "Test failed: " + testName + " -> " + result.Status + ", " + result.Details);
+            }
+            Console.WriteLine("PASS: " + testName);
         }
 
         private static void Expect(bool shouldFind, string testName, string json)
