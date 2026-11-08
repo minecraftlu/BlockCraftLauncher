@@ -128,6 +128,25 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 flexible.Contains("10001"))
                 throw new InvalidOperationException("G79 label normalization or secrecy failed.");
 
+            string missingMode = GuestG79Verifier.ClassifyResult(0,
+                "uid=2345\nlogin_token=DO_NOT_PRINT\nplatform=2\n", false);
+            if (!missingMode.Contains("mode_category=missing") ||
+                missingMode.Contains("DO_NOT_PRINT"))
+                throw new InvalidOperationException("Missing mode category or secret leak.");
+
+            string unexpectedMode = GuestG79Verifier.ClassifyResult(0,
+                "uid=2345\nlogin_token=DO_NOT_PRINT\nauth_mode=SECRET_MODE_VALUE\nplatform=2\n", false);
+            if (!unexpectedMode.Contains("mode_category=other") ||
+                unexpectedMode.Contains("SECRET_MODE_VALUE") ||
+                unexpectedMode.Contains("DO_NOT_PRINT"))
+                throw new InvalidOperationException("Unknown auth mode leak.");
+
+            string x19Mode = GuestG79Verifier.ClassifyResult(0,
+                "uid=2345\nlogin_token=DO_NOT_PRINT\nauth_mode=x19\nplatform=2\n", false);
+            if (!x19Mode.Contains("mode_category=x19") ||
+                x19Mode.Contains("G79_HELPER_LOGIN_ACCEPTED"))
+                throw new InvalidOperationException("Cross-platform mode mismatch classified as success.");
+
             Console.WriteLine("PASS: safe G79 config, field diagnostics and zero credential disclosure");
         }
 
