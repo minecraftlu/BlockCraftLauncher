@@ -16,6 +16,22 @@ func TestParseSecondAccountSession(t *testing.T) {
         t.Fatalf("wrong second-account parsing (DO NOT dump credentials)")
     }
     clear(info.token)
+    // Real second-account tokens can have any of the AES-compatible key
+    // lengths supported by the Stage8 Windows preflight.
+    for _, keyLen := range []int{16, 24, 32} {
+        sample := strings.Repeat("A", keyLen)
+        attempt, err := parseLogin([]byte(
+            "uid=10001\\nnickname=LocalGuest\\nplatform=2\\nlogin_token=" + sample + "\\n"))
+        if err != nil || len(attempt.token) != keyLen {
+            t.Fatal("AES-compatible PE session token was rejected")
+        }
+        derived, err := derive(attempt.token)
+        if err != nil || len(derived.encKey) != 32 {
+            t.Fatal("Valid PE token failed legacy RakNet lobby key derivation")
+        }
+        derived.destroy()
+        clear(attempt.token)
+    }
     for _,test:=range []string{
         strings.Replace(raw,"platform=2","platform=1",1),
         strings.Replace(raw,"nickname=LocalGuest","nickname=",1),
