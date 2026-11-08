@@ -38,3 +38,37 @@ https://github.com/GanquanOnline/ViaBedrock_NetEase
 ## 尚未完成
 
 还需找到六位数房间对应的合法游客入房流程、会话授权、对端信令和游戏协议连接。现有成功只证明发现房间，不是入房或在世界里见到玩家。未经验证不发入房请求、不绕过权限、不公布账号凭据。第三方代码复制和分发前需审核许可证。
+
+
+## 第二阶段真实运行结果：公共节点匹配已成功
+
+用户 Windows 截图显示 NODE_METADATA_FOUND（真实请求，不是本地自检）：
+
+- 房间号、rid、name：453649；1/30 人；version=48；platform=2；srv=9366。
+- 公开节点列表按 id=9366 匹配成功。
+- 节点公开地址：42.186.165.240。
+- 节点状态码：3；SignalWebPort：8900；ServerType：dockerB；列表内端口数：8。
+- 仍然没有登录任何游客账号、加入大厅房间或建立 Minecraft 游戏连接。
+
+准确解释：SignalWebPort 是公开节点记录的信令服务端口标记；不是 Minecraft 世界端口。即使节点可查，也不等于房间会话可用。
+
+## 新找到的实际传输层参考
+
+CubeDock 项目：https://github.com/emuyx/CubeDock 。其 README 称已经实测了网易手机版本地联机的房主侧 WebRTC/NetherNet + RakNet v8 代理以及部分资源包机制，但它的工作模式是自己创建房间、供手机玩家加入，**并不是 PC 游客进入现有手机房间**。
+
+CubeDock 在 vendor-src/nemc-tan-lobby-solver/core/nethernet/dial.go 中提供可发起客户端方向连接的 Dialer：通过 Signaling 获取 ICE/TURN 信息，发送 CONNECTREQUEST 和 CANDIDATEADD，接收 CONNECTRESPONSE 后建立 ICE/DTLS/SCTP 与数据通道。其 signal.go 明确列出信令消息类型。这个 Dialer 是传输层组件，不提供网易游客入房授权、房主 NetworkID、游戏账号或直接可玩的客户端。
+
+参考源文件：
+- https://github.com/emuyx/CubeDock/blob/main/vendor-src/nemc-tan-lobby-solver/core/nethernet/dial.go
+- https://github.com/emuyx/CubeDock/blob/main/vendor-src/nemc-tan-lobby-solver/core/nethernet/signal.go
+- https://github.com/emuyx/CubeDock/blob/main/README.md
+
+## 研究路线与客观限制
+
+1. 已完成：房间发现与公开节点映射，均由用户 Windows 真机截图确认。
+2. 尚缺：第二个独立的合法玩家会话，用于游客端加入。不要复用房主正在使用的同一账号导致房主掉线。不要让用户公开提交 Cookie、sauth、sead 或 token。
+3. 尚缺：适用于六位数本地联机房间的游客入房流程，尤其是携带真实权限与返回目标 NetherNet NetworkID 的阶段。不可假定与 HTTP /online-lobby-room-enter 相同。
+4. 待办：只有在取得获授权的房主会话目标及信令凭据后，再实现客户端侧 Dialer 和网络事件诊断，并检查是否获得游戏数据。
+5. 最终才对接 Java/网易基岩协议转换及合法 Minecraft 客户端。严格区别房间元数据成功、会话成功、传输成功和游戏成功。
+
+本实验仍不包括任何账号认证、网络扫描、凭据提取或无授权连接请求。
