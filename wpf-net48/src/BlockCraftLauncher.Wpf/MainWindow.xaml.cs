@@ -476,24 +476,23 @@ namespace BlockCraftLauncher.Wpf
         async Task InstallCurseForgeAsync()
         {
             var hit = cfSearchResults?.SelectedItem as CurseForgeHit;
-            if (hit == null || activeProfile == null) { MessageBox.Show("请先选择模组和游戏实例"); return; }
-            if (currentOperation != null) { MessageBox.Show("已有下载/安装操作正在进行"); return; }
-            if (MessageBox.Show("将为 " + activeProfile.Name + " 下载 " + hit.Name +
-                " 及必要依赖。仅从许可镜像/官方 CDN 下载，不覆盖已有文件。\n\n继续？",
+            var profile = activeProfile;
+            if (hit == null || profile == null) { MessageBox.Show("请先选择模组和游戏实例"); return; }
+            if (MessageBox.Show("将为 " + profile.Name + " 下载 " + hit.Name +
+                " 及必要依赖。仅从允许的镜像/官方 CDN 下载，不覆盖已有文件。\n\n继续？",
                 "CurseForge 安装确认", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-            currentOperation = new CancellationTokenSource();
-            try
+
+            downloads.Enqueue("CurseForge", hit.Name + " → " + profile.Name, async (token, progress, bytes) =>
             {
-                var progress = new Progress<string>(Status);
                 using (var client = new CurseForgeMirrorClient(settings))
                 {
-                    var files = await client.InstallAsync(hit.Id, activeProfile, progress, currentOperation.Token);
-                    Status("CurseForge 安装完成：" + files.Count + " 个文件");
+                    var files = await client.InstallAsync(hit.Id, profile, progress, token);
+                    progress.Report("CurseForge 安装完成：" + files.Count + " 个文件");
+                    Status("CurseForge 已安装：" + hit.Name);
                 }
-            }
-            catch (OperationCanceledException) { Status("CurseForge 下载已取消"); }
-            catch (Exception ex) { ShowError("CurseForge 安装失败", ex); }
-            finally { currentOperation.Dispose(); currentOperation = null; }
+            });
+            Status("已将 CurseForge 模组加入任务队列：" + hit.Name);
+            await Task.CompletedTask;
         }
 
         UIElement BuildModpacks()
@@ -508,7 +507,8 @@ namespace BlockCraftLauncher.Wpf
             root.Children.Add(Card(Col(Txt("整合包安装", 18, true),
                 Row(Btn("安装选中整合包", async () => await InstallSelectedModpackAsync(), true),
                     Btn("导入本地 .mrpack", ImportMrpackFromDisk),
-                    Btn("取消安装", () => currentOperation?.Cancel())),
+                    Btn("下载管理", () => Navigate("下载管理")),
+                    Btn("取消本地导入", () => currentOperation?.Cancel())),
                 Txt("安装新实例不会覆盖已存在的存档；如果加载器版本或下载文件不可用，安装会停止并移除未完成的新实例。", 12, false, true),
                 Txt("CurseForge 整合包直装仍未迁移。", 12, false, true))));
             return root;
@@ -528,26 +528,35 @@ namespace BlockCraftLauncher.Wpf
         {
             var hit = packSearchResults?.SelectedItem as ResourceHit;
             if (hit == null) { MessageBox.Show("请先选择一个整合包"); return; }
-            if (currentOperation != null) { MessageBox.Show("已有安装任务正在进行"); return; }
-            string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BlockCraftLauncher", "wpf-pack-cache");
-            Directory.CreateDirectory(folder);
-            string archive = Path.Combine(folder, Guid.NewGuid().ToString("N") + ".mrpack");
-            currentOperation = new CancellationTokenSource();
-            try
+            downloads.Enqueue("整合包", hit.Name, async (token, progress, bytes) =>
             {
-                Status("正在下载整合包：" + hit.Name);
-                using (var client = new ModrinthClient(settings))
-                    await client.DownloadModpackArchiveAsync(hit, archive, currentOperation.Token);
-                await InstallMrpackAsync(archive, currentOperation.Token);
-            }
-            catch (OperationCanceledException) { Status("整合包操作已取消"); }
-            catch (Exception ex) { ShowError("整合包安装失败", ex); }
-            finally
-            {
-                currentOperation.Dispose(); currentOperation = null;
-                if (File.Exists(archive)) File.Delete(archive);
-            }
+                string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "BlockCraftLauncher", "wpf-pack-cache");
+                Directory.CreateDirectory(folder);
+                string archive = Path.Combine(folder, Guid.NewGuid().ToString("N") + ".mrpack");
+                try
+                {
+                    progress.Report("正在下载整合包：" + hit.Name);
+                    using (var client = new ModrinthClient(settings))
+                        await client.DownloadModpackArchiveAsync(hit, archive, token, bytes);
+                    progress.Report("正在安装 Minecraft 与整合包文件，请勿关闭启动器...");
+                    var profile = await new MrpackInstaller(settings).InstallAsync(archive, progress, token);
+                    token.ThrowIfCancellationRequested();
+                    settings.Profiles.Add(profile);
+                    activeProfile = profile;
+                    store.Save(settings);
+                    progress.Report("已创建独立游戏实例：" + profile.Name);
+                    Status("整合包安装完成：" + profile.Name);
+                }
+                finally
+                {
+                    if (File.Exists(archive)) File.Delete(archive);
+                }
+            });
+            Status("已将整合包加入任务队列：" + hit.Name);
+            await Task.CompletedTask;
         }
+
         void ImportMrpackFromDisk()
         {
             var dialog = new OpenFileDialog { Filter = "Modrinth 整合包 (*.mrpack)|*.mrpack" };
