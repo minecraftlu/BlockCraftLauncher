@@ -21,6 +21,14 @@ def check():
     main=(SRC/'MainWindow.xaml.cs').read_text('utf8')
     for symbol in ('LaunchMicrosoftAsync', 'GetSessionAsync','LoginMicrosoftAsync','SignOutAsync','modLoaders.InstallAsync','versionCancelButton'):
         assert symbol in main, symbol
+    # Microsoft sign-in must detect a missing runtime before opening the OAuth WebView.
+    webview=(SRC/'Services/WebView2RuntimeSupport.cs').read_text('utf8')
+    assert 'CoreWebView2Environment.GetAvailableBrowserVersionString' in webview
+    assert 'developer.microsoft.com/en-us/microsoft-edge/webview2/' in webview
+    assert 'Process.Start' in webview and 'UseShellExecute = true' in webview
+    assert 'WebView2RuntimeSupport.IsAvailable' in main
+    assert 'WebView2RuntimeSupport.OfferOfficialSetup' in main
+    assert main.index('WebView2RuntimeSupport.IsAvailable') < main.index('GetMicrosoftService().SignInAsync()')
     modrinth=(SRC/'Services/ModrinthClient.cs').read_text('utf8')
     assert 'loaderValues.Any' in modrinth and 'sha1.Length != 40' in modrinth
     network=(SRC/'Services/NetworkDownloader.cs').read_text('utf8')
