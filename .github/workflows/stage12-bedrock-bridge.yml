@@ -68,6 +68,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test -race -count=1 -timeout=90s ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Validate guest-side full-duplex packet relay with race detector
+        shell: pwsh
+        working-directory: experiments/netease-room-discovery/GuestTransportLab
+        run: |
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -race -count=1 -timeout=120s ./internal/ipcrelay
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build isolated offline worker and guest transport fixture
         shell: pwsh
         run: |
