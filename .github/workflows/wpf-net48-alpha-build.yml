@@ -29,6 +29,7 @@ jobs:
           python tests/check_pcl_downloads.py
           python tests/check_download_bindings.py
           python tests/check_auth_recovery.py
+          python tests/check_netease_crossplay.py
       - name: Restore, compile and package with Visual Studio MSBuild
         shell: cmd
         working-directory: wpf-net48
@@ -142,6 +143,42 @@ jobs:
             throw "Single EXE Microsoft auth selftest failed: $($process.ExitCode)"
           }
           Write-Host 'PASS: single EXE refresh-token recovery classifier'
+      - name: Smoke test NetEase crossplay WPF page
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--netease-ui-selftest' -PassThru
+          if (-not $process.WaitForExit(35000)) {
+            $process.Kill()
+            throw 'NetEase crossplay page smoke test timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 30 }
+            throw "NetEase WPF page failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: NetEase Bedrock PC/mobile crossplay WPF page initialized'
+      - name: Smoke test NetEase crossplay from single EXE
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.27-WPF-OneFile-Windows-x64.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--netease-ui-selftest' -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            $process.Kill()
+            throw 'Single EXE NetEase crossplay page timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/onefile/bootstrap-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 30 }
+            throw "Single EXE NetEase crossplay page failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: single EXE opens NetEase Bedrock PC/mobile crossplay page'
       - name: Smoke test single EXE payload extraction and startup
         shell: pwsh
         working-directory: wpf-net48
