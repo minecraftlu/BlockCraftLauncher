@@ -58,6 +58,7 @@
     <Compile Include="LobbyNodeClient.cs" />
     <Compile Include="GuestEmailAuth.cs" />
     <Compile Include="GuestG79Verifier.cs" />
+    <Compile Include="RoomAdmissionSchema.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
