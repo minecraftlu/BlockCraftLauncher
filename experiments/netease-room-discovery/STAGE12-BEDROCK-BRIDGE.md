@@ -5,14 +5,14 @@
 ## 已证实的接口差异
 
 - Stage 11.1 NetEase NetherNet 分支返回一个已协商的 `net.Conn`，实现 `ReadPacket()`，并通过原有 `PacketHeader() (0,false)` 表达“无 RakNet `0xfe` 批次头”。
-- 固定依赖 `github.com/sandertv/gophertunnel@v1.62.0` 的解码器使用较新的 `packet.BatchHeaderer`、`packet.EncryptionDisabler`、`packet.PacketReader`；直接把旧 `net.Conn` 交给新库会默认附加 `0xfe`，不能据此判定手机主机不兼容。
-- `internal/gamebridge.PacketConn` 显式提供三种能力：`BatchHeader() == nil`、`DisableEncryption() == true`、`ReadPacket()` 原样读取完整可靠通道批次。真正的 DTLS、信令、房间授权仍由原来已验证的实现管理。
+- Stage 12 独立模块固定依赖 `github.com/sandertv/gophertunnel@v1.62.0` 的解码器使用较新的 `packet.BatchHeaderer`、`packet.EncryptionDisabler`、`packet.PacketReader`；直接把旧 `net.Conn` 交给新库会默认附加 `0xfe`，不能据此判定手机主机不兼容。
+- `BedrockProtocolBridge/internal/gamebridge.PacketConn` 显式提供三种能力：`BatchHeader() == nil`、`DisableEncryption() == true`、`ReadPacket()` 原样读取完整可靠通道批次。真正的 DTLS、信令、房间授权仍由原来已验证的实现管理。
 
 ## 新增的可复用代码
 
 - `gamebridge.NewAttachedNetwork(conn)` 实现 `minecraft.Network`，只允许以固定本地标记认领**已经存在**的单个连接；禁止 Ping、监听以及第二次/任意地址拨号。取消上下文会关闭该连接。
 - `gamebridge.DialAuthenticated(ctx, conn, dialer)` 仅提供后续接入点。如果未提供经过相应平台认证的游戏身份提供者（`TokenSource` 或 `XBLClient`），立即返回 `ErrNoGameIdentity`，不会用 PE 大厅会话、手填姓名或离线 JWT 冒充官方游戏身份。**当前 Stage 9–11 不会调用此函数**。
-- 测试在进程内利用 `net.Pipe` 验证字节级收发、消息边界、单次认领、取消关闭、拒绝隐式离线身份。无外部网络、网易账号、房间探测或 Cookie。
+- 测试在进程内利用 `net.Pipe` 验证字节级收发、消息边界、单次认领、取消关闭、拒绝隐式离线身份；并使用独立的内存消息管道与 gophertunnel 本地模拟服务端完成 `NetworkSettings → Login → PlayStatus` 登录流程。无外部网络、网易账号、房间探测或 Cookie。
 
 ## 目前尚未打通
 
@@ -25,7 +25,7 @@
 
 ## 版本与回归
 
-基础分支为 `fix/netease-channel-state-monitor-20261108`，保留 Stage10.4 CRC32c 和 Stage11.2 稳定性修复。使用 Windows GitHub Actions Go1.26.5 执行 `go mod tidy`、`go test ./...` 和 Windows EXE 构建；编译通过不等同真实网易兼容性测试。
+基础分支为 `fix/netease-channel-state-monitor-20261108`，保留 Stage10.4 CRC32c 和 Stage11.2 稳定性修复。Stage12 游戏库必须放在 **`BedrockProtocolBridge` 独立 Go 模块**；gophertunnel v1.62.0 依赖 Pion transport/v4，而已验证的网易 fork 依赖 transport/v3，将二者直接并入 `GuestTransportLab` 会导致编译失败。Windows CI 分别执行两个模块的单元测试并检查原 Go 探针。尚未把新桥接代码嵌入真实联网探针或 WPF；不等于真实网易兼容性测试。
 
 参考上游：
 - https://github.com/Sandertv/gophertunnel/blob/v1.62.0/minecraft/protocol/packet/transport.go
