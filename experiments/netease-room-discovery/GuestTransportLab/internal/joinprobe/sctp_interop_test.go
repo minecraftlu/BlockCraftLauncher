@@ -6,6 +6,7 @@ import (
     "time"
 
     forkSCTP "github.com/Happy2018new/nemc-tan-lobby-solver/core/sctp"
+    "github.com/pion/logging"
     standardSCTP "github.com/pion/sctp"
 )
 
@@ -30,6 +31,7 @@ func TestPatchedNetherNetForkSCTPHandshakesWithStandardPionOffline(t *testing.T)
         assoc, err := forkSCTP.Client(forkSCTP.Config{
             NetConn: clientSocket,
             RTOMax: 3000,
+            LoggerFactory: logging.NewDefaultLoggerFactory(),
         })
         if err == nil { forkAssociation = assoc }
         clientDone <- err
@@ -38,6 +40,7 @@ func TestPatchedNetherNetForkSCTPHandshakesWithStandardPionOffline(t *testing.T)
     go func() {
         assoc, err := standardSCTP.Server(standardSCTP.Config{
             NetConn: hostSocket,
+            LoggerFactory: logging.NewDefaultLoggerFactory(),
         })
         if err == nil { pionAssociation = assoc }
         serverDone <- err
