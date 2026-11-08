@@ -83,8 +83,11 @@ func parseLogin(raw []byte) (login, error) {
             n, err := strconv.ParseUint(value, 10, 32)
             if err == nil && n > 0 { out.uid = uint32(n) }
         case "login_token":
-            // Observed third-party backend expects exactly 16 ASCII key bytes.
-            if len(value) == 16 && validASCII(value) {
+            // The helper and Stage8 preflight accept AES-compatible
+            // ASCII session keys of 16, 24 or 32 bytes. The RakNet lobby
+            // nonce uses MD5(token) -> a 16-byte protocol key regardless
+            // of session token key length.
+            if (len(value) == 16 || len(value) == 24 || len(value) == 32) && validASCII(value) {
                 out.token = []byte(value)
             }
         case "nickname":
@@ -95,7 +98,7 @@ func parseLogin(raw []byte) (login, error) {
             mode = strings.ToLower(value)
         }
     }
-    if out.uid == 0 || !isPE || len(out.token) != 16 || mode == "x19" ||
+    if out.uid == 0 || !isPE || len(out.token) == 0 || mode == "x19" ||
         (mode != "" && mode != "g79") {
         clear(out.token)
         return login{}, errors.New("no usable PE game session")
@@ -300,7 +303,9 @@ func (m *material) destroy() {
 }
 
 func derive(token []byte) (*material, error) {
-    if len(token) != 16 { return nil, errors.New("unexpected token size") }
+    if len(token) != 16 && len(token) != 24 && len(token) != 32 {
+        return nil, errors.New("unexpected token size")
+    }
     nonce := make([]byte,16)
     if _,err := cryptorand.Read(nonce); err != nil { return nil,err }
     digest := md5.Sum(token) // Legacy wire protocol requirement, NOT a password hash.
