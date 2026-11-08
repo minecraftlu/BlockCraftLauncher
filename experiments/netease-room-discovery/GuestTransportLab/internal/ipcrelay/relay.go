@@ -31,7 +31,6 @@ var ErrInvalidEndpoints = errors.New("ipcrelay: missing transport or local pipe"
 // cancellation. No payload or account metadata is logged.
 func Run(ctx context.Context, transport Transport, stdin io.ReadCloser, stdout io.WriteCloser) error {
     if ctx==nil || transport==nil || stdin==nil || stdout==nil{return ErrInvalidEndpoints}
-    if err:=ctx.Err();err!=nil{return err}
     stream:=wire.NewPacketStream(stdin,stdout)
     var closeOnce sync.Once
     closeAll:=func(){
@@ -41,6 +40,8 @@ func Run(ctx context.Context, transport Transport, stdin io.ReadCloser, stdout i
             _=stdout.Close()
         })
     }
+    // Run owns these endpoints even when cancellation raced with startup.
+    if err:=ctx.Err();err!=nil {closeAll();return err}
     done:=make(chan struct{})
     var wg sync.WaitGroup
     wg.Add(2)
