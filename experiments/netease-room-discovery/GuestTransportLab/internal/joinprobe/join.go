@@ -522,7 +522,13 @@ func probeWebRTC(ctx context.Context, session login, node server,
     // Keep the known-good 8s path identical. For explicitly chosen 30/60s
     // observation, expand both this and the outer process budget so a full
     // passive window remains possible after legitimate WebRTC negotiation.
-    signalCtx,cancel:=context.WithTimeout(ctx,time.Duration(62+observationSeconds)*time.Second)
+    signalBudget:=70*time.Second
+    if observationSeconds>8 {
+        // Reserve a full 70s for the already-working signaling/ICE/DTLS/SCTP
+        // handshake, then the entire requested 30/60s passive window.
+        signalBudget+=time.Duration(observationSeconds)*time.Second
+    }
+    signalCtx,cancel:=context.WithTimeout(ctx,signalBudget)
     defer cancel()
     serverAddress:=net.JoinHostPort(node.host,strconv.Itoa(int(node.signalingPort)))
     signalConn,err:= (signaling.Dialer{
