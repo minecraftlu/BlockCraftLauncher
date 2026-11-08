@@ -521,14 +521,18 @@ func probeWebRTC(ctx context.Context, session login, node server,
     result.Status="SIGNALING_AUTHENTICATED_WEBRTC_PENDING"
     result.Detail="信令服务器提供了 ICE 凭据，正在尝试与房主协商数据连接。"
 
-    // Pion ICE/DTLS/SCTP negotiation. Suppress any library log strings that
-    // might contain candidates, SDP fingerprints or private networking data.
+    // Track only fixed, whitelisted upstream phase markers and signal-type
+    // bits. Never log raw ICE candidate addresses, SDP, credentials or IDs.
+    observation := &webRTCObservation{}
+    observedSignal := trackedSignaling{
+        Signaling: signalConn, observation: observation,
+    }
     rtc,err:=(nethernet.Dialer{
-        Log:slog.New(slog.NewTextHandler(io.Discard,nil)),
-    }).DialContext(signalCtx,hostNetherID,signalConn)
+        Log:slog.New(stageLogger{observation:observation}),
+    }).DialContext(signalCtx,hostNetherID,observedSignal)
     if err!=nil {
-        result.Status="WEBRTC_NEGOTIATION_FAILED"
-        result.Detail="真实信令已认证，但房主 ICE/DTLS/SCTP 协商未完成。"
+        result.Status=classifyWebRTCFailure(err,observation)
+        result.Detail="WebRTC 已结束在受控诊断阶段；仅报告无敏感信息的分类状态。"
         return result
     }
     defer rtc.Close()
