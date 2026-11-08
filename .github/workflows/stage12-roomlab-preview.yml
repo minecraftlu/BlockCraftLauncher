@@ -29,9 +29,8 @@ jobs:
 
       - name: Build pinned NetEase transport probe and offline IPC fixture
         shell: pwsh
+        working-directory: experiments/netease-room-discovery/GuestTransportLab
         run: |
-          $root = Join-Path $env:GITHUB_WORKSPACE "experiments/netease-room-discovery"
-          Push-Location (Join-Path $root "GuestTransportLab")
           go mod tidy
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & "./tools/create-sctp-crc32c-overlay.ps1" -OutPath ".blockcraft/nethernet-fork"
@@ -41,19 +40,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go build -trimpath -ldflags="-s -w" -o "dist/Stage12IPCFixture.exe" ./cmd/bridgefixture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Pop-Location
-
       - name: Build isolated Bedrock worker without Pion dependency collision
         shell: pwsh
+        working-directory: experiments/netease-room-discovery/BedrockProtocolBridge
         run: |
-          Push-Location "experiments/netease-room-discovery/BedrockProtocolBridge"
           go mod tidy
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force "dist" | Out-Null
           go build -trimpath -ldflags="-s -w" -o "dist/Stage12Worker.exe" ./cmd/bedrockworker
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Pop-Location
-
       - name: Verify actual Windows IPC worker contract (no online login)
         shell: pwsh
         run: |
