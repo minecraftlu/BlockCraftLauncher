@@ -78,7 +78,14 @@ namespace BlockCraftLauncher.Wpf.Services
             if (sha1.Length != 40 || !sha1.All(Uri.IsHexDigit))
                 throw new IOException("服务端没有提供有效的 SHA-1 校验值，已取消下载。");
             string destination = Path.Combine(profile.Directory, folder, filename);
-            await network.DownloadVerifiedAsync(Get(file, "url"), destination, sha1, ct);
+            if (File.Exists(destination))
+                throw new IOException("同名资源已存在，拒绝覆盖已安装或手动导入的文件：" + filename);
+            string downloadUrl = Get(file, "url");
+            if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out var downloadUri) ||
+                downloadUri.Scheme != Uri.UriSchemeHttps || downloadUri.Host != "cdn.modrinth.com" ||
+                downloadUri.UserInfo.Length != 0 || !downloadUri.IsDefaultPort)
+                throw new InvalidDataException("下载源不是可信的 Modrinth HTTPS CDN");
+            await network.DownloadVerifiedAsync(downloadUrl, destination, sha1, ct);
             new ManagedModUpdateService(settings).Record(profile, hit.ProjectId, hit.Kind,
                 hit.Name, Get(latest, "id"), filename, sha1);
             return destination;
