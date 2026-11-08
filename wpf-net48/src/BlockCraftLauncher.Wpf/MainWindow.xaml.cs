@@ -413,6 +413,7 @@ namespace BlockCraftLauncher.Wpf
                     Btn("删除选中", DeleteServer),
                     Btn("复制地址", CopyServerAddress)),
                 Row(Btn("检查连通性", async () => await CheckServerAsync()),
+                    Btn("连接服务器", async () => await JoinServerAsync(), true),
                     Btn("启动当前实例", async () => await LaunchAsync())),
                 Txt("连通性仅检查 TCP 端口，不能保证游戏版本/模组/正版要求匹配。", 12, false, true))));
             serverList.SelectionChanged += (sender, args) =>
@@ -476,6 +477,17 @@ namespace BlockCraftLauncher.Wpf
                 Status("服务器地址已复制，请在 Minecraft 多人游戏中添加或连接。");
             }
             catch (Exception ex) { ShowError("复制服务器地址失败", ex); }
+        }
+        async Task JoinServerAsync()
+        {
+            try
+            {
+                string address = serverAddress?.Text;
+                MultiplayerService.ParseAddress(address);
+                if (activeProfile == null) { MessageBox.Show("请先选择已安装的 Minecraft 实例"); return; }
+                await LaunchAsync(address);
+            }
+            catch (Exception ex) { ShowError("连接服务器失败", ex); }
         }
         async Task CheckServerAsync()
         {
@@ -607,7 +619,7 @@ namespace BlockCraftLauncher.Wpf
             }
             catch (Exception ex) { ShowError("退出账户失败", ex); }
         }
-        async Task LaunchAsync()
+        async Task LaunchAsync(string serverAddress = null)
         {
             if (activeProfile == null) { MessageBox.Show("请先导入或安装游戏实例"); return; }
             try
@@ -617,10 +629,10 @@ namespace BlockCraftLauncher.Wpf
                 {
                     // Never substitute an offline player for an expired premium session.
                     var session = await GetMicrosoftService().GetSessionAsync();
-                    await minecraft.LaunchMicrosoftAsync(activeProfile, session);
+                    await minecraft.LaunchMicrosoftAsync(activeProfile, session, serverAddress);
                 }
                 else if (settings.AccountMode == "offline")
-                    await minecraft.LaunchOfflineAsync(activeProfile);
+                    await minecraft.LaunchOfflineAsync(activeProfile, serverAddress);
                 else throw new InvalidOperationException("请先登录微软正版账号或设置离线玩家名。");
                 Status("游戏进程已启动");
             }
