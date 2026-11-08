@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
@@ -397,12 +398,53 @@ namespace BlockCraftLauncher.Wpf
                     resourcePage++;
                     await SearchResourcesAsync();
                 })));
+            if (type == "shader")
+                root.Children.Add(Card(Col(Txt("光影运行组件 · 当前实例兼容版本", 18, true),
+                    Txt("Iris 与 Sodium 来自 Modrinth 官方项目，按当前 Minecraft 版本及加载器筛选。OptiFine 需要从官方页面手动获取。", 12, false, true),
+                    Row(Btn("安装 Iris", async () => await InstallGraphicsModAsync("YL57xq9U", "Iris Shaders"), true),
+                        Btn("安装 Sodium", async () => await InstallGraphicsModAsync("AANobbMI", "Sodium")),
+                        Btn("OptiFine 官方下载", () => OpenOfficialOptiFine())))));
             root.Children.Add(Card(Col(Txt("资源安装", 18, true), Txt("选择资源后下载对应游戏版本文件", 12, false, true),
                 Row(Btn("安装到当前实例", async () => await InstallResourceAsync(), true),
                     Btn("查看下载任务", () => Navigate("下载管理")),
                     Btn("打开实例目录", OpenGameFolder)))));
             return root;
         }
+        async Task InstallGraphicsModAsync(string projectId, string name)
+        {
+            var profile = activeProfile;
+            if (profile == null) { MessageBox.Show("请先选择已经安装的游戏实例"); return; }
+            if (profile.Loader == "vanilla" || string.IsNullOrWhiteSpace(profile.Loader))
+            {
+                MessageBox.Show("当前为原版实例。请先安装支持的 Fabric、Quilt 或 NeoForge 加载器，再安装光影组件。");
+                return;
+            }
+            var hit = new ResourceHit { ProjectId = projectId, Kind = "mod", Name = name };
+            downloads.Enqueue("光影组件", name + " → " + profile.Name, async (token, stage, bytes) =>
+            {
+                stage.Report("正在选择与 " + profile.BaseVersion + " / " + profile.Loader + " 兼容的版本...");
+                using (var client = new ModrinthClient(settings))
+                {
+                    string installed = await client.DownloadLatestAsync(hit, profile, token, bytes);
+                    stage.Report("已安装：" + installed);
+                }
+            });
+            Status("已加入光影组件任务：" + name);
+            await Task.CompletedTask;
+        }
+
+        void OpenOfficialOptiFine()
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo("https://optifine.net/downloads")
+                {
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex) { ShowError("打开 OptiFine 官方网站失败", ex); }
+        }
+
         async Task SearchResourcesAsync()
         {
             Status("正在搜索 Modrinth...");
