@@ -1,0 +1,108 @@
+<Window x:Class="BlockCraft.NeteaseRoomLab.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="BlockCraft | 网易房间诊断实验室"
+        Width="790" Height="690" MinWidth="680" MinHeight="620"
+        WindowStartupLocation="CenterScreen"
+        Background="#10151F" Foreground="#E9EFF9"
+        FontFamily="Microsoft YaHei UI">
+  <Window.Resources>
+    <Style x:Key="PrimaryButton" TargetType="Button">
+      <Setter Property="Background" Value="#2F74EA" />
+      <Setter Property="Foreground" Value="White" />
+      <Setter Property="BorderBrush" Value="#2F74EA" />
+      <Setter Property="Padding" Value="18,10" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style x:Key="SecondaryButton" TargetType="Button">
+      <Setter Property="Background" Value="#252E3C" />
+      <Setter Property="Foreground" Value="#EDF3FC" />
+      <Setter Property="BorderBrush" Value="#344357" />
+      <Setter Property="Padding" Value="14,9" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style TargetType="TextBox">
+      <Setter Property="Background" Value="#111C2A" />
+      <Setter Property="Foreground" Value="White" />
+      <Setter Property="BorderBrush" Value="#40516A" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="11,9" />
+      <Setter Property="FontSize" Value="14" />
+    </Style>
+  </Window.Resources>
+
+  <Grid Margin="27">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <StackPanel Grid.Row="0" Margin="0,0,0,18">
+      <TextBlock Text="网易手机版联机 · 房间实验室" FontSize="23" FontWeight="Bold" />
+      <TextBlock Text="BlockCraft Launcher / C# + WPF + .NET Framework 4.8" Foreground="#A6B7CF" Margin="0,5,0,0" />
+    </StackPanel>
+
+    <Border Grid.Row="1" Background="#18283A" BorderBrush="#35506F" BorderThickness="1"
+            CornerRadius="8" Padding="15" Margin="0,0,0,17">
+      <StackPanel>
+        <TextBlock Text="只读诊断工具 · 不是游戏客户端" Foreground="#80B7FF" FontWeight="SemiBold" FontSize="14" />
+        <TextBlock TextWrapping="Wrap" Foreground="#CAD6E7" Margin="0,6,0,0"
+                   Text="仅尝试读取网易房间元数据。不需要网易电脑版，不读取登录凭据，也不会加入游戏或修改房间。查询接口来自社区研究，并非已确认的官方开放接口。" />
+      </StackPanel>
+    </Border>
+
+    <Border Grid.Row="2" CornerRadius="8" Background="#19212D" Padding="18" Margin="0,0,0,12">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="2*" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <StackPanel Grid.Column="0" Margin="0,0,14,0">
+          <TextBlock Text="房间号" FontWeight="SemiBold" Margin="0,0,0,7" />
+          <TextBox x:Name="RoomIdBox" Text="453649" MaxLength="10" />
+        </StackPanel>
+        <StackPanel Grid.Column="1">
+          <TextBlock Text="查询 UID（可选）" FontWeight="SemiBold" Margin="0,0,0,7" />
+          <TextBox x:Name="UidBox" Text="0" MaxLength="10" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <StackPanel Grid.Row="3" Margin="0,0,0,15">
+      <TextBlock Foreground="#97A9C2" TextWrapping="Wrap" Margin="0,0,0,12"
+                 Text="UID=0 为匿名格式探测值，不代表登录成功。如果查询未匹配，不能判断房间不存在。不要填写密码、Cookie、sessionid 或 token。" />
+      <StackPanel Orientation="Horizontal">
+        <Button x:Name="LookupButton" Style="{StaticResource PrimaryButton}"
+                Click="Lookup_Click" IsDefault="True" Content="查询房间  /  Diagnose" />
+        <Button Style="{StaticResource SecondaryButton}" Margin="10,0,0,0"
+                Click="ParserCheck_Click" Content="本地解析自检" />
+        <Button Style="{StaticResource SecondaryButton}" Margin="10,0,0,0"
+                Click="Copy_Click" Content="复制诊断报告" />
+      </StackPanel>
+      <ProgressBar x:Name="BusyBar" Margin="0,10,0,0" Height="3"
+                   Visibility="Collapsed" IsIndeterminate="True"
+                   Foreground="#4288FF" />
+    </StackPanel>
+
+    <Border Grid.Row="4" Background="#0D1724" CornerRadius="8" Padding="16">
+      <DockPanel LastChildFill="True">
+        <TextBlock x:Name="StatusText" DockPanel.Dock="Top" FontWeight="SemiBold"
+                   Foreground="#A8BAD3" Margin="0,0,0,12"
+                   Text="等待执行 · 未查询网络" />
+        <TextBox x:Name="ResultBox" TextWrapping="Wrap" AcceptsReturn="True"
+                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                 IsReadOnly="True" BorderThickness="0" Background="Transparent"
+                 Text="请点击“查询房间”开始一次网络元数据查询。&#10;&#10;也可以先点击“本地解析自检”验证程序的 JSON 解析能力（不会访问服务器）。" />
+      </DockPanel>
+    </Border>
+
+    <TextBlock Grid.Row="5" Margin="0,14,0,0" Foreground="#889CB7"
+               TextWrapping="Wrap"
+               Text="实验状态：仅房间发现。已检索到房间 ≠ 已加入房间 ≠ 已进入游戏。不会安装网易 PC 客户端。" />
+  </Grid>
+</Window>
