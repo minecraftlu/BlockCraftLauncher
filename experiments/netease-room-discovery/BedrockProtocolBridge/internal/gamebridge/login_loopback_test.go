@@ -118,18 +118,30 @@ func TestLocalBedrockHandshakeAcrossAttachedNetherNetFraming(t *testing.T) {
     ctx,cancel := context.WithTimeout(context.Background(),8*time.Second)
     defer cancel()
     accepted := make(chan error,1)
+    spawned := make(chan error,1)
     releaseHost := make(chan struct{})
     defer close(releaseHost)
     go func(){
         conn, err := listener.Accept()
-        if err == nil && conn==nil {err=errors.New("nil local host player")}
+        if err == nil && conn == nil {err=errors.New("nil local host player")}
         accepted <- err
-        if conn!=nil {
-            // Keep the host alive until the client confirms its own login:
-            // closing immediately after Accept races the client's PlayStatus.
-            <-releaseHost
-            _ = conn.Close()
+        if err == nil && conn != nil {
+            game, ok := conn.(*minecraft.Conn)
+            if !ok {
+                spawned <- errors.New("mock host returned unexpected connection type")
+            } else {
+                // Listener.Accept only proves the pack/login exchange. A real
+                // Bedrock dialer waits for StartGame, chunk-radius and spawn
+                // status before it reports a usable client. Drive this locally.
+                spawned <- game.StartGameContext(ctx, minecraft.GameData{
+                    WorldName:"BlockCraft offline fixture",
+                    EntityUniqueID:1,
+                    EntityRuntimeID:1,
+                })
+            }
         }
+        <-releaseHost
+        if conn != nil { _ = conn.Close() }
     }()
     client,err := (minecraft.Dialer{ErrorLog:safeLogger}).DialContextNetwork(ctx,attached,ExistingSessionAddress)
     if err != nil {t.Fatalf("local Bedrock game login failed: %v; local fixture diagnostics: %s; client writes=%d reads=%d; host writes=%d reads=%d",err,fixtureLog.String(),clientPipe.writes.Load(),clientPipe.reads.Load(),serverPipe.writes.Load(),serverPipe.reads.Load())}
@@ -140,6 +152,18 @@ func TestLocalBedrockHandshakeAcrossAttachedNetherNetFraming(t *testing.T) {
     case <-ctx.Done():
         t.Fatal("local host never observed login, not a game success")
     }
-    // The local-only login succeeded. No StartGame, spawn, world chunks or
-    // external NetEase server were involved.
+    if err := client.DoSpawnContext(ctx); err != nil {
+        t.Fatalf("client did not finish local StartGame/spawn: %v",err)
+    }
+    select {
+    case err := <-spawned:
+        if err != nil {t.Fatalf("mock host did not finish local spawn: %v",err)}
+    case <-ctx.Done():
+        t.Fatal("mock host never completed game spawn")
+    }
+    if client.GameData().WorldName != "BlockCraft offline fixture" {
+        t.Fatal("client did not receive the local world's StartGame metadata")
+    }
+    // This is fully synthetic gameplay: no real NetEase room or game identity
+    // is involved. Success proves only the library/bridge can finish a spawn.
 }
