@@ -42,7 +42,7 @@ namespace BlockCraftLauncher.Wpf.Services
             return hits;
         }
         static string Get(Dictionary<string, object> d, string k) => d.TryGetValue(k, out var x) && x != null ? Convert.ToString(x) : "";
-        public async Task<string> DownloadLatestAsync(ResourceHit hit, GameProfile profile, CancellationToken ct)
+        public async Task<string> DownloadLatestAsync(ResourceHit hit, GameProfile profile, CancellationToken ct, IProgress<DownloadBytes> progress = null)
         {
             if (hit == null || profile == null) throw new ArgumentNullException("请选择资源和游戏实例");
             if (hit.Kind != "mod" && hit.Kind != "shader" && hit.Kind != "resourcepack")
@@ -85,7 +85,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 downloadUri.Scheme != Uri.UriSchemeHttps || downloadUri.Host != "cdn.modrinth.com" ||
                 downloadUri.UserInfo.Length != 0 || !downloadUri.IsDefaultPort)
                 throw new InvalidDataException("下载源不是可信的 Modrinth HTTPS CDN");
-            await network.DownloadVerifiedAsync(downloadUrl, destination, sha1, ct);
+            await network.DownloadVerifiedDetailedAsync(downloadUrl, destination, sha1, ct, progress);
             new ManagedModUpdateService(settings).Record(profile, hit.ProjectId, hit.Kind,
                 hit.Name, Get(latest, "id"), filename, sha1);
             return destination;
