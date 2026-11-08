@@ -8,6 +8,9 @@ namespace BlockCraft.NeteaseRoomLab
     public partial class MainWindow : Window
     {
         private readonly RoomDiscoveryClient discoveryClient = new RoomDiscoveryClient();
+        private readonly LobbyNodeClient lobbyNodeClient = new LobbyNodeClient();
+        private string lastNodeId = "";
+        private string lastRoomReport = "";
 
         public MainWindow()
         {
@@ -33,12 +36,17 @@ namespace BlockCraft.NeteaseRoomLab
             }
 
             LookupButton.IsEnabled = false;
+            NodeLookupButton.IsEnabled = false;
+            lastNodeId = "";
+            lastRoomReport = "";
             BusyBar.Visibility = Visibility.Visible;
             ShowResult("CONNECTING", "正在通过 HTTPS 查询房间元数据；仅发送一次只读请求。", false);
 
             try
             {
                 var result = await discoveryClient.LookupAsync(number, uid);
+                lastNodeId = result.IsMetadataFound ? result.NodeId : "";
+                if (result.IsMetadataFound) lastRoomReport = result.Details;
                 ShowResult(result.Status, result.Details, result.IsMetadataFound);
             }
             catch (Exception)
@@ -49,11 +57,46 @@ namespace BlockCraft.NeteaseRoomLab
             {
                 BusyBar.Visibility = Visibility.Collapsed;
                 LookupButton.IsEnabled = true;
+                NodeLookupButton.IsEnabled = !string.IsNullOrEmpty(lastNodeId);
+            }
+        }
+
+        private async void NodeLookup_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(lastNodeId))
+            {
+                ShowResult("NODE_MAPPING_INCONCLUSIVE", "请先成功查询真实房间，再执行节点匹配。", false);
+                return;
+            }
+
+            LookupButton.IsEnabled = false;
+            NodeLookupButton.IsEnabled = false;
+            BusyBar.Visibility = Visibility.Visible;
+            ShowResult("LOOKING_UP_NODE", "正在读取一次公开大厅节点列表，不建立游戏连接。", false);
+            try
+            {
+                var result = await lobbyNodeClient.LookupAsync(lastNodeId);
+                var text = (string.IsNullOrEmpty(lastRoomReport) ? "" : lastRoomReport + Environment.NewLine + Environment.NewLine)
+                           + result.Details;
+                ShowResult(result.Status, text, result.IsMapped);
+            }
+            catch (Exception)
+            {
+                ShowResult("NODE_MAPPING_INCONCLUSIVE", "节点查询意外失败；未接入游戏服务。", false);
+            }
+            finally
+            {
+                BusyBar.Visibility = Visibility.Collapsed;
+                LookupButton.IsEnabled = true;
+                NodeLookupButton.IsEnabled = !string.IsNullOrEmpty(lastNodeId);
             }
         }
 
         private void ParserCheck_Click(object sender, RoutedEventArgs e)
         {
+            lastNodeId = "";
+            lastRoomReport = "";
+            NodeLookupButton.IsEnabled = false;
             // Fixed synthetic JSON. NEVER confuse with a live room lookup.
             const string sample =
                 "{\"code\":0,\"list\":[{\"rid\":453649,\"name\":\"453649\",\"cnt\":1,\"cap\":30,\"version\":898,\"platform\":2,\"srv\":1}]}";
