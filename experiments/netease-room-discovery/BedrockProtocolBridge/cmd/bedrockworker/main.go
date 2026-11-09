@@ -74,6 +74,10 @@ func main() {
         err=runOfflineGameProcess(true)
     case "-offline-game-client-selftest":
         err=runOfflineGameProcess(false)
+    case "-readonly-inbound-ipc":
+        // This mode performs no game login, decoding, or network dialing.
+        // It consumes only packets forwarded by its owning local process.
+        err=runReceiveOnlyPipe(os.Stdin,os.Stdout)
     default:
         fmt.Fprintln(os.Stderr,"OFFLINE_BRIDGE_ONLY")
         os.Exit(2)
