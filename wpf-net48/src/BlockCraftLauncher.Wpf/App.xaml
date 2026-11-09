@@ -1,40 +1,271 @@
 <Application x:Class="BlockCraftLauncher.Wpf.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-            >
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <Application.Resources>
-    <SolidColorBrush x:Key="WindowBrush" Color="#141414"/>
-    <SolidColorBrush x:Key="PanelBrush" Color="#202020"/>
-    <SolidColorBrush x:Key="PanelAltBrush" Color="#292929"/>
-    <SolidColorBrush x:Key="TextBrush" Color="#F7F8FA"/>
-    <SolidColorBrush x:Key="MutedBrush" Color="#A8ADB8"/>
-    <SolidColorBrush x:Key="BorderBrushTheme" Color="#34383E"/>
-    <SolidColorBrush x:Key="AccentBrush" Color="#1875CE"/>
-    <SolidColorBrush x:Key="AccentTextBrush" Color="White"/>
-    <Style TargetType="Window"><Setter Property="Background" Value="{DynamicResource WindowBrush}"/><Setter Property="Foreground" Value="{DynamicResource TextBrush}"/><Setter Property="FontFamily" Value="Microsoft YaHei UI"/></Style>
-    <Style TargetType="TextBlock"><Setter Property="Foreground" Value="{DynamicResource TextBrush}"/></Style>
+    <!-- Shared PCL-inspired design tokens. Each theme swaps these brushes
+         via MainWindow.ApplyTheme; never hardcode light-only text or panels. -->
+    <SolidColorBrush x:Key="WindowBrush" Color="#F1F5FB"/>
+    <SolidColorBrush x:Key="PageBrush" Color="#E7F1FC"/>
+    <SolidColorBrush x:Key="PanelBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="PanelAltBrush" Color="#F5F9FE"/>
+    <SolidColorBrush x:Key="TextBrush" Color="#20354C"/>
+    <SolidColorBrush x:Key="MutedBrush" Color="#6F8194"/>
+    <SolidColorBrush x:Key="BorderBrushTheme" Color="#D8E5F3"/>
+    <SolidColorBrush x:Key="HoverBrush" Color="#EAF3FF"/>
+    <SolidColorBrush x:Key="SelectedBrush" Color="#DCEBFC"/>
+    <SolidColorBrush x:Key="AccentBrush" Color="#1977D2"/>
+    <SolidColorBrush x:Key="AccentTextBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="HeaderBrush" Color="#176DC1"/>
+    <SolidColorBrush x:Key="HeaderTextBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="BadgeBrush" Color="#E8F3FF"/>
+
+    <Style TargetType="Window">
+      <Setter Property="Background" Value="{DynamicResource WindowBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
+      <Setter Property="FontSize" Value="13"/>
+    </Style>
+    <Style TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="TextTrimming" Value="None"/>
+    </Style>
     <Style TargetType="Button">
-      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/><Setter Property="Background" Value="{DynamicResource PanelAltBrush}"/>
-      <Setter Property="BorderThickness" Value="0"/><Setter Property="Padding" Value="14,10"/><Setter Property="Cursor" Value="Hand"/><Setter Property="Margin" Value="0,0,8,8"/>
-      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
-        <Border Background="{TemplateBinding Background}" CornerRadius="7" BorderBrush="{DynamicResource BorderBrushTheme}" BorderThickness="1" Padding="{TemplateBinding Padding}">
-          <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-        </Border>
-        <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Opacity" Value="0.83"/></Trigger>
-          <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.38"/></Trigger>
-        </ControlTemplate.Triggers>
-      </ControlTemplate></Setter.Value></Setter>
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="Background" Value="{DynamicResource PanelAltBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushTheme}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Padding" Value="15,8"/>
+      <Setter Property="MinHeight" Value="36"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Margin" Value="0,0,8,8"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Chrome" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="6" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                RecognizesAccessKey="True"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Chrome" Property="Opacity" Value="0.85"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Chrome" Property="Opacity" Value="0.68"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.40"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
     <Style x:Key="AccentButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-      <Setter Property="Background" Value="{DynamicResource AccentBrush}"/><Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/><Setter Property="FontWeight" Value="Bold"/>
+      <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
     </Style>
-    <Style TargetType="TextBox"><Setter Property="Background" Value="{DynamicResource PanelAltBrush}"/><Setter Property="Foreground" Value="{DynamicResource TextBrush}"/><Setter Property="BorderBrush" Value="{DynamicResource BorderBrushTheme}"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="9,8"/><Setter Property="Margin" Value="0,0,8,10"/></Style>
-    <Style TargetType="ComboBox"><Setter Property="MinHeight" Value="36"/><Setter Property="Margin" Value="0,0,8,9"/><Setter Property="Padding" Value="7,5"/></Style>
-    <Style TargetType="ListBox"><Setter Property="Background" Value="{DynamicResource PanelAltBrush}"/><Setter Property="Foreground" Value="{DynamicResource TextBrush}"/><Setter Property="BorderBrush" Value="{DynamicResource BorderBrushTheme}"/><Setter Property="BorderThickness" Value="1"/></Style>
-    <Style TargetType="CheckBox"><Setter Property="Foreground" Value="{DynamicResource TextBrush}"/><Setter Property="Margin" Value="0,6,0,9"/></Style>
-    <Style x:Key="Panel" TargetType="Border"><Setter Property="Background" Value="{DynamicResource PanelBrush}"/><Setter Property="BorderBrush" Value="{DynamicResource BorderBrushTheme}"/><Setter Property="BorderThickness" Value="1"/><Setter Property="CornerRadius" Value="12"/><Setter Property="Padding" Value="18"/><Setter Property="Margin" Value="0,0,12,12"/></Style>
-    <Style x:Key="Heading" TargetType="TextBlock"><Setter Property="FontSize" Value="20"/><Setter Property="FontWeight" Value="Bold"/><Setter Property="Margin" Value="0,0,0,12"/></Style>
-    <Style x:Key="Muted" TargetType="TextBlock"><Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/><Setter Property="TextWrapping" Value="Wrap"/></Style>
+    <Style x:Key="HeaderTab" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="{DynamicResource HeaderTextBrush}"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="MinWidth" Value="84"/>
+      <Setter Property="Height" Value="42"/>
+      <Setter Property="Margin" Value="3,0"/>
+      <Setter Property="Padding" Value="12,7"/>
+      <Setter Property="FontSize" Value="14"/>
+    </Style>
+    <Style x:Key="HeaderTabActive" TargetType="Button" BasedOn="{StaticResource HeaderTab}">
+      <Setter Property="Background" Value="#FFFFFF"/>
+      <Setter Property="Foreground" Value="#166DC2"/>
+      <Setter Property="FontWeight" Value="Bold"/>
+    </Style>
+    <Style x:Key="SidebarItem" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+      <Setter Property="Height" Value="38"/>
+      <Setter Property="MinHeight" Value="38"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+      <Setter Property="Padding" Value="13,7"/>
+      <Setter Property="Margin" Value="0,1,0,2"/>
+      <Setter Property="FontSize" Value="13"/>
+    </Style>
+    <Style x:Key="SidebarItemActive" TargetType="Button" BasedOn="{StaticResource SidebarItem}">
+      <Setter Property="Background" Value="{DynamicResource SelectedBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="FontWeight" Value="Bold"/>
+      <Setter Property="BorderThickness" Value="0,0,0,0"/>
+    </Style>
+    <Style x:Key="Panel" TargetType="Border">
+      <Setter Property="Background" Value="{DynamicResource PanelBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushTheme}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="9"/>
+      <Setter Property="Padding" Value="17"/>
+      <Setter Property="Margin" Value="0,0,0,14"/>
+    </Style>
+    <Style x:Key="Heading" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="22"/>
+      <Setter Property="FontWeight" Value="Bold"/>
+      <Setter Property="Margin" Value="0,0,0,7"/>
+    </Style>
+    <Style x:Key="Muted" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+    <Style TargetType="TextBox">
+      <Setter Property="Background" Value="{DynamicResource PanelBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="CaretBrush" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushTheme}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Padding" Value="11,8"/>
+      <Setter Property="MinHeight" Value="37"/>
+      <Setter Property="Margin" Value="0,0,8,8"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+    <Style TargetType="ComboBox">
+      <Setter Property="Background" Value="{DynamicResource PanelBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushTheme}"/>
+      <Setter Property="MinHeight" Value="36"/>
+      <Setter Property="Padding" Value="8,5"/>
+      <Setter Property="Margin" Value="0,0,8,8"/>
+    </Style>
+    <Style TargetType="ListBox">
+      <Setter Property="Background" Value="{DynamicResource PanelBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushTheme}"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+      <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+      <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True"/>
+      <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling"/>
+    </Style>
+    <Style TargetType="ListBoxItem">
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="Margin" Value="0"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ListBoxItem">
+            <Border x:Name="SelectionChrome" Background="{TemplateBinding Background}">
+              <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="SelectionChrome" Property="Background"
+                        Value="{DynamicResource HoverBrush}"/>
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="SelectionChrome" Property="Background"
+                        Value="{DynamicResource SelectedBrush}"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style TargetType="CheckBox">
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="Margin" Value="0,5,12,10"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style TargetType="ProgressBar">
+      <Setter Property="Height" Value="10"/>
+      <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="Background" Value="{DynamicResource PanelAltBrush}"/>
+    </Style>
     <Style TargetType="ScrollBar"><Setter Property="Width" Value="9"/></Style>
+
+    <!-- The project description belongs on a second, wrapping line.
+         This fixes the English text overlap seen in the previous screenshot. -->
+    <DataTemplate x:Key="ResourceItemTemplate">
+      <Border Padding="13,12" BorderBrush="{DynamicResource BorderBrushTheme}"
+              BorderThickness="0,0,0,1" Background="Transparent">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="42"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <Border Width="32" Height="32" VerticalAlignment="Top"
+                  Background="{DynamicResource BadgeBrush}" CornerRadius="6">
+            <TextBlock Text="◆" FontSize="17" Foreground="{DynamicResource AccentBrush}"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Border>
+          <StackPanel Grid.Column="1">
+            <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
+                       TextWrapping="Wrap" Margin="0,0,0,4"/>
+            <TextBlock Text="{Binding Description}" FontSize="12"
+                       Foreground="{DynamicResource MutedBrush}"
+                       TextWrapping="Wrap" Margin="0,0,0,5"/>
+            <TextBlock Text="{Binding Kind}" FontSize="11"
+                       Foreground="{DynamicResource AccentBrush}"/>
+          </StackPanel>
+        </Grid>
+      </Border>
+    </DataTemplate>
+    <DataTemplate x:Key="CurseForgeItemTemplate">
+      <Border Padding="13,12" BorderBrush="{DynamicResource BorderBrushTheme}"
+              BorderThickness="0,0,0,1">
+        <StackPanel>
+          <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14"
+                     TextWrapping="Wrap" Margin="0,0,0,4"/>
+          <TextBlock Text="{Binding Summary}" Foreground="{DynamicResource MutedBrush}"
+                     FontSize="12" TextWrapping="Wrap"/>
+        </StackPanel>
+      </Border>
+    </DataTemplate>
+    <DataTemplate x:Key="VersionItemTemplate">
+      <Border Padding="14,11" BorderBrush="{DynamicResource BorderBrushTheme}"
+              BorderThickness="0,0,0,1">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/><ColumnDefinition Width="170"/>
+          </Grid.ColumnDefinitions>
+          <StackPanel>
+            <TextBlock Text="{Binding Id}" FontSize="14" FontWeight="SemiBold"/>
+            <TextBlock Text="{Binding Category}" FontSize="11"
+                       Foreground="{DynamicResource MutedBrush}" Margin="0,3,0,0"/>
+          </StackPanel>
+          <TextBlock Grid.Column="1" Text="{Binding Released, StringFormat={}{0:yyyy-MM-dd}}"
+                     HorizontalAlignment="Right" VerticalAlignment="Center"
+                     Foreground="{DynamicResource MutedBrush}" FontSize="12"/>
+        </Grid>
+      </Border>
+    </DataTemplate>
+    <DataTemplate x:Key="DownloadItemTemplate">
+      <Border Padding="13,12" BorderBrush="{DynamicResource BorderBrushTheme}"
+              BorderThickness="0,0,0,1">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/><ColumnDefinition Width="100"/>
+          </Grid.ColumnDefinitions>
+          <StackPanel>
+            <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold"
+                       TextWrapping="Wrap"/>
+            <TextBlock Text="{Binding Detail}" FontSize="12" TextWrapping="Wrap"
+                       Foreground="{DynamicResource MutedBrush}" Margin="0,4,0,0"/>
+          </StackPanel>
+          <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+            <TextBlock Text="{Binding Status}" FontWeight="SemiBold"
+                       Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Right"/>
+            <TextBlock Text="{Binding PercentLabel}" FontSize="11"
+                       Foreground="{DynamicResource MutedBrush}" HorizontalAlignment="Right"
+                       Margin="0,4,0,0"/>
+          </StackPanel>
+        </Grid>
+      </Border>
+    </DataTemplate>
   </Application.Resources>
 </Application>
