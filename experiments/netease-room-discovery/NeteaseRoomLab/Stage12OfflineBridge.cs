@@ -42,7 +42,33 @@ namespace BlockCraft.NeteaseRoomLab
                 + "本机桥接测试未通过；未连接网易服务器，未进入世界。";
         }
 
-        public static async Task<string> RunAsync(CancellationToken cancellationToken)
+        public static string ClassifyGameResult(int exitCode, string output)
+        {
+            // Only the EXACT pinned offline-only fixture result may pass.
+            // Never display arbitrary child output or infer real room success.
+            if (exitCode == 0 &&
+                string.Equals((output ?? "").Trim(),
+                    "LOCAL_STAGE12_GAME_IPC_OK_OFFLINE_GAME_NOT_JOINED",
+                    StringComparison.Ordinal))
+                return "STAGE12_LOCAL_GAME_SPAWN_OK_REMOTE_NOT_JOINED："
+                    + "两个独立本机进程已完成模拟 Bedrock 登录、StartGame 和玩家生成。"
+                    + " 未连接网易服务器，也未进入手机 Minecraft 世界。";
+            return "STAGE12_LOCAL_GAME_SPAWN_FAILED_REMOTE_NOT_JOINED："
+                + "本机完整游戏协议自检未通过；未连接网易服务器，也未进入世界。";
+        }
+
+        public static Task<string> RunAsync(CancellationToken cancellationToken)
+        {
+            return RunCoreAsync(cancellationToken, false);
+        }
+
+        public static Task<string> RunGameAsync(CancellationToken cancellationToken)
+        {
+            return RunCoreAsync(cancellationToken, true);
+        }
+
+        private static async Task<string> RunCoreAsync(CancellationToken cancellationToken,
+            bool fullOfflineGame)
         {
             if (!IsEmbedded)
                 return "STAGE12_OFFLINE_BRIDGE_UNAVAILABLE："
@@ -64,7 +90,7 @@ namespace BlockCraft.NeteaseRoomLab
                 var options = new ProcessStartInfo
                 {
                     FileName = fixture,
-                    Arguments = "-offline-ipc-selftest -worker \"" + worker + "\"",
+                    Arguments = (fullOfflineGame ? "-offline-game-ipc-selftest -worker \"" : "-offline-ipc-selftest -worker \"") + worker + "\"",
                     WorkingDirectory = folder,
                     UseShellExecute = false,
                     CreateNoWindow = true,
@@ -73,7 +99,7 @@ namespace BlockCraft.NeteaseRoomLab
                 };
                 child = new Process { StartInfo = options };
                 if (!child.Start())
-                    return ClassifyResult(-1, null);
+                    return fullOfflineGame ? ClassifyGameResult(-1, null) : ClassifyResult(-1, null);
 
                 Process process = child;
                 using (cancellationToken.Register(() => Terminate(process)))
@@ -81,24 +107,31 @@ namespace BlockCraft.NeteaseRoomLab
                     // The fixture outputs only one fixed status token; do not
                     // retain, log or display arbitrary subprocess output.
                     Task<string> read = process.StandardOutput.ReadToEndAsync();
-                    bool exited = await Task.Run(() => process.WaitForExit(TimeoutMilliseconds));
+                    int timeout = fullOfflineGame ? 50000 : TimeoutMilliseconds;
+                    bool exited = await Task.Run(() => process.WaitForExit(timeout));
                     if (!exited)
                     {
                         Terminate(process);
-                        return "STAGE12_OFFLINE_BRIDGE_TIMEOUT_GAME_NOT_JOINED："
+                        return fullOfflineGame
+                            ? "STAGE12_LOCAL_GAME_SPAWN_TIMEOUT_REMOTE_NOT_JOINED：本机模拟游戏连接超时；没有连接网易服务器。"
+                            : "STAGE12_OFFLINE_BRIDGE_TIMEOUT_GAME_NOT_JOINED："
                             + "本机双进程通信超时；未连接真实网易房间。";
                     }
                     string output = await read;
                     if (cancellationToken.IsCancellationRequested)
                         return "STAGE12_OFFLINE_BRIDGE_CANCELLED：本机测试已取消。";
                     if (output.Length > MaxOutputChars)
-                        return ClassifyResult(-1, null);
-                    return ClassifyResult(process.ExitCode, output);
+                        return fullOfflineGame ? ClassifyGameResult(-1, null)
+                            : ClassifyResult(-1, null);
+                    return fullOfflineGame ? ClassifyGameResult(process.ExitCode, output)
+                        : ClassifyResult(process.ExitCode, output);
                 }
             }
             catch (Exception)
             {
-                return "STAGE12_OFFLINE_BRIDGE_FAILED_GAME_NOT_JOINED："
+                return fullOfflineGame
+                    ? "STAGE12_LOCAL_GAME_SPAWN_FAILED_REMOTE_NOT_JOINED：本机模拟进程启动或读取失败。"
+                    : "STAGE12_OFFLINE_BRIDGE_FAILED_GAME_NOT_JOINED："
                     + "本机组件启动或读取失败；不会展示内部文件路径或账号数据。";
             }
             finally
