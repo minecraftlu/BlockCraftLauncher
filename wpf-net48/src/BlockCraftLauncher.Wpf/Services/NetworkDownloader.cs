@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using BlockCraftLauncher.Wpf.Models;
@@ -164,17 +165,35 @@ namespace BlockCraftLauncher.Wpf.Services
                             linked.CancelAfter(TimeSpan.FromSeconds(18));
                             using (var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, linked.Token))
                             {
-                            if (TemporaryStatus(response.StatusCode))
-                                throw new HttpRequestException("线路暂时不可用：" + response.StatusCode);
-                            response.EnsureSuccessStatusCode();
-                            var data = await response.Content.ReadAsStringAsync();
-                            if (data.Length > 12 * 1024 * 1024)
-                                throw new InvalidDataException("远端元数据超过大小限制");
-                                return data;
+                                if (TemporaryStatus(response.StatusCode))
+                                    throw new HttpRequestException("线路暂时不可用：" + response.StatusCode);
+                                response.EnsureSuccessStatusCode();
+                                const int maxMetadataBytes = 12 * 1024 * 1024;
+                                if (response.Content.Headers.ContentLength > maxMetadataBytes)
+                                    throw new InvalidDataException("远端元数据超过大小限制");
+                                // Capped streaming avoids large JSON responses
+                                // exhausting memory and observes per-request
+                                // cancellation even after response headers.
+                                using (var input = await response.Content.ReadAsStreamAsync())
+                                using (var memory = new MemoryStream())
+                                {
+                                    byte[] buffer = new byte[32768];
+                                    int count;
+                                    while ((count = await input.ReadAsync(buffer, 0, buffer.Length,
+                                        linked.Token)) > 0)
+                                    {
+                                        if (memory.Length + count > maxMetadataBytes)
+                                            throw new InvalidDataException("远端元数据超过大小限制");
+                                        memory.Write(buffer, 0, count);
+                                    }
+                                    return Encoding.UTF8.GetString(memory.ToArray());
+                                }
                             }
                         }
                     }
-                    catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
+                    catch (Exception ex) when (ex is HttpRequestException ||
+                        ex is OperationCanceledException ||
+                        (ex is IOException && !(ex is InvalidDataException)))
                     {
                         if (ct.IsCancellationRequested) throw;
                         last = ex;
@@ -207,6 +226,19 @@ namespace BlockCraftLauncher.Wpf.Services
             await gate.WaitAsync(ct);
             try
             {
+                if (File.Exists(fullPath))
+                {
+                    using (var existing = File.OpenRead(fullPath))
+                    using (var hasher = SHA1.Create())
+                    {
+                        string digest = BitConverter.ToString(hasher.ComputeHash(existing)).Replace("-", "");
+                        if (string.Equals(digest, sha1, StringComparison.OrdinalIgnoreCase))
+                        {
+                            progress?.Report(new DownloadBytes(existing.Length, existing.Length));
+                            return; // Reuse only when content hash matches.
+                        }
+                    }
+                }
                 await TransferVerifiedAsync(url, fullPath, sha1, ct, progress);
             }
             finally { gate.Release(); }
