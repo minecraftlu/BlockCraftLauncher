@@ -99,6 +99,17 @@ jobs:
         shell: cmd
         run: call build\build-windows.bat
 
+      - name: Verify offline updater transaction rollback
+        working-directory: wpf-net48
+        timeout-minutes: 3
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Updater.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--selftest' -PassThru
+          if (-not $process.WaitForExit(35000)) { $process.Kill(); throw 'Updater test timeout' }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) { throw "Updater rollback test failed: $($process.ExitCode)" }
+
       - name: Execute offline selftests on both distributions
         working-directory: wpf-net48
         timeout-minutes: 15
