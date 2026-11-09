@@ -103,6 +103,12 @@ jobs:
             & (Join-Path $out "Stage12IPCFixture.exe") -offline-ipc-selftest -worker (Join-Path $out "Stage12Worker.exe")
             if ($LASTEXITCODE -ne 0) { throw "offline IPC attempt $attempt failed" }
           }
+          # Stage 12.6: exercise the actual local worker under a
+          # receive-only source interface, so a game write cannot compile.
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            & (Join-Path $out "Stage12IPCFixture.exe") -offline-inbound-ipc-selftest -worker (Join-Path $out "Stage12Worker.exe")
+            if ($LASTEXITCODE -ne 0) { throw "receive-only worker/IPC regression: $attempt" }
+          }
           # Real gophertunnel Bedrock login between TWO isolated Windows
           # worker processes, relayed only by the versioned local IPC frames.
           # This is completely synthetic; no account or room is contacted.
