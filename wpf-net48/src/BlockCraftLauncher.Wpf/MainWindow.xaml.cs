@@ -1635,8 +1635,18 @@ namespace BlockCraftLauncher.Wpf
                     started = await minecraft.LaunchOfflineAsync(profile, serverAddress);
                 else throw new InvalidOperationException("请先登录微软正版账号或设置离线玩家名。");
 
-                gameProcesses.Track(profile, started);
-                Status("Minecraft 已启动：" + profile.Name + "（PID " + started.Id + "）");
+                // Launch succeeded even if OS process telemetry becomes
+                // unavailable. Do not misreport a running game as launch failure.
+                try
+                {
+                    gameProcesses.Track(profile, started);
+                    Status("Minecraft 已启动：" + profile.Name + "（PID " + started.Id + "）");
+                }
+                catch (Exception trackingError)
+                {
+                    Log("游戏已启动，但无法跟踪进程状态：" + trackingError.GetType().Name);
+                    Status("Minecraft 已启动，但无法获取进程状态。请以游戏窗口为准。");
+                }
             }
             catch (Exception ex) { ShowError("启动失败", ex); }
             finally
