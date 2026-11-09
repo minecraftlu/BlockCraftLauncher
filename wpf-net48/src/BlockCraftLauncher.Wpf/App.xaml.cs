@@ -41,7 +41,8 @@ namespace BlockCraftLauncher.Wpf
                 string.Equals(arg, "--window-relaunch-selftest", StringComparison.OrdinalIgnoreCase));
             smokeTest = authSelfTest || downloadSelfTest || dependencySelfTest ||
                 saveRestoreSelfTest || instanceDetectionSelfTest || modrinthSearchSelfTest ||
-                downloadPageSelfTest || layoutSelfTest || e.Args.Any(arg =>
+                downloadPageSelfTest || layoutSelfTest || relaunchWindowSelfTest ||
+                e.Args.Any(arg =>
                 string.Equals(arg, "--smoke-test", StringComparison.OrdinalIgnoreCase));
             // The CI probe must never open a browser, download Minecraft,
             // touch account tokens, or display a GUI message. Both ordinary
