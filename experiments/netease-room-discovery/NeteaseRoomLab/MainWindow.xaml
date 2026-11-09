@@ -219,6 +219,33 @@
                        Text="STAGE12_7_PROTOCOL_NOT_CHECKED：尚未查询游戏协议参考。" />
           </StackPanel>
         </Border>
+        <Border Margin="0,14,0,11" Padding="12" Background="#17313C"
+                BorderBrush="#417784" BorderThickness="1" CornerRadius="7">
+          <StackPanel>
+            <TextBlock Text="Stage 12.8 · 网易 3.10 客户端版本证据对照（离线）"
+                       FontWeight="Bold" Foreground="#A5E5E8" />
+            <TextBlock TextWrapping="Wrap" Foreground="#C9DCE6" Margin="0,6,0,8"
+                       Text="以下版本号来自你提供的网易 Windows 客户端截图，尚未确认房主手机使用同一版本。仅对照公开的 Bedrock 1.21.130 标准协议候选 897/898，不探测或登录网易服务器。" />
+            <StackPanel Orientation="Horizontal">
+              <StackPanel>
+                <TextBlock Foreground="#AEC9DD" Text="客户端版本号" Margin="0,0,0,4" />
+                <TextBox x:Name="Stage128GameBuildBox" Text="3.10.7.301588" MaxLength="24"
+                         Width="165" />
+              </StackPanel>
+              <StackPanel Margin="10,0,0,0">
+                <TextBlock Foreground="#AEC9DD" Text="补丁版本号" Margin="0,0,0,4" />
+                <TextBox x:Name="Stage128PatchBuildBox" Text="3.10.9.301882" MaxLength="24"
+                         Width="165" />
+              </StackPanel>
+            </StackPanel>
+            <Button x:Name="Stage128BuildButton" Style="{StaticResource PrimaryButton}"
+                    HorizontalAlignment="Left" Margin="0,9,0,0" Click="Stage128Build_Click"
+                    Content="对照 3.10 版本与标准协议候选（离线）" />
+            <TextBlock x:Name="Stage128BuildStatusText" Foreground="#BDDDE8"
+                       Margin="0,9,0,0" TextWrapping="Wrap"
+                       Text="STAGE12_8_BUILD_NOT_CHECKED：尚未对照客户端版本证据。" />
+          </StackPanel>
+        </Border>
         <TextBlock x:Name="RealWebRTCStatusText" Foreground="#BFD5F4" TextWrapping="Wrap" Margin="0,8,0,0"
                    Text="WEBRTC_PROBE_NOT_RUN：未尝试与手机房主建立真实游戏传输。" />
         <TextBlock x:Name="RealJoinStatusText" Foreground="#BFD5F4" TextWrapping="Wrap"
