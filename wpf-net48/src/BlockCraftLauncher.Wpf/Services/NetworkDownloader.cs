@@ -41,7 +41,7 @@ namespace BlockCraftLauncher.Wpf.Services
             // 45 seconds was too short for large JARs on domestic links.
             // Metadata requests have their own shorter timeout below.
             http = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(20) };
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher-WPF/0.9.28");
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher-WPF/0.9.29");
             attempts = Math.Max(1, Math.Min(6, settings.DownloadRetries));
         }
 
