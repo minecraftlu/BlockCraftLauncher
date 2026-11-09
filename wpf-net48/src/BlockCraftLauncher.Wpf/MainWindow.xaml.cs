@@ -731,7 +731,9 @@ namespace BlockCraftLauncher.Wpf
                 progress.Report("正在查找兼容的资源版本和依赖文件...");
                 using (var client = new ModrinthClient(settings))
                 {
-                    var file = await client.DownloadLatestAsync(hit, profile, token, bytes);
+                    var file = hit.Kind == "mod"
+                        ? await client.DownloadModWithDependenciesAsync(hit, profile, token, bytes, progress)
+                        : await client.DownloadLatestAsync(hit, profile, token, bytes);
                     progress.Report("已安装到：" + file);
                     Status("资源下载完成：" + hit.Name);
                 }
