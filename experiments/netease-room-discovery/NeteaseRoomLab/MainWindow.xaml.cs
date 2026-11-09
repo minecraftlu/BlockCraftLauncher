@@ -31,8 +31,12 @@ namespace BlockCraft.NeteaseRoomLab
         {
             InitializeComponent();
             Stage12OfflineButton.IsEnabled = Stage12OfflineBridge.IsEmbedded;
+            Stage12GameButton.IsEnabled = Stage12OfflineBridge.IsEmbedded;
             if (!Stage12OfflineBridge.IsEmbedded)
+            {
                 Stage12OfflineStatusText.Text = "STAGE12_OFFLINE_BRIDGE_UNAVAILABLE：本 EXE 未嵌入 Stage 12 组件。";
+                Stage12GameStatusText.Text = "STAGE12_LOCAL_GAME_SPAWN_UNAVAILABLE：缺少本机游戏协议组件。";
+            }
         }
 
         protected override void OnClosing(CancelEventArgs e)
@@ -66,6 +70,42 @@ namespace BlockCraft.NeteaseRoomLab
             catch (Exception)
             {
                 Stage12OfflineStatusText.Text = "STAGE12_OFFLINE_BRIDGE_FAILED_GAME_NOT_JOINED：本机自检异常。";
+            }
+            finally
+            {
+                stage12OfflineRunning = false;
+                if (activeStage12Cancellation != null)
+                {
+                    activeStage12Cancellation.Dispose();
+                    activeStage12Cancellation = null;
+                }
+                UpdateAuthButtons();
+            }
+        }
+
+        private async void Stage12Game_Click(object sender, RoutedEventArgs e)
+        {
+            if (stage12OfflineRunning || joinProbeRunning || livePreflightRunning
+                || authHelperRunning || g79CheckRunning) return;
+            if (!Stage12OfflineBridge.IsEmbedded)
+            {
+                Stage12GameStatusText.Text = "STAGE12_LOCAL_GAME_SPAWN_UNAVAILABLE：缺少内置本机模拟游戏组件。";
+                return;
+            }
+            stage12OfflineRunning = true;
+            activeStage12Cancellation = new CancellationTokenSource();
+            UpdateAuthButtons();
+            Stage12GameStatusText.Text = "STAGE12_LOCAL_GAME_SPAWN_RUNNING："
+                + "两个本地工作进程正在完成模拟游戏登录，不访问网易服务器。";
+            try
+            {
+                Stage12GameStatusText.Text =
+                    await Stage12OfflineBridge.RunGameAsync(activeStage12Cancellation.Token);
+            }
+            catch (Exception)
+            {
+                Stage12GameStatusText.Text =
+                    "STAGE12_LOCAL_GAME_SPAWN_FAILED_REMOTE_NOT_JOINED：本机自检异常。";
             }
             finally
             {
@@ -189,6 +229,8 @@ namespace BlockCraft.NeteaseRoomLab
                 Stage12OfflineButton.IsEnabled = Stage12OfflineBridge.IsEmbedded
                     && !stage12OfflineRunning && !joinProbeRunning && !livePreflightRunning
                     && !authHelperRunning && !g79CheckRunning;
+            if (Stage12GameButton != null)
+                Stage12GameButton.IsEnabled = Stage12OfflineButton.IsEnabled;
             // Prevent the visible room number and node query from changing
             // during the one expressly authorized real connection attempt.
             if (RoomIdBox != null) RoomIdBox.IsEnabled = !joinProbeRunning;
@@ -205,7 +247,7 @@ namespace BlockCraft.NeteaseRoomLab
                 && File.Exists(selectedAuthHelper);
             if (DeleteAuthButton != null) DeleteAuthButton.IsEnabled = !joinProbeRunning && !livePreflightRunning && !authHelperRunning && !g79CheckRunning;
             if (RealJoinButton != null)
-                RealJoinButton.IsEnabled = !joinProbeRunning && !livePreflightRunning
+                RealJoinButton.IsEnabled = !stage12OfflineRunning && !joinProbeRunning && !livePreflightRunning
                     && !authHelperRunning && !g79CheckRunning && JoinProbeRunner.IsEmbedded
                     && AuthConsentBox.IsChecked == true
                     && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
@@ -219,7 +261,7 @@ namespace BlockCraft.NeteaseRoomLab
                     && activeProbeCancellation != null
                     && !activeProbeCancellation.IsCancellationRequested;
             if (RealWebRTCButton != null)
-                RealWebRTCButton.IsEnabled = !joinProbeRunning && !livePreflightRunning
+                RealWebRTCButton.IsEnabled = !stage12OfflineRunning && !joinProbeRunning && !livePreflightRunning
                     && !authHelperRunning && !g79CheckRunning && JoinProbeRunner.IsEmbedded
                     && AuthConsentBox.IsChecked == true
                     && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
