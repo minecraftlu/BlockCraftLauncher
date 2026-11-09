@@ -39,7 +39,11 @@ func makeInboundFixture() *inboundFixture {
 func TestInboundBridgeOnlySendsFramedDataToLocalWorker(t *testing.T) {
     source:=makeInboundFixture()
     raw:=[][]byte{[]byte{0x02,0x2a,0x2b},bytes.Repeat([]byte{0x66},64*1024)}
-    for _,p:=range raw {source.incoming<-p}
+    expected:=make([][]byte,len(raw))
+    for i,p:=range raw {
+        expected[i]=append([]byte(nil),p...)
+        source.incoming<-p
+    }
     reader,writer:=io.Pipe()
     ctx,cancel:=context.WithTimeout(context.Background(),3*time.Second)
     defer cancel()
@@ -51,10 +55,10 @@ func TestInboundBridgeOnlySendsFramedDataToLocalWorker(t *testing.T) {
         stats,err:=ForwardInbound(ctx,source,writer)
         result<-struct{stats InboundStats;err error}{stats,err}
     }()
-    for _,expected:=range raw {
+    for _,want:=range expected {
         frame,err:=wire.ReadFrame(reader)
         if err!=nil{t.Fatal(err)}
-        if frame.Kind!=wire.Data || !bytes.Equal(frame.Payload,expected){
+        if frame.Kind!=wire.Data || !bytes.Equal(frame.Payload,want){
             t.Fatal("inbound game bytes altered or wrong message boundary")
         }
     }
