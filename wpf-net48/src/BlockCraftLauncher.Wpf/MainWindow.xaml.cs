@@ -1505,11 +1505,30 @@ namespace BlockCraftLauncher.Wpf
         UIElement BuildLauncherUpdates()
         {
             var root = Col(Txt("启动器更新", 24, true),
-                Txt("仅从 minecraftlu/BlockCraftLauncher 官方 GitHub Releases 检查版本。不会自动下载、运行或覆盖启动器。", 13, false, true));
-            root.Children.Add(Card(Col(Txt("当前版本：v0.9.27 WPF Alpha", 18, true),
-                Txt("旧版 v0.9.26 IconFix 与 WPF Alpha 属不同架构，不应直接自动互相覆盖。", 12, false, true),
-                Btn("检查 GitHub 最新发布", async () => await CheckLauncherUpdateAsync(), true),
-                Btn("打开官方 Releases", () => LauncherReleaseService.OpenOfficialRelease("https://github.com/minecraftlu/BlockCraftLauncher/releases")))));
+                Txt("版本更新仅通过 BlockCraft 官方 GitHub 发布。预览测试包与正式稳定版分开。", 12, false, true));
+            root.Children.Add(Card(Col(
+                Txt("当前版本：v0.9.27 WPF 界面优化预览", 18, true),
+                Txt("目标平台：Windows x64 · .NET Framework 4.8 · 可选单 EXE",
+                    12, false, true),
+                Txt("为了保护已安装游戏和存档，更新不会直接覆盖旧 Python 启动器。"
+                    + "此版本已经通过自动构建，但尚未完成真实账号、下载安装及双机联机验收。",
+                    12, false, true))));
+            root.Children.Add(Card(Col(
+                Txt("正式版更新", 18, true),
+                Txt("仅查询 GitHub 正式 Release；必须匹配 WPF 架构后才可提示升级。"
+                    + "自动覆盖安装将在完整性校验与回滚机制通过验收后提供。",
+                    12, false, true),
+                Row(Btn("检查正式版更新", async () => await CheckLauncherUpdateAsync(), true),
+                    Btn("打开官方发布页", () => LauncherReleaseService.OpenOfficialRelease(
+                        "https://github.com/minecraftlu/BlockCraftLauncher/releases"))))));
+            root.Children.Add(Card(Col(
+                Txt("界面优化测试构建", 18, true),
+                Txt("最新 CI 构建可用于检查布局、字体、按钮以及游戏运行状态。"
+                    + "它属于测试渠道，不等于已经发布的稳定版。",
+                    12, false, true),
+                Btn("查看预览构建", () => Process.Start(new ProcessStartInfo(
+                    "https://github.com/minecraftlu/BlockCraftLauncher/actions/workflows/wpf-net48-alpha-build.yml")
+                    { UseShellExecute = true })))));
             return root;
         }
         async Task CheckLauncherUpdateAsync()
@@ -1518,8 +1537,8 @@ namespace BlockCraftLauncher.Wpf
             {
                 Status("正在查询 GitHub Releases...");
                 var release = await new LauncherReleaseService().CheckAsync(settings, CancellationToken.None);
-                string message = (release.Newer ? "发现更新：" : "已查询最新发布：") + release.Version +
-                    "\n\n不同架构不可直接覆盖安装，请阅读发布说明后手动下载。\n\n" + release.Description;
+                string message = (release.Newer ? "发现兼容的 WPF 正式更新：" : "已查询最新正式发布：") + release.Version +
+                    "\n\n不同架构不可直接覆盖安装，请查看发布说明和资产文件名后手动下载。\n\n" + release.Description;
                 Status("GitHub 最新版本：" + release.Version);
                 if (MessageBox.Show(message + "\n\n打开官方发布页？", "启动器更新",
                         MessageBoxButton.YesNo, MessageBoxImage.Information) == MessageBoxResult.Yes)
@@ -2031,7 +2050,17 @@ namespace BlockCraftLauncher.Wpf
         }
         void ShowReleaseNotes()
         {
-            MessageBox.Show("v0.9.27 WPF Alpha · 迁移阶段 2\n新增：Microsoft 正版 OAuth 登录与静默刷新；Fabric / Forge / NeoForge / Quilt 安装流程。\n优化：安装状态与取消入口、已完成实例去重。\n待验证：Windows 编译、真实账号登录、加载器安装及游戏启动。\n仍待迁移：CurseForge、整合包、自动更新及多人联机。\n\nPCL2 风格（设计参考，不使用其专有素材）", "BlockCraft Launcher 更新说明");
+            MessageBox.Show("BlockCraft Launcher v0.9.27 WPF 界面优化预览\n\n"
+                + "· 顶部蓝色胶囊导航、紧凑分组侧边栏与统一符号字体\n"
+                + "· 全页面统一按钮、卡片、留白和列表信息层级\n"
+                + "· 设置页采用字段名称 / 控件 / 提示双栏排版\n"
+                + "· 本地版本识别、实例导入与路径修复\n"
+                + "· Minecraft 运行状态、退出码和防重复启动\n"
+                + "· 保留已有下载、模组、整合包、存档、账号与联机入口\n\n"
+                + "自动构建通过不代表所有在线功能已完成实机验收。"
+                + " 正式稳定版需要 Windows、微软账号、游戏与双机联机验收。\n"
+                + "界面参考 PCL2 布局层级，未使用 PCL2 专有素材和源码。",
+                "BlockCraft Launcher 更新说明");
         }
         void ShowError(string title, Exception ex) { Log(title + "：" + ex); MessageBox.Show(ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Error); }
     }
