@@ -49,6 +49,23 @@ namespace BlockCraftLauncher.Wpf.Services
                 "下载速率字节单位");
             Require(DownloadJob.Format(5L * 1024 * 1024).Contains("MiB"),
                 "下载大小单位");
+            Require(LauncherReleaseService.IsCompatibleWpfAssetName(
+                "BlockCraftLauncher-v0.9.27-WPF-OneFile-Windows-x64.exe"),
+                "WPF 单文件正式发布资产识别");
+            Require(LauncherReleaseService.IsCompatibleWpfAssetName(
+                "BlockCraftLauncher-v0.9.27-WPF-net48-Alpha-Windows-x64.zip"),
+                "WPF 完整 ZIP 发布资产识别");
+            Require(!LauncherReleaseService.IsCompatibleWpfAssetName(
+                "BlockCraftLauncher_v0.9.26_x64.exe"),
+                "旧 Python 安装包不能作为 WPF 更新");
+            Require(!LauncherReleaseService.IsCompatibleWpfAssetName(
+                "BlockCraftRoomStage9.exe"),
+                "网易房间实验包不能作为 WPF 更新");
+            Require(!LauncherReleaseService.IsCompatibleWpfAssetName(
+                "other-BlockCraftLauncher-v0.9.28-WPF-net48-Windows.zip"),
+                "非 BlockCraft Launcher 规范命名资产不能作为自动更新");
+            Require(!LauncherReleaseService.IsNewer("v999999999999999999999.0.0", "v0.9.27"),
+                "无效过大版本号不应导致更新检测崩溃");
             // This runs a simulated HTTP transport (no DNS or credentials)
             // through the SAME CmlLib game routing handler as production.
             MinecraftRouteSanityChecks.RunAsync().GetAwaiter().GetResult();
