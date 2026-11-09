@@ -36,6 +36,7 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 TestRealJoinProbeResultRedaction();
                 TestMachineTransportParsing();
                 TestStage12OfflineResultContract();
+                TestStage127CodecReference();
                 Console.WriteLine("Room/node parser and local email-helper safety tests passed. No network requests or credentials used.");
                 return 0;
             }
@@ -44,6 +45,38 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 Console.Error.WriteLine(error.Message);
                 return 1;
             }
+        }
+
+        private static void TestStage127CodecReference()
+        {
+            const string reference = "NETEASE_CODEC_REFERENCE_FOUND_GAME_NOT_JOINED";
+            const string notPublished = "NETEASE_CODEC_UNVERIFIED_GAME_NOT_JOINED";
+            string known = Stage127CodecReference.Classify("819",0,reference+"\r\n");
+            if (!known.Contains("STAGE12_7_NETEASE_CODEC_REFERENCE_ONLY_GAME_NOT_JOINED")
+                || !known.Contains("不证明当前手机房间")
+                || known.Contains("GAME_JOINED"))
+                throw new InvalidOperationException("NetEase codec documentation was mistaken for real game entry.");
+            string unknown = Stage127CodecReference.Classify("859",0,notPublished+"\n");
+            if (!unknown.Contains("STAGE12_7_NETEASE_CODEC_UNVERIFIED_GAME_NOT_JOINED"))
+                throw new InvalidOperationException("Standard Bedrock 859 was incorrectly treated as NetEase codec.");
+            foreach (string invalid in new [] {"","0","000","819abc","819;login",
+                "abcdef","123456","-1","8\n19"})
+            {
+                string normalized;
+                if (Stage127CodecReference.TryNormalizeVersion(invalid,out normalized)
+                    || !Stage127CodecReference.Classify(invalid,0,reference)
+                        .Contains("STAGE12_7_PROTOCOL_INPUT_INVALID"))
+                    throw new InvalidOperationException("Unsafe protocol version input passed the UI gate.");
+            }
+            string forged = Stage127CodecReference.Classify("819",0,
+                reference+"\nPRIVATE_TOKEN_SHOULD_NOT_LEAK");
+            if (!forged.Contains("STAGE12_7_PROTOCOL_CHECK_FAILED_GAME_NOT_JOINED")
+                || forged.Contains("PRIVATE_TOKEN"))
+                throw new InvalidOperationException("Untrusted subprocess output was displayed.");
+            if (!Stage127CodecReference.Classify("819",1,reference)
+                    .Contains("STAGE12_7_PROTOCOL_CHECK_FAILED_GAME_NOT_JOINED"))
+                throw new InvalidOperationException("Failed offline protocol process falsely classified as success.");
+            Console.WriteLine("PASS: Stage12.7 codec lookup has no game admission claim or sensitive output");
         }
 
         private static void TestStage12OfflineResultContract()
