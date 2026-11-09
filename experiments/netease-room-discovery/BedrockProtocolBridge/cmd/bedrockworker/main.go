@@ -60,6 +60,14 @@ func run(r io.Reader,w io.Writer) error {
 }
 
 func main() {
+    if len(os.Args)==3 && os.Args[1]=="-offline-codec-reference" {
+        if err:=checkCodecReference(os.Args[2],os.Stdout);err!=nil {
+            // Do not echo arguments: the worker never accepts account data.
+            fmt.Fprintln(os.Stderr,"OFFLINE_CODEC_REFERENCE_INVALID")
+            os.Exit(2)
+        }
+        return
+    }
     if len(os.Args)!=2 {
         fmt.Fprintln(os.Stderr,"OFFLINE_BRIDGE_ONLY")
         os.Exit(2)
