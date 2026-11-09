@@ -58,6 +58,11 @@ namespace BlockCraftLauncher.OneFile
                     WorkingDirectory = folder,
                     Arguments = string.Join(" ", args.Select(QuoteArgument))
                 };
+                // The extracted WPF process must know which original single
+                // EXE the user launched. Replacing only the extraction cache
+                // would silently leave the outer executable unchanged.
+                options.EnvironmentVariables["BLOCKCRAFT_SINGLEFILE_BOOTSTRAP"] =
+                    Assembly.GetExecutingAssembly().Location;
                 using (var process = Process.Start(options))
                 {
                     if (process == null) throw new IOException("无法启动 WPF 主程序。");
