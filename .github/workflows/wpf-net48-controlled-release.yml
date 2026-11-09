@@ -12,9 +12,9 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Unique release tag (candidate: v0.9.29-wpf-rc.1)'
+        description: 'Unique release tag (candidate: v0.9.30-wpf-rc.1)'
         required: true
-        default: 'v0.9.29-wpf-rc.1'
+        default: 'v0.9.30-wpf-rc.1'
         type: string
       channel:
         description: 'Candidate for testing; stable only after real Windows acceptance'
@@ -40,7 +40,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      RELEASE_TAG: ${{ github.event_name == 'push' && 'v0.9.29-wpf-rc.1' || inputs.release_tag }}
+      RELEASE_TAG: ${{ github.event_name == 'push' && 'v0.9.30-wpf-rc.1' || inputs.release_tag }}
       RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'candidate' || inputs.channel }}
       REAL_DEVICE_ACCEPTANCE: ${{ inputs.real_device_acceptance }}
     steps:
@@ -116,7 +116,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $normal = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
-          $single = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.29-WPF-OneFile-Windows-x64.exe').Path
+          $single = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.30-WPF-OneFile-Windows-x64.exe').Path
           foreach ($exe in @($normal, $single)) {
             foreach ($flag in @(
               '--smoke-test', '--ui-layout-selftest', '--download-ui-selftest',
@@ -151,8 +151,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $dist = (Resolve-Path 'dist').Path
           $assets = @(
-            'BlockCraftLauncher-v0.9.29-WPF-OneFile-Windows-x64.exe',
-            'BlockCraftLauncher-v0.9.29-WPF-net48-Alpha-Windows-x64.zip'
+            'BlockCraftLauncher-v0.9.30-WPF-OneFile-Windows-x64.exe',
+            'BlockCraftLauncher-v0.9.30-WPF-net48-Alpha-Windows-x64.zip'
           )
           $manifest = @()
           foreach ($asset in $assets) {
@@ -184,9 +184,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $files = @(
-            'dist/BlockCraftLauncher-v0.9.29-WPF-OneFile-Windows-x64.exe',
-            'dist/BlockCraftLauncher-v0.9.29-WPF-OneFile-Windows-x64.exe.sha256',
-            'dist/BlockCraftLauncher-v0.9.29-WPF-net48-Alpha-Windows-x64.zip',
+            'dist/BlockCraftLauncher-v0.9.30-WPF-OneFile-Windows-x64.exe',
+            'dist/BlockCraftLauncher-v0.9.30-WPF-OneFile-Windows-x64.exe.sha256',
+            'dist/BlockCraftLauncher-v0.9.30-WPF-net48-Alpha-Windows-x64.zip',
             'dist/RELEASE-SHA256SUMS.txt'
           )
           foreach ($file in $files) {
