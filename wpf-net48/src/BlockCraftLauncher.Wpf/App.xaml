@@ -222,6 +222,58 @@
     <!-- PCL-inspired Modrinth row: large project icon, readable project
          name, two-line description and useful factual metadata. No third-party
          brand images are bundled; the URL is validated before binding. -->
+    <!-- Common row layouts: multiplayer servers and local resource files. -->
+    <DataTemplate x:Key="ServerItemTemplate">
+      <Border Padding="12,11" BorderBrush="{DynamicResource BorderBrushTheme}"
+              BorderThickness="0,0,0,1" MinHeight="60">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="42"/><ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="&#xE902;" FontFamily="Segoe MDL2 Assets" FontSize="22"
+                     Foreground="{DynamicResource AccentBrush}"
+                     VerticalAlignment="Center" HorizontalAlignment="Center"/>
+          <StackPanel Grid.Column="1" VerticalAlignment="Center">
+            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13"
+                       TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"/>
+            <TextBlock Text="{Binding Address}" FontSize="11"
+                       Foreground="{DynamicResource MutedBrush}"
+                       TextTrimming="CharacterEllipsis" ToolTip="{Binding Address}"
+                       Margin="0,4,0,0"/>
+          </StackPanel>
+        </Grid>
+      </Border>
+    </DataTemplate>
+    <DataTemplate x:Key="LocalResourceItemTemplate">
+      <Border Padding="12,10" BorderBrush="{DynamicResource BorderBrushTheme}"
+              BorderThickness="0,0,0,1">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="38"/><ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="62"/>
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="&#xE8A7;" FontFamily="Segoe MDL2 Assets" FontSize="18"
+                     Foreground="{DynamicResource AccentBrush}"
+                     VerticalAlignment="Center" HorizontalAlignment="Center"/>
+          <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="12.5"
+                     FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                     VerticalAlignment="Center" ToolTip="{Binding FullPath}"/>
+          <TextBlock Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center"
+                     FontSize="11" Foreground="{DynamicResource MutedBrush}">
+            <TextBlock.Style>
+              <Style TargetType="TextBlock">
+                <Setter Property="Text" Value="已启用"/>
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding Disabled}" Value="True">
+                    <Setter Property="Text" Value="已停用"/>
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </TextBlock.Style>
+          </TextBlock>
+        </Grid>
+      </Border>
+    </DataTemplate>
     <DataTemplate x:Key="ResourceItemTemplate">
       <Border Padding="12,12" BorderBrush="{DynamicResource BorderBrushTheme}"
               BorderThickness="0,0,0,1" Background="Transparent" MinHeight="104">
