@@ -1,25 +1,36 @@
-# BlockCraft Launcher v0.9.28 WPF Release Candidate 1
+# BlockCraft Launcher v0.9.29 WPF Release Candidate 1
 
-- Candidate tag: v0.9.28-wpf-rc.1
+- Candidate tag: v0.9.29-wpf-rc.1
 - Channel: **prerelease / candidate**, not Stable
-- Target: Windows 10/11 x64, WPF, .NET Framework 4.8, single EXE / ZIP
-- Development branch: feature/wpf-net48-alpha-v0.9.27 (the existing WPF PR)
+- Target: Windows 10/11 x64, C# / WPF / .NET Framework 4.8
+- Formats: Portable OneFile EXE, complete ZIP containing the update helper
+- Development branch: feature/wpf-net48-alpha-v0.9.27
 - Request date: 2026-11-10
 
-## Changes to validate before next Stable
+## New PCL-like automatic update workflow
 
-- China-priority downloads for supported Mojang/BMCLAPI resources, original official fallback, and single-flight automatic mirror probes.
-- Long-file download timeout extended to 20 minutes, metadata streaming capped at 12 MiB with 18-second cancellation, verified SHA-1 cache reuse and route-specific partial-file markers to avoid corrupted cross-CDN resumes.
-- Optional MCIM-backed Modrinth acceleration with official fallback and HTTPS domain allowlist. No OAuth or account traffic is mirrored.
-- CurseForge project list with real authors' logos, preview screenshots, download counts and version hints. All artwork URLs are restricted to approved CDN domains; missing images fall back to blank placeholders.
-- Full-screen navigation still uses BlockCraft's original WPF PCL-inspired layout; original login, download, mods, saves and multiplayer workstreams remain available.
-- CI #42678383098 confirmed all 27 Windows build and offline regression steps including normal and one-file download tests.
+- Launcher startup checks official GitHub Releases every six hours by default, without delaying Minecraft launch.
+- Stable / WPF preview channels are separated; Stable is the default and never selects NetEase room-lab or legacy Python assets.
+- Main screen and update center show new version announcements and release description.
+- User can opt into automatic background downloads, while installation always requires confirmation to close the launcher.
+- GitHub-hosted assets must match exact recognized architecture/package names and the official release's SHA-256 manifest.
+- Update packages are prepared in a staging area and smoke-tested before installation; no scripts or third-party mirror EXEs are executed.
+- The standalone update helper waits until the WPF process exits, updates the actual original single EXE or the extracted ZIP application directory, and smoke-tests the replacement. A failed start restores old executable or DLL files.
+- The new singlefile bootstrap now forwards all WPF CI test exit codes rather than masking failures.
+- No saved Minecraft worlds, launcher authentication data or existing Python launcher should be modified; live game processes remain running.
 
-## Candidate vs. Stable quality gate
+## CI and release signoff
 
-- The user's earlier successful Microsoft interactive login and use of the previous WPF UI do NOT establish real Chinese network throughput or real CurseForge/Modrinth download correctness.
-- Before Stable, run domestic ISP download benchmarking, download interruption/resume, valid Minecraft installs, Forge/Fabric/NeoForge compatibility and screenshots/creator links on a real Windows machine.
-- This file requests ONLY a distinct GitHub **prerelease** with SHA-256 manifests, built from a clean Windows runner after every automated test passes.
-- Do not change or overwrite v0.9.27-wpf-rc.1, the legacy Python release, Minecraft files, or accounts. NetEase room interoperability remains unsupported.
+- [Windows CI #42682875674](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42682875674): success, 28 steps with ordinary and single-EXE tests.
+- New updater static, simulated rollback, SHA-256, Safe ZIP extraction and release channel tests passed in Windows CI.
+- Build the two formats again in a clean Windows runner; run every offline selftest and generate official SHA-256 manifests before publishing.
+- Publish **only as GitHub prerelease v0.9.29-wpf-rc.1**. Do not mark Stable without real Windows end-to-end tests of both update paths, Chinese GitHub downloads, access controls and post-update relaunch.
+- Users of v0.9.28 and older must **manually install v0.9.29 once** because previous binaries did not include an updater; after that the UI can install compatible future releases.
 
-Validation notes: wpf-net48/docs/V0928_CHINA_DOWNLOAD_AND_CURSEFORGE.md
+## Remaining limits
+
+- In-app automatic checks and one-click update machinery are verified offline and compiled; they are not yet user-tested end-to-end with a later actual v0.9.30 release.
+- A GitHub Release cannot update an app built from the Python/Go architecture in-place; old and new applications are kept separate.
+- NetEase mobile room integration remains experimental and unsupported.
+
+Details: wpf-net48/docs/V0929_AUTO_UPDATE.md
