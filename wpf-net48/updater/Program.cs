@@ -72,14 +72,15 @@ namespace BlockCraftLauncher.Updater
 
         static Dictionary<string, string> ParseArguments(string[] args)
         {
-            if (args.Length != 10 || args[0] != "--apply")
+            if (args.Length != 11 || args[0] != "--apply")
                 throw new ArgumentException("缺少安全更新参数");
             var result = new Dictionary<string, string>(StringComparer.Ordinal);
             for (int i = 1; i < args.Length; i += 2)
             {
                 if (!args[i].StartsWith("--", StringComparison.Ordinal) ||
-                    !result.TryAdd(args[i].Substring(2), args[i + 1]))
+                    result.ContainsKey(args[i].Substring(2)))
                     throw new ArgumentException("重复或无效的更新参数");
+                result.Add(args[i].Substring(2), args[i + 1]);
             }
             return result;
         }
