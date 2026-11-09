@@ -205,6 +205,8 @@ namespace BlockCraftLauncher.Wpf
                                 try
                                 {
                                     LauncherRelaunchSignal.AcknowledgeVisibleWindow(postUpdateToken);
+                                    if (!relaunchWindowSelfTest)
+                                        window.ShowPostUpdateSuccess();
                                 }
                                 catch (Exception confirmError)
                                 {
