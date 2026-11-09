@@ -169,6 +169,65 @@ namespace BlockCraftLauncher.Wpf.Services
                 Require(rejected && !File.Exists(Path.Combine(folder, "escape.txt")),
                     "不能通过 ZIP 目录穿越覆盖任意文件");
 
+                // Strictly within a disposable LocalAppData staged folder:
+                // direct-open must refuse tampered downloads or arbitrary EXEs.
+                string localStage = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "BlockCraftLauncher", "updates", "staged-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(localStage);
+                try
+                {
+                    var onePath = Path.Combine(localStage, exe29);
+                    byte[] payload = Encoding.ASCII.GetBytes("Verified onefile placeholder");
+                    File.WriteAllBytes(onePath, payload);
+                    var preparedOne = new PreparedLauncherUpdate
+                    {
+                        Offer = rcOne, StagedPath = onePath,
+                        Sha256 = Hash(payload), TargetPath = Path.Combine(folder, "old.exe")
+                    };
+                    Require(LauncherAutoUpdateService.DirectPreviewExecutable(preparedOne) == onePath,
+                        "已校验的新版可直接运行，旧安装位置保持不变");
+                    File.AppendAllText(onePath, "tamper");
+                    rejected = false;
+                    try { LauncherAutoUpdateService.DirectPreviewExecutable(preparedOne); }
+                    catch (InvalidDataException) { rejected = true; }
+                    Require(rejected, "直接打开必须拒绝篡改后的新版 EXE");
+
+                    var outside = new PreparedLauncherUpdate
+                    {
+                        Offer = rcOne, StagedPath = file,
+                        Sha256 = Hash(File.ReadAllBytes(file)), TargetPath = ""
+                    };
+                    rejected = false;
+                    try { LauncherAutoUpdateService.DirectPreviewExecutable(outside); }
+                    catch (InvalidDataException) { rejected = true; }
+                    Require(rejected, "直接打开不能执行任意本地文件路径");
+
+                    string copiedZip = Path.Combine(localStage, zip29);
+                    File.Copy(zipPath, copiedZip);
+                    string extractedZip = LauncherAutoUpdateService.ExtractCheckedZip(
+                        copiedZip, Path.Combine(localStage, "unpacked"));
+                    var preparedZip = new PreparedLauncherUpdate
+                    {
+                        Offer = rcZip, StagedPath = extractedZip,
+                        Sha256 = Hash(File.ReadAllBytes(copiedZip)), TargetPath = folder
+                    };
+                    string directExe = LauncherAutoUpdateService.DirectPreviewExecutable(preparedZip);
+                    Require(directExe.EndsWith("BlockCraftLauncher.Wpf.exe",
+                        StringComparison.OrdinalIgnoreCase) && File.Exists(directExe),
+                        "完整 ZIP 必须从验证过的新版目录直接打开");
+                    File.AppendAllText(copiedZip, "tamper");
+                    rejected = false;
+                    try { LauncherAutoUpdateService.DirectPreviewExecutable(preparedZip); }
+                    catch (InvalidDataException) { rejected = true; }
+                    Require(rejected, "ZIP 变动后不能再直接打开新版");
+                }
+                finally
+                {
+                    try { Directory.Delete(localStage, true); }
+                    catch (IOException) { }
+                }
+
                 string configPath = Path.Combine(folder, "settings.wpf-preview.json");
                 var store = new SettingsStore(configPath);
                 var settings = new LauncherConfig {
