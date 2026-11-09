@@ -1,4 +1,4 @@
-name: BlockCraft Stage12.4 WPF offline game bridge preview
+name: BlockCraft Stage12.5 WPF live readiness diagnostics preview
 
 on:
   pull_request:
@@ -88,15 +88,15 @@ jobs:
           foreach ($required in @("BlockCraft.JoinProbe.exe", "BlockCraft.Stage12.BedrockWorker.exe", "BlockCraft.Stage12.IPCFixture.exe")) {
             if (-not ($names -contains $required)) { throw "Missing embedded resource: $required" }
           }
-          New-Item -ItemType Directory -Force "stage12-4-wpf-offline" | Out-Null
-          $output = "stage12-4-wpf-offline/BlockCraftRoomStage12_4_OfflineGamePreview.exe"
+          New-Item -ItemType Directory -Force "stage12-5-wpf-readiness" | Out-Null
+          $output = "stage12-5-wpf-readiness/BlockCraftRoomStage12_5_ReadinessPreview.exe"
           Copy-Item $exe $output
           $hash = (Get-FileHash $output -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  BlockCraftRoomStage12_4_OfflineGamePreview.exe" | Set-Content "stage12-4-wpf-offline/SHA256SUMS.txt" -Encoding ascii
+          "$hash  BlockCraftRoomStage12_5_ReadinessPreview.exe" | Set-Content "stage12-5-wpf-readiness/SHA256SUMS.txt" -Encoding ascii
 
       - uses: actions/upload-artifact@v4
         with:
-          name: BlockCraft-RoomLab-Stage12_4-OfflineGamePreview-unsigned
-          path: stage12-4-wpf-offline/
+          name: BlockCraft-RoomLab-Stage12_5-ReadinessPreview-unsigned
+          path: stage12-5-wpf-readiness/
           if-no-files-found: error
           retention-days: 14
