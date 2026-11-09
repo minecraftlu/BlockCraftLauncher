@@ -1,4 +1,4 @@
-name: BlockCraft Stage12.6 WPF live readiness diagnostics preview
+name: BlockCraft Stage12.7 WPF live readiness diagnostics preview
 
 on:
   pull_request:
@@ -66,6 +66,18 @@ jobs:
             & $fixture -offline-inbound-ipc-selftest -worker $worker
             if ($LASTEXITCODE -ne 0) { throw "receive-only Bedrock IPC worker failed" }
           }
+          # Stage12.7 never launches a game session or accepts lobby versions:
+          # it only checks the pinned public NetEase codec reference table.
+          $known = & $worker -offline-codec-reference 819
+          if ($LASTEXITCODE -ne 0 -or $known.Trim() -ne "NETEASE_CODEC_REFERENCE_FOUND_GAME_NOT_JOINED") {
+            throw "published NetEase codec check failed"
+          }
+          $unknown = & $worker -offline-codec-reference 859
+          if ($LASTEXITCODE -ne 0 -or $unknown.Trim() -ne "NETEASE_CODEC_UNVERIFIED_GAME_NOT_JOINED") {
+            throw "standard Bedrock codec incorrectly accepted as NetEase"
+          }
+          & $worker -offline-codec-reference "819;bad"
+          if ($LASTEXITCODE -eq 0) { throw "unsafe protocol CLI value accepted" }
 
       - name: Compile and run .NET Framework 4.8 local safety tests
         shell: pwsh
@@ -92,15 +104,15 @@ jobs:
           foreach ($required in @("BlockCraft.JoinProbe.exe", "BlockCraft.Stage12.BedrockWorker.exe", "BlockCraft.Stage12.IPCFixture.exe")) {
             if (-not ($names -contains $required)) { throw "Missing embedded resource: $required" }
           }
-          New-Item -ItemType Directory -Force "stage12-6-wpf-inbound" | Out-Null
-          $output = "stage12-6-wpf-inbound/BlockCraftRoomStage12_6_ReadOnlyBridgePreview.exe"
+          New-Item -ItemType Directory -Force "stage12-7-wpf-codec" | Out-Null
+          $output = "stage12-7-wpf-codec/BlockCraftRoomStage12_7_CodecReferencePreview.exe"
           Copy-Item $exe $output
           $hash = (Get-FileHash $output -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  BlockCraftRoomStage12_6_ReadOnlyBridgePreview.exe" | Set-Content "stage12-6-wpf-inbound/SHA256SUMS.txt" -Encoding ascii
+          "$hash  BlockCraftRoomStage12_7_CodecReferencePreview.exe" | Set-Content "stage12-7-wpf-codec/SHA256SUMS.txt" -Encoding ascii
 
       - uses: actions/upload-artifact@v4
         with:
-          name: BlockCraft-RoomLab-Stage12_6-ReadOnlyBridgePreview-unsigned
-          path: stage12-6-wpf-inbound/
+          name: BlockCraft-RoomLab-Stage12_7-CodecReferencePreview-unsigned
+          path: stage12-7-wpf-codec/
           if-no-files-found: error
           retention-days: 14
