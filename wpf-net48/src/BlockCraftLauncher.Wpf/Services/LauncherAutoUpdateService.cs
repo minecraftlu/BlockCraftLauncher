@@ -544,10 +544,30 @@ namespace BlockCraftLauncher.Wpf.Services
             process.Dispose();
         }
 
+        // Windows CreateProcess command-line escaping. Backslashes preceding a
+        // closing quote must be doubled; ordinary path slashes remain intact.
         static string Q(string value)
         {
             if (value == null) throw new ArgumentNullException(nameof(value));
-            return "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+            var builder = new StringBuilder("\"");
+            int slashes = 0;
+            foreach (char c in value)
+            {
+                if (c == '\\') { slashes++; continue; }
+                if (c == '"')
+                {
+                    builder.Append('\\', slashes * 2 + 1);
+                    builder.Append('"');
+                    slashes = 0;
+                    continue;
+                }
+                builder.Append('\\', slashes);
+                slashes = 0;
+                builder.Append(c);
+            }
+            builder.Append('\\', slashes * 2);
+            builder.Append('"');
+            return builder.ToString();
         }
     }
 }
