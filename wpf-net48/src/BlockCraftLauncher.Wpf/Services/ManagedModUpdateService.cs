@@ -113,6 +113,58 @@ namespace BlockCraftLauncher.Wpf.Services
             Save(profile, current);
         }
 
+        /// <summary>
+        /// Atomically register a completed dependency set. Existing manual
+        /// files are never registered by this method; callers supply only
+        /// newly committed files. If any dependency is invalid, no registry
+        /// changes are saved.
+        /// </summary>
+        public void RecordBatch(GameProfile profile, IEnumerable<ManagedResource> items)
+        {
+            if (profile == null || items == null)
+                throw new ArgumentNullException("请选择有效的实例和资源登记列表");
+            var additions = items.ToList();
+            if (additions.Count > 32)
+                throw new InvalidDataException("单次依赖登记超过 32 个");
+            if (additions.Count == 0) return;
+            var current = Load(profile);
+            var filenames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in additions)
+            {
+                if (item == null || string.IsNullOrWhiteSpace(item.ProjectId) ||
+                    item.ProjectId.Length > 64 ||
+                    item.ProjectId.Any(c => !char.IsLetterOrDigit(c) && c != '-' && c != '_') ||
+                    string.IsNullOrWhiteSpace(item.VersionId) ||
+                    item.VersionId.Length > 64 ||
+                    item.VersionId.Any(c => !char.IsLetterOrDigit(c) && c != '-' && c != '_'))
+                    throw new InvalidDataException("资源登记包含无效的 Modrinth 项目或版本 ID");
+                string name = FileName(item.Filename);
+                string folder = Folder(item.Kind);
+                if (!filenames.Add(folder + "/" + name))
+                    throw new InvalidDataException("资源安装包含重复文件名");
+                if (item.Sha1 == null || item.Sha1.Length != 40 || !item.Sha1.All(Uri.IsHexDigit))
+                    throw new InvalidDataException("资源登记的 SHA-1 不合法");
+                string file = Path.Combine(profile.Directory, folder, name);
+                if (!File.Exists(file) ||
+                    !FileSha1(file).Equals(item.Sha1, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("依赖资源文件缺失或 SHA-1 验证失败");
+                if (current.Any(old => old.Kind == item.Kind &&
+                    string.Equals(old.Filename, name, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(old.ProjectId, item.ProjectId, StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidDataException("已有资源登记占用相同文件名");
+            }
+            foreach (var item in additions)
+            {
+                current.RemoveAll(x => x.ProjectId == item.ProjectId && x.Kind == item.Kind);
+                current.Add(new ManagedResource {
+                    ProjectId = item.ProjectId, Kind = item.Kind,
+                    Title = item.Title, VersionId = item.VersionId,
+                    Filename = item.Filename, Sha1 = item.Sha1.ToLowerInvariant()
+                });
+            }
+            Save(profile, current);
+        }
+
         public async Task<IReadOnlyList<ResourceUpgrade>> CheckAsync(GameProfile profile, CancellationToken ct)
         {
             var records = Load(profile);
