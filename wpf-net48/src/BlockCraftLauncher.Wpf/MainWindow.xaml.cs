@@ -1332,25 +1332,97 @@ namespace BlockCraftLauncher.Wpf
         }
         void ManageInstance()
         {
-            if (activeProfile == null) { MessageBox.Show("请先选择游戏实例"); return; }
-            var actions = new StackPanel { Margin = new Thickness(18) };
-            actions.Children.Add(Txt("实例：" + activeProfile.Name, 18, true));
-            actions.Children.Add(Btn("打开游戏目录", OpenGameFolder));
-            actions.Children.Add(Btn("备份存档", () =>
+            if (activeProfile == null)
             {
-                var file = new SaveFileDialog { FileName = "saves-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".zip", Filter = "ZIP 压缩包|*.zip" };
-                if (file.ShowDialog(this) != true) return;
-                try { LocalInstanceTools.BackupSaves(activeProfile, file.FileName); MessageBox.Show("备份完成"); }
+                MessageBox.Show("请先选择游戏实例");
+                return;
+            }
+            var selected = activeProfile;
+            var window = new Window {
+                Owner = this, Title = "游戏实例与存档管理",
+                Width = 525, Height = 430, MinWidth = 460, MinHeight = 350,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner
+            };
+            var actions = new StackPanel { Margin = new Thickness(20) };
+            actions.Children.Add(Txt("实例管理 · " + selected.Name, 19, true));
+            actions.Children.Add(Txt("以下操作只针对当前选择的 Minecraft 游戏实例。"
+                + "恢复备份不会覆盖已有世界，移除实例仅修改列表，不删除文件。", 12, false, true));
+            actions.Children.Add(Btn("打开实例目录", () => LocalInstanceTools.OpenFolder(selected)));
+            actions.Children.Add(Btn("备份当前实例的存档", async () =>
+            {
+                var file = new SaveFileDialog {
+                    FileName = "saves-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".zip",
+                    Filter = "ZIP 压缩包|*.zip"
+                };
+                if (file.ShowDialog(window) != true) return;
+                try
+                {
+                    Status("正在备份存档，请勿关闭启动器...");
+                    string path = await Task.Run(() => LocalInstanceTools.BackupSaves(selected, file.FileName));
+                    MessageBox.Show(window, "存档备份完成：\n" + path, "备份成功");
+                    Status("存档备份完成");
+                }
                 catch (Exception ex) { ShowError("备份失败", ex); }
+            }, true));
+            actions.Children.Add(Btn("从 ZIP 安全恢复存档（不覆盖已有世界）", async () =>
+            {
+                var file = new OpenFileDialog {
+                    Filter = "ZIP 存档备份 (*.zip)|*.zip",
+                    Title = "选择从 saves 文件夹创建的备份 ZIP"
+                };
+                if (file.ShowDialog(window) != true) return;
+                if (MessageBox.Show(window,
+                    "将把 ZIP 中的新世界恢复到当前实例。\n"
+                    + "已有同名世界将被保留，恢复会直接拒绝覆盖。\n\n确认继续？",
+                    "安全恢复存档", MessageBoxButton.YesNo, MessageBoxImage.Question)
+                    != MessageBoxResult.Yes) return;
+                try
+                {
+                    Status("正在检查 ZIP 并恢复新世界...");
+                    int worlds = await Task.Run(() => LocalInstanceTools.RestoreSaves(selected, file.FileName));
+                    MessageBox.Show(window, "成功恢复 " + worlds + " 个世界。\n已有存档未被覆盖。",
+                        "恢复完成");
+                    Status("已安全恢复存档：" + worlds + " 个世界");
+                }
+                catch (Exception ex) { ShowError("恢复失败", ex); }
             }));
-            var window = new Window { Title = "实例管理与备份", Owner = this, Width = 480, Height = 250,
-                Content = actions, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+            actions.Children.Add(new Separator { Margin = new Thickness(0, 10, 0, 12) });
+            actions.Children.Add(Btn("仅从列表移除实例（保留游戏与存档文件）", () =>
+            {
+                if (MessageBox.Show(window,
+                    "仅从 BlockCraft 启动器列表中移除“" + selected.Name + "”？\n\n"
+                    + "不会删除 Minecraft 游戏目录、已安装模组或任何存档。",
+                    "确认移除实例", MessageBoxButton.YesNo, MessageBoxImage.Warning)
+                    != MessageBoxResult.Yes) return;
+                settings.Profiles.Remove(selected);
+                activeProfile = settings.Profiles.FirstOrDefault();
+                try
+                {
+                    store.Save(settings);
+                    window.Close();
+                    BuildSidebar();
+                    Navigate("首页");
+                    Status("已从列表移除实例（没有删除任何游戏文件）");
+                }
+                catch (Exception ex)
+                {
+                    settings.Profiles.Add(selected);
+                    activeProfile = selected;
+                    ShowError("更新实例列表失败", ex);
+                }
+            }));
+            window.Content = new ScrollViewer {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Content = actions
+            };
             window.ShowDialog();
         }
         void CheckInstance()
         {
             if (activeProfile == null) { MessageBox.Show("尚未选择实例"); return; }
-            var path = Path.Combine(settings.Root, "versions", activeProfile.LaunchVersion, activeProfile.LaunchVersion + ".json");
+            var path = Path.Combine(activeProfile.Directory ?? settings.Root,
+                "versions", activeProfile.LaunchVersion, activeProfile.LaunchVersion + ".json");
             MessageBox.Show(File.Exists(path) ? "本地版本元数据存在。完整运行仍取决于 Java、依赖库与资源文件。" : "当前未找到本地版本元数据：\n" + path, "离线检查");
         }
         void OpenGameFolder()
