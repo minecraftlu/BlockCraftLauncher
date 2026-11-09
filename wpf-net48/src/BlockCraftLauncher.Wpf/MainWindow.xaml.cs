@@ -333,6 +333,12 @@ namespace BlockCraftLauncher.Wpf
             PageScroll.ScrollToTop(); Status("当前页面：" + page);
         }
         void Status(string message) { StatusText.Text = message; Log(message); }
+        internal void ShowPostUpdateSuccess()
+        {
+            Title = "BlockCraft Launcher · " + LauncherAutoUpdateService.CurrentTag + " · 更新完成";
+            Status("更新完成！已自动打开新版 BlockCraft Launcher " +
+                LauncherAutoUpdateService.CurrentTag + "。");
+        }
         void Log(string text) { logs.Add(DateTime.Now.ToString("HH:mm:ss") + "  " + text); }
         void ApplyTheme()
         {
