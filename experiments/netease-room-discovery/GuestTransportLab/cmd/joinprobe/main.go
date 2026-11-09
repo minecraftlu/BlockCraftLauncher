@@ -12,6 +12,7 @@ import (
     "time"
 
     "github.com/minecraftlu/BlockCraftLauncher/experiments/netease-room-discovery/GuestTransportLab/internal/joinprobe"
+    "github.com/minecraftlu/BlockCraftLauncher/experiments/netease-room-discovery/GuestTransportLab/internal/stage12readiness"
 )
 
 func main() {
@@ -144,6 +145,10 @@ func emitMachine(report joinprobe.Report) {
         ObservationSeconds int `json:"observation_seconds"`
         MinecraftWorldJoined bool `json:"minecraft_world_joined"`
         ModeConfirmed bool `json:"g79_mode_confirmed"`
+        Stage12Readiness string `json:"stage12_readiness"`
+        GameIdentityVerified bool `json:"stage12_game_identity_verified"`
+        GameProtocolVerified bool `json:"stage12_game_protocol_verified"`
+        GameLoginAttempted bool `json:"stage12_game_login_attempted"`
     }{
         Status: report.Status,
         LoginAccepted: report.LoginAccepted,
@@ -161,6 +166,22 @@ func emitMachine(report joinprobe.Report) {
         ObservationSeconds: report.ObservationSeconds,
         MinecraftWorldJoined: false,
         ModeConfirmed: report.ModeConfirmed,
+        Stage12Readiness: stage12readiness.Assess(stage12readiness.Evidence{
+            LobbyLoginAccepted: report.LoginAccepted,
+            RoomAdmissionAccepted: report.RoomAdmissionAccepted,
+            HostReadySeen: report.HostReadySeen,
+            SignalingAuthenticated: report.SignalingAuthenticated,
+            WebRTCTransportConnected: report.WebRTCTransportConnected,
+            TransportStable: report.TransportStable,
+            ReliableChannelOpen: report.ReliableChannelOpen,
+            UnreliableChannelOpen: report.UnreliableChannelOpen,
+            G79ModeConfirmed: report.ModeConfirmed,
+        }),
+        // This probe never invokes Bedrock game login. The successful PE
+        // lobby entry and NetherNet ICE/DTLS/SCTP are not proof of game JWTs.
+        GameIdentityVerified: false,
+        GameProtocolVerified: false,
+        GameLoginAttempted: false,
     }
     payload, err := json.Marshal(record)
     if err != nil {
