@@ -214,6 +214,15 @@ namespace BlockCraftLauncher.Wpf
                                 }
                             };
                         }
+                        if (relaunchWindowSelfTest)
+                        {
+                            // Render the actual WPF window, write its one-time
+                            // relaunch acknowledgement, and close without
+                            // making any network or account requests.
+                            window.ContentRendered += (sender, args) =>
+                                Dispatcher.BeginInvoke(new Action(() => Shutdown(0)),
+                                    DispatcherPriority.Background);
+                        }
                         window.Show();
                     }
                 }
