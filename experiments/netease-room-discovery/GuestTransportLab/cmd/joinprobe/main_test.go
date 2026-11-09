@@ -54,3 +54,45 @@ func TestUnauthenticatedRoomCannotProduceReadyStage12Record(t *testing.T) {
         t.Fatalf("unauthenticated room upgraded: %v",m["stage12_readiness"])
     }
 }
+
+func TestAdmissionReplyIsMachineReadableWithoutSecretServerPayload(t *testing.T) {
+    fixture:=joinprobe.Report{
+        Status:"ENTER_ROOM_REJECTED",
+        LoginAccepted:true,LoginReplyObserved:true,LoginReplyCode:0,
+        RoomAdmissionAccepted:false,AdmissionReplyObserved:true,
+        AdmissionReplyCode:4,AdmissionDiagnosis:"ADMISSION_ROOM_FULL",
+        MinecraftWorldJoined:false,
+        Detail:"COOKIE_AND_SECRET_TOKEN_NEVER_EXPOSED",
+    }
+    record:=captureReport(t,fixture)
+    if record["status"]!="ENTER_ROOM_REJECTED" ||
+        record["admission_reply_observed"]!=true ||
+        record["admission_reply_code"]!=float64(4) ||
+        record["admission_diagnosis"]!="ADMISSION_ROOM_FULL" ||
+        record["login_reply_observed"]!=true {
+        t.Fatalf("numeric server rejection was not preserved: %v",record)
+    }
+    if _,exists:=record["detail"];exists{t.Fatal("private server detail leaked")}
+    if record["minecraft_world_joined"]!=false{t.Fatal("room rejection claimed game success")}
+    missing:=captureReport(t,joinprobe.Report{
+        Status:"ENTER_ROOM_RESPONSE_MISSING",LoginAccepted:true,
+        LoginReplyObserved:true,AdmissionDiagnosis:"ADMISSION_REPLY_NOT_OBSERVED",
+    })
+    if missing["admission_reply_observed"]!=false ||
+        missing["admission_reply_code"]!=float64(0) {
+        t.Fatalf("missing reply was fabricated as server rejection: %v",missing)
+    }
+}
+
+func TestNegativeUnknownAdmissionCodeRemainsNumericAndUnclassified(t *testing.T) {
+    record:=captureReport(t,joinprobe.Report{
+        Status:"ENTER_ROOM_REJECTED",LoginAccepted:true,
+        LoginReplyObserved:true,AdmissionReplyObserved:true,
+        AdmissionReplyCode:-128,
+        AdmissionDiagnosis:"ADMISSION_REJECTED_REASON_UNKNOWN",
+    })
+    if record["admission_reply_code"]!=float64(-128) ||
+        record["admission_diagnosis"]!="ADMISSION_REJECTED_REASON_UNKNOWN"{
+        t.Fatalf("unknown numeric code changed or assigned fake meaning: %v",record)
+    }
+}
