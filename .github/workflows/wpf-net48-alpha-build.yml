@@ -165,6 +165,44 @@ jobs:
             throw "Single EXE mirror routing selftest failed: $($process.ExitCode)"
           }
           Write-Host 'PASS: single EXE preserves HTTP Range and isolates credentials on mirror fallback'
+      - name: PCL-like Modrinth search card metadata parsing (offline)
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--modrinth-search-selftest' -PassThru
+          if (-not $process.WaitForExit(30000)) {
+            $process.Kill()
+            throw 'Modrinth metadata selftest timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 40 }
+            throw "Modrinth metadata selftest failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: project icon validation, downloads, Minecraft versions, update dates and paging'
+
+      - name: PCL-like Modrinth search metadata from single EXE
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.27-WPF-OneFile-Windows-x64.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--modrinth-search-selftest' -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            $process.Kill()
+            throw 'OneFile Modrinth search metadata selftest timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 40 }
+            throw "OneFile Modrinth metadata selftest failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: OneFile project icon hosts, localized category labels and search total counts'
+
       - name: Offline Modrinth required dependency and atomic registry regression
         shell: pwsh
         working-directory: wpf-net48
