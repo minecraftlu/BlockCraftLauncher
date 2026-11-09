@@ -209,7 +209,7 @@
             <TextBlock Text="{Binding Description}" FontSize="12"
                        Foreground="{DynamicResource MutedBrush}"
                        TextWrapping="Wrap" Margin="0,0,0,5"/>
-            <TextBlock Text="{Binding Kind}" FontSize="11"
+            <TextBlock Text="{Binding KindLabel}" FontSize="11"
                        Foreground="{DynamicResource AccentBrush}"/>
           </StackPanel>
         </Grid>
