@@ -46,7 +46,7 @@ for symbol in (
 for page in (
     "首页", "游戏版本", "下载管理", "资源中心", "光影引擎", "资源包",
     "整合包", "CurseForge", "模组更新", "多人联机", "启动器更新",
-    "设置", "运行日志",
+    "设置", "运行日志", "皮肤 DIY",
 ):
     assert f'Navigate("{page}")' in main, page
 
@@ -86,6 +86,19 @@ for design in ('SearchPanel', 'ResultsPanel', 'SearchTextBox', 'SearchComboBox',
                'FilterChip', 'SearchSurfaceBrush', 'SoftDividerBrush'):
     assert design in app, f"Missing shared UI style: {design}"
 assert 'Set("SearchSurfaceBrush"' in main
+
+skin = (src / "SkinStudioView.cs").read_text("utf8")
+skin_doc = (src / "Services" / "SkinEditorDocument.cs").read_text("utf8")
+assert 'skinStudio.VerifyOfflineLayout()' in main
+assert 'case "皮肤 DIY"' in main
+for name in ("画笔", "橡皮擦", "取色器", "油漆桶", "基础层", "外层",
+             "保存到皮肤库", "导入 PNG", "导出 PNG", "Ctrl+Z", "Alex", "Steve"):
+    assert name in skin, f"Missing DIY editor control: {name}"
+for method in ("RunOfflineSelfTest", "LoadPng", "SavePng", "MirrorLegacyLimb",
+               "AvatarImage", "CanPaint", "Undo()", "Redo()", "SafeLibraryPath"):
+    assert method in skin_doc, f"Missing skin safety/model behavior: {method}"
+assert '--skin-selftest' in (src / "App.xaml.cs").read_text("utf8")
+assert '--skin-selftest' in (root / "onefile" / "Program.cs").read_text("utf8")
 
 assert "CompatibleWpf" in updates
 assert "Newer = wpfAsset && IsNewer" in updates
