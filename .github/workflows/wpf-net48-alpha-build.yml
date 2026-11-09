@@ -21,14 +21,22 @@ jobs:
         shell: pwsh
         working-directory: wpf-net48
         run: |
-          python tests/check_project.py
-          python tests/check_phase2.py
-          python tests/check_windows_packaging.py
-          python tests/check_v0926_features.py
-          python tests/check_onefile.py
-          python tests/check_pcl_downloads.py
-          python tests/check_download_bindings.py
-          python tests/check_auth_recovery.py
+          # PowerShell otherwise only reports the exit code of the final
+          # Python command, masking earlier failures in static checks.
+          $ErrorActionPreference = 'Stop'
+          foreach ($check in @(
+            'check_project.py',
+            'check_phase2.py',
+            'check_windows_packaging.py',
+            'check_v0926_features.py',
+            'check_onefile.py',
+            'check_pcl_downloads.py',
+            'check_download_bindings.py',
+            'check_auth_recovery.py'
+          )) {
+            python "tests/$check"
+            if ($LASTEXITCODE -ne 0) { throw "Static check failed: $check (exit $LASTEXITCODE)" }
+          }
       - name: Restore, compile and package with Visual Studio MSBuild
         shell: cmd
         working-directory: wpf-net48
