@@ -275,6 +275,29 @@ namespace BlockCraft.NeteaseRoomLab
                     return "JOIN_PROBE_IPC_INCONSISTENT：服务器登录标记与状态不匹配。";
 
                 string safeStatus = ReportStatus(frame);
+                // Stage 12.5 is a read-only prerequisite diagnosis. Recompute
+                // the claimed result from independently parsed server/transport
+                // booleans, rather than trusting an arbitrary child status.
+                object readinessObject;
+                if (response.TryGetValue("stage12_readiness", out readinessObject))
+                {
+                    bool identityVerified, protocolVerified, gameLoginAttempted;
+                    string expected = ComputeStage12Readiness(login, admitted, hostReady,
+                        signaling, rtc, stable, reliableOpen, unreliableOpen);
+                    if (!(readinessObject is string)
+                        || !String.Equals((string)readinessObject, expected,
+                            StringComparison.Ordinal)
+                        || !ReadBool(response, "stage12_game_identity_verified",
+                            out identityVerified)
+                        || !ReadBool(response, "stage12_game_protocol_verified",
+                            out protocolVerified)
+                        || !ReadBool(response, "stage12_game_login_attempted",
+                            out gameLoginAttempted)
+                        || identityVerified || protocolVerified || gameLoginAttempted)
+                        return "JOIN_PROBE_IPC_INCONSISTENT：Stage 12 游戏授权或版本声明缺乏可信证据。";
+                    safeStatus += Environment.NewLine
+                        + expected + "：" + ExplainStage12Readiness(expected);
+                }
                 if (channelSuccess)
                     safeStatus += Environment.NewLine
                         + "被动观察：" + observedSeconds + " 秒；可靠通道 OPEN、不可靠通道 OPEN。"
@@ -288,6 +311,44 @@ namespace BlockCraft.NeteaseRoomLab
             catch (Exception)
             {
                 return "JOIN_PROBE_IPC_SCHEMA_ERROR：探针机器输出解析失败，原始内容已隐藏。";
+            }
+        }
+
+        // These stages establish transport prerequisites only. G79 auth_mode
+        // is not a verified game identity chain or a protocol-version proof.
+        public static string ComputeStage12Readiness(
+            bool login, bool admitted, bool hostReady, bool signaling,
+            bool transport, bool stable, bool reliableOpen, bool unreliableOpen)
+        {
+            if (!login || !admitted) return "STAGE12_ADMISSION_NOT_VERIFIED";
+            if (!hostReady) return "STAGE12_HOST_NOT_READY";
+            if (!signaling) return "STAGE12_SIGNALING_NOT_VERIFIED";
+            if (!transport) return "STAGE12_TRANSPORT_NOT_CONNECTED";
+            if (!stable) return "STAGE12_TRANSPORT_NOT_STABLE";
+            if (!reliableOpen || !unreliableOpen)
+                return "STAGE12_DATA_CHANNELS_NOT_VERIFIED";
+            return "STAGE12_GAME_IDENTITY_AND_PROTOCOL_UNVERIFIED";
+        }
+
+        private static string ExplainStage12Readiness(string status)
+        {
+            switch (status)
+            {
+                case "STAGE12_ADMISSION_NOT_VERIFIED":
+                    return "尚未证明网易大厅允许第二账号进入当前房间。";
+                case "STAGE12_HOST_NOT_READY":
+                    return "尚未获得房主 NetherNet 就绪事件。";
+                case "STAGE12_SIGNALING_NOT_VERIFIED":
+                    return "尚未确认当前房间的信令会话成功。";
+                case "STAGE12_TRANSPORT_NOT_CONNECTED":
+                    return "尚未确认 WebRTC 传输连接已建立。";
+                case "STAGE12_TRANSPORT_NOT_STABLE":
+                    return "尚未完成当前传输的有界稳定性检查。";
+                case "STAGE12_DATA_CHANNELS_NOT_VERIFIED":
+                    return "尚未验证两个数据通道同时 OPEN。";
+                default:
+                    return "网络前置条件已观察到，但缺少网易认可的游戏身份提供者"
+                        + "及当前 Bedrock 游戏协议版本证明；未尝试 Minecraft 登录。";
             }
         }
 
