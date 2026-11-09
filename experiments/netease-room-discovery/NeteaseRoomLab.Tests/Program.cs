@@ -37,6 +37,7 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 TestMachineTransportParsing();
                 TestStage12OfflineResultContract();
                 TestStage127CodecReference();
+                TestStage128ChinaBuildReference();
                 Console.WriteLine("Room/node parser and local email-helper safety tests passed. No network requests or credentials used.");
                 return 0;
             }
@@ -45,6 +46,45 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 Console.Error.WriteLine(error.Message);
                 return 1;
             }
+        }
+
+        private static void TestStage128ChinaBuildReference()
+        {
+            const string candidate =
+                "STAGE12_8_CHINA_310_REFERENCE_CANDIDATES_UNVERIFIED_GAME_NOT_JOINED";
+            const string unknown =
+                "STAGE12_8_CHINA_BUILD_REFERENCE_UNKNOWN_GAME_NOT_JOINED";
+            string game="3.10.7.301588";
+            string patch="3.10.9.301882";
+            string result=Stage128ClientBuildReference.Classify(game,patch,0,candidate+"\r\n");
+            if (!result.Contains("STAGE12_8_CHINA_310_CANDIDATES_897_898_UNVERIFIED_GAME_NOT_JOINED")
+                || !result.Contains("手机房间") || !result.Contains("未验证")
+                || result.Contains("GAME_JOINED"))
+                throw new InvalidOperationException("China 3.10 research candidate misreported as real phone connection.");
+            string normalized;
+            if (!Stage128ClientBuildReference.TryNormalizeBuild(game,out normalized)
+                || normalized!=game)
+                throw new InvalidOperationException("Valid screenshot build not recognized.");
+            foreach (string untrusted in new[] {
+                "", "819", "898", "3.9.7.301588", "3.10.7.301588;token",
+                "3.10.7.301588\nTOKEN", "3.10.07.301588", "3.10.7.30158"
+            })
+            {
+                if (Stage128ClientBuildReference.TryNormalizeBuild(untrusted,out normalized))
+                    throw new InvalidOperationException("Untrusted or unsupported build was accepted.");
+            }
+            string fake=Stage128ClientBuildReference.Classify(game,patch,0,
+                candidate+"\nSENSITIVE_COOKIE_MUST_NOT_LEAK");
+            if (!fake.Contains("STAGE12_8_BUILD_REFERENCE_FAILED_GAME_NOT_JOINED")
+                || fake.Contains("SENSITIVE_COOKIE"))
+                throw new InvalidOperationException("Unsafe worker output was displayed.");
+            if (!Stage128ClientBuildReference.Classify(game,patch,1,candidate)
+                    .Contains("STAGE12_8_BUILD_REFERENCE_FAILED_GAME_NOT_JOINED"))
+                throw new InvalidOperationException("Nonzero return code falsely marked valid build.");
+            if (!Stage128ClientBuildReference.Classify(game,patch,0,unknown)
+                    .Contains("STAGE12_8_BUILD_REFERENCE_UNKNOWN_GAME_NOT_JOINED"))
+                throw new InvalidOperationException("Unknown mapping must fail closed.");
+            Console.WriteLine("PASS: Stage12.8 China 3.10 candidate evidence remains distinct from phone game protocol.");
         }
 
         private static void TestStage127CodecReference()
