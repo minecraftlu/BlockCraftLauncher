@@ -199,6 +199,26 @@
                      Foreground="#BFD5F4" Margin="0,5,0,0"
                      Text="STAGE12_READONLY_IPC_NOT_RUN：未连接真实房间的本机接收管道。" />
         </StackPanel>
+        <Border Margin="0,14,0,11" Padding="12" Background="#183038"
+                BorderBrush="#386A78" BorderThickness="1" CornerRadius="7">
+          <StackPanel>
+            <TextBlock Text="Stage 12.7 · 网易游戏协议兼容性参考（离线）"
+                       Foreground="#90DAE8" FontWeight="Bold" />
+            <TextBlock Margin="0,6,0,8" TextWrapping="Wrap" Foreground="#CEDBE7"
+                       Text="只查询公开资料中是否有网易专用编解码实现。请仅输入独立获得的 Bedrock 游戏协议号，不要使用房间号或大厅的房间版本标记。无论结果如何，都不表示网易游戏认证成功。" />
+            <StackPanel Orientation="Horizontal">
+              <TextBox x:Name="Stage127ProtocolBox" Width="110" MaxLength="5"
+                       ToolTip="填写游戏协议号，例如 819；不要填写房间元数据或账号信息。" />
+              <Button x:Name="Stage127CodecButton" Style="{StaticResource PrimaryButton}"
+                      Margin="10,0,0,0" HorizontalAlignment="Left"
+                      Click="Stage127Codec_Click"
+                      Content="查询公开网易协议参考（离线）" />
+            </StackPanel>
+            <TextBlock x:Name="Stage127CodecStatusText" Margin="0,9,0,0"
+                       TextWrapping="Wrap" Foreground="#C0DFEA"
+                       Text="STAGE12_7_PROTOCOL_NOT_CHECKED：尚未查询游戏协议参考。" />
+          </StackPanel>
+        </Border>
         <TextBlock x:Name="RealWebRTCStatusText" Foreground="#BFD5F4" TextWrapping="Wrap" Margin="0,8,0,0"
                    Text="WEBRTC_PROBE_NOT_RUN：未尝试与手机房主建立真实游戏传输。" />
         <TextBlock x:Name="RealJoinStatusText" Foreground="#BFD5F4" TextWrapping="Wrap"
