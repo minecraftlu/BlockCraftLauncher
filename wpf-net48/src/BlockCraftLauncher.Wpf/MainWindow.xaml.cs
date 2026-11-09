@@ -1639,11 +1639,21 @@ namespace BlockCraftLauncher.Wpf
             root.Children.Add(Card(Col(Txt("游戏与账号", 18, true), game)));
 
             var network = SettingsForm();
+            var routes = new[]
+            {
+                new KeyValuePair<string, string>("auto", "自动测速 · 智能择快"),
+                new KeyValuePair<string, string>("china", "中国大陆优先 · 镜像失败回官方"),
+                new KeyValuePair<string, string>("official", "仅官方 · 不使用镜像"),
+                new KeyValuePair<string, string>("mirror", "镜像优先 · 保留官方回退")
+            };
             settingsNetworkMode = new ComboBox {
-                ItemsSource = new[] { "auto", "official", "mirror" },
-                SelectedItem = settings.NetworkMode, MaxWidth = 240 };
+                ItemsSource = routes,
+                DisplayMemberPath = "Value",
+                SelectedItem = routes.FirstOrDefault(x => x.Key == settings.NetworkMode),
+                MaxWidth = 340 };
+            if (settingsNetworkMode.SelectedIndex < 0) settingsNetworkMode.SelectedIndex = 0;
             SettingRow(network, "下载线路", settingsNetworkMode,
-                "auto 自动 · official 官方 · mirror 镜像（仅受支持资源）");
+                "国内优先支持 Mojang/BMCLAPI；可选 MCIM 仅用于获准的社区资源，不会更改微软登录通道。");
             settingsDownloadThreads = new TextBox { Text = settings.DownloadThreads.ToString(), MaxWidth = 130 };
             SettingRow(network, "并发连接", settingsDownloadThreads, "2～32 个连接");
             settingsDownloadRetries = new TextBox { Text = settings.DownloadRetries.ToString(), MaxWidth = 130 };
@@ -1673,7 +1683,8 @@ namespace BlockCraftLauncher.Wpf
         {
             settings.Root = settingsRoot?.Text ?? settings.Root;
             settings.Proxy = settingsProxy?.Text ?? settings.Proxy;
-            settings.NetworkMode = Convert.ToString(settingsNetworkMode?.SelectedItem) ?? settings.NetworkMode;
+            if (settingsNetworkMode?.SelectedItem is KeyValuePair<string, string> selectedRoute)
+                settings.NetworkMode = selectedRoute.Key;
             if (int.TryParse(settingsDownloadThreads?.Text, out var threads))
                 settings.DownloadThreads = Math.Max(2, Math.Min(32, threads));
             if (int.TryParse(settingsDownloadRetries?.Text, out var retries))
