@@ -1714,14 +1714,39 @@ namespace BlockCraftLauncher.Wpf
                         ? location.SharedMetadataPath
                         : "当前实例：" + location.InstanceMetadataPath + "\n" +
                           "公共目录：" + location.SharedMetadataPath;
-                    MessageBox.Show(this,
+                    var repair = MessageBox.Show(this,
                         "没有找到与当前实例版本 ID 对应的本地 JSON 文件。\n\n" +
                         "版本 ID：" + location.VersionId + "\n" +
                         "已检查路径：\n" + paths + "\n\n" +
-                        "请核对启动器内选中的实例是否与你实际启动的 Minecraft 版本相同。" +
-                        "这不等于游戏无法运行，也不建议直接删除已安装文件。",
-                        "检测本地文件 · 未找到版本元数据",
-                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                        "游戏能正常启动不代表这里登记的实例路径正确。\n" +
+                        "是否选择已有的 " + location.VersionId + ".json 来修复当前实例目录？\n" +
+                        "只更新启动器配置，不移动、删除或重新下载游戏文件。",
+                        "检测本地文件 · 修复实例路径",
+                        MessageBoxButton.YesNo, MessageBoxImage.Question);
+                    if (repair != MessageBoxResult.Yes) return;
+
+                    var picker = new OpenFileDialog
+                    {
+                        Filter = "Minecraft 版本 JSON (*.json)|*.json",
+                        Title = "选择 versions\\" + location.VersionId + "\\" + location.VersionId + ".json"
+                    };
+                    if (picker.ShowDialog(this) != true) return;
+                    var imported = MinecraftInstanceLocator.ImportVersionMetadata(picker.FileName);
+                    if (!string.Equals(imported.LaunchVersion, location.VersionId,
+                        StringComparison.OrdinalIgnoreCase))
+                    {
+                        MessageBox.Show(this,
+                            "选中的版本为 " + imported.LaunchVersion + "，但当前实例要求 " +
+                            location.VersionId + "。请选相同版本的 JSON，或改用“导入本地实例”添加新版本。",
+                            "版本不匹配", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+                    string previousDirectory = activeProfile.Directory;
+                    activeProfile.Directory = imported.Directory;
+                    try { store.Save(settings); }
+                    catch { activeProfile.Directory = previousDirectory; throw; }
+                    Status("已修复实例目录：" + imported.Directory);
+                    CheckInstance();
                 }
             }
             catch (Exception ex)
