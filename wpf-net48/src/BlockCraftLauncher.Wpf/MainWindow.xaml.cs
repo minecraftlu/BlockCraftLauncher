@@ -74,6 +74,7 @@ namespace BlockCraftLauncher.Wpf
         ComboBox homeProfile, versionLoader, settingsTheme;
         Button versionInstallButton, versionCancelButton;
         TextBox versionQuery, resourceQuery, settingsRoot, settingsProxy, settingsJava, settingsPlayer, settingsMemory;
+        TextBlock versionCounter;
         ListBox versionList, resourceList;
         TextBlock accountText, zoomValue;
         Slider settingsZoom;
@@ -547,7 +548,8 @@ namespace BlockCraftLauncher.Wpf
             var root = Col(PageHeading("游戏下载 / Minecraft", "Minecraft 游戏版本",
                 "按名称和发布类型筛选游戏版本，随后选择兼容加载器进行安装。"));
             var toolbar = Row();
-            versionQuery = new TextBox { Width = 260, ToolTip = "搜索版本号" };
+            versionQuery = new TextBox { Width = 275, ToolTip = "输入版本号，例如 1.21.1" };
+            ApplySearchInputStyle(versionQuery, "输入完整或部分版本号，输入后即时筛选");
             versionQuery.TextChanged += (s, e) => FilterVersions();
             toolbar.Children.Add(versionQuery);
             versionCategory = new ComboBox
@@ -557,20 +559,30 @@ namespace BlockCraftLauncher.Wpf
                 SelectedIndex = 0,
                 Margin = new Thickness(8, 0, 0, 0)
             };
+            ApplySearchInputStyle(versionCategory, "筛选正式版、快照版或历史版本");
             versionCategory.SelectionChanged += (sender, e) => FilterVersions();
             toolbar.Children.Add(versionCategory);
             toolbar.Children.Add(Btn("刷新在线版本", async () => await LoadVersionsAsync(), true));
             toolbar.Children.Add(Btn("下载任务", () => Navigate("下载管理")));
-            root.Children.Add(toolbar);
+            var quickVersions = Row(
+                Txt("快速筛选", 12, false, true),
+                FilterChipButton("全部", () => versionCategory.SelectedIndex = 0),
+                FilterChipButton("正式版", () => versionCategory.SelectedIndex = 1),
+                FilterChipButton("快照版", () => versionCategory.SelectedIndex = 2));
+            root.Children.Add(SearchCard(Col(Txt("搜索 Minecraft 游戏版本", 18, true),
+                toolbar, quickVersions)));
+            versionCounter = Txt("正在准备官方版本列表...", 12, false, true);
             versionList = new ListBox { ItemsSource = gameVersions,
                 ItemTemplate = (DataTemplate)FindResource("VersionItemTemplate"),
                 Height = 350, MinWidth = 300, Margin = new Thickness(0, 10, 0, 12) };
-            root.Children.Add(Card(versionList));
-            var options = Col(Txt("选择加载器", 18, true));
+            root.Children.Add(ResultsCard(Col(
+                Txt("搜索结果 · Minecraft 版本", 18, true),
+                versionCounter, versionList)));
+            var options = Col(Txt("版本安装选项", 18, true));
             versionLoader = new ComboBox { ItemsSource = new[] { "原版", "Fabric", "Forge", "NeoForge", "Quilt" }, SelectedIndex = 0, Width = 280, HorizontalAlignment = HorizontalAlignment.Left };
             options.Children.Add(versionLoader);
             options.Children.Add(Txt("原版 / Fabric / Forge / NeoForge / Quilt：通过各自安装组件获取匹配的版本文件。部分新版本可能暂不兼容。", 12, false, true));
-            versionInstallButton = Btn("安装所选版本", async () => await InstallSelectedVersionAsync(), true);
+            versionInstallButton = Btn("开始安装选中版本", async () => await InstallSelectedVersionAsync(), true);
             versionCancelButton = Btn("取消安装", () => versionInstallJob?.Cancel());
             versionCancelButton.IsEnabled = false;
             options.Children.Add(Row(versionInstallButton, versionCancelButton,
@@ -589,6 +601,10 @@ namespace BlockCraftLauncher.Wpf
                     (category == "全部版本" || item.Category == category) &&
                     (search.Length == 0 || item.Id.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0);
             };
+            if (versionCounter != null)
+                versionCounter.Text = versionList.Items.Count == 0 ?
+                    "没有符合条件的版本；试试清除搜索词或切换版本类型。" :
+                    "共找到 " + versionList.Items.Count + " 个符合条件的版本 · 点击一项后选择加载器。";
         }
         async Task LoadVersionsAsync()
         {
