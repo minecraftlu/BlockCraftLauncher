@@ -28,3 +28,10 @@
 ## 正式版剩余验收
 
 Windows 10/11 下真实在线从 v0.9.29 RC1 升级到 v0.9.30 RC1，验证新版窗口能自动显示、版本号正确、只有一个启动器窗口、游戏/账号/存档数据不变；另测试受限目录、杀软、网络中断和恢复。完成实测后才能进行 Stable 发布审批。
+
+## 2026-11-10 · v0.9.30 RC1 已发布与 CI 验证
+
+- [GitHub Release v0.9.30-wpf-rc.1](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.30-wpf-rc.1) 已上传单文件 EXE、完整 ZIP、SHA-256 清单；状态为 **prerelease（候选版）**，不是尚未验收的 Stable。
+- [受控 Windows 发布任务 #42686477605](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42686477605)：**Success**。重新编译、更新助手回滚离线测试、双发行方式的窗口实际渲染确认、主要 Minecraft/登录/下载离线回归、SHA-256 生成及上传均成功。
+- 此版本在更新完成后自动打开新版 WPF 窗口并带到前台，显示非阻塞的「更新完成」状态；一旦无法确认实际窗口渲染，更新助手给出原 EXE 的手动启动路径，避免重复打开。
+- 从已有 [v0.9.29 RC1](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.29-wpf-rc.1) 中将更新通道切为「预览版」，现在应能够检测到 v0.9.30 RC1。它是首次真正适合在实机上验证应用内升级的目标版本；**实机验证结果尚未收到，不得将 RC1 宣称为完全通过 Stable 验收。**
