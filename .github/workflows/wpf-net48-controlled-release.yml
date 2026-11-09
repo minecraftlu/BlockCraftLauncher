@@ -122,7 +122,8 @@ jobs:
               '--smoke-test', '--ui-layout-selftest', '--download-ui-selftest',
               '--download-selftest', '--modrinth-search-selftest',
               '--modrinth-deps-selftest', '--saves-restore-selftest',
-              '--instance-detection-selftest', '--auth-selftest'
+              '--instance-detection-selftest', '--auth-selftest',
+              '--skin-selftest'
             )) {
               $process = Start-Process -FilePath $exe -ArgumentList $flag -PassThru
               if (-not $process.WaitForExit(70000)) {
