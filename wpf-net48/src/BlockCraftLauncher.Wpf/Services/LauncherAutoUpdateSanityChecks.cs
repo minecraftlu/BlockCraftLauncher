@@ -50,6 +50,7 @@ namespace BlockCraftLauncher.Wpf.Services
 
         public static void Run()
         {
+            LauncherRelaunchSignal.RunOfflineSelfTest();
             Require(LauncherAutoUpdateService.CompareTags("v0.9.29-wpf-rc.2",
                 "v0.9.29-wpf-rc.1") > 0, "同版本的新 RC 能升级");
             Require(LauncherAutoUpdateService.CompareTags("v0.9.29",
