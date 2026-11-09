@@ -485,6 +485,68 @@ namespace BlockCraftLauncher.Wpf
         }
 
         /// <summary>
+        /// Offline PCL-style layout regression. Exercise real WPF styles and
+        /// navigation on the normal window and on the single-EXE payload.
+        /// Never fetches online manifests, installs mods or opens sign-in.
+        /// </summary>
+        internal void VerifyPclLayout()
+        {
+            if (TopLaunchButton == null || TopDownloadButton == null ||
+                TopSettingsButton == null || TopMoreButton == null ||
+                PageHost == null || SideMenu == null)
+                throw new InvalidOperationException("PCL 顶部导航或侧边栏控件缺失");
+            if (PageScroll.HorizontalScrollBarVisibility != ScrollBarVisibility.Disabled)
+                throw new InvalidOperationException("内容页出现不允许的横向滚动");
+            if (FindResource("ResourceItemTemplate") == null ||
+                FindResource("VersionItemTemplate") == null ||
+                FindResource("DownloadItemTemplate") == null)
+                throw new InvalidOperationException("资源、游戏版本或下载任务缺少卡片布局模板");
+
+            Navigate("首页");
+            if (homeProfile == null || PageHost.Content == null ||
+                SideBar.Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("首页实例选择或顶部导航未显示");
+
+            Navigate("游戏版本");
+            if (versionList == null || versionList.ItemTemplate == null ||
+                SideBar.Visibility != Visibility.Visible)
+                throw new InvalidOperationException("游戏版本卡片与侧边导航不完整");
+
+            Navigate("资源中心");
+            if (resourceList == null || resourceList.ItemTemplate == null ||
+                resourceQuery == null || resourceSort == null)
+                throw new InvalidOperationException("Modrinth 搜索与换行卡片未加载");
+            resourceResults.Add(new ResourceHit {
+                ProjectId = "offline-test-only", Kind = "mod", Name = "中文资源标题排布自检",
+                Description = new string('测', 210)
+            });
+            PageHost.Measure(new Size(900, 2200));
+            PageHost.Arrange(new Rect(0, 0, 900, 1100));
+            PageHost.UpdateLayout();
+            if (resourceList.Items.Count != 1)
+                throw new InvalidOperationException("Modrinth 资源卡片不能展示长描述");
+
+            Navigate("光影引擎");
+            Navigate("资源包");
+            Navigate("整合包");
+            if (packSearchResults == null || packSearchResults.ItemTemplate == null)
+                throw new InvalidOperationException("整合包列表未应用统一卡片模板");
+
+            Navigate("下载管理");
+            if (downloadList == null || downloadList.ItemTemplate == null ||
+                downloadProgressBar == null)
+                throw new InvalidOperationException("下载任务布局不完整");
+
+            Navigate("设置");
+            if (settingsTheme == null || settingsZoom == null)
+                throw new InvalidOperationException("设置页面未加载");
+
+            Navigate("首页");
+            if (currentPage != "首页" || PageHost.Content == null)
+                throw new InvalidOperationException("导航返回首页失败");
+        }
+
+        /// <summary>
         /// Windows CI checks the real navigation/binding path that previously
         /// crashed when selecting a completed download (read-only Percent).
         /// No network or game files are touched.
