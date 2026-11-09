@@ -1,4 +1,4 @@
-name: BlockCraft Stage12.5 WPF live readiness diagnostics preview
+name: BlockCraft Stage12.6 WPF live readiness diagnostics preview
 
 on:
   pull_request:
@@ -62,6 +62,10 @@ jobs:
             & $fixture -offline-game-ipc-selftest -worker $worker
             if ($LASTEXITCODE -ne 0) { throw "offline two-process Bedrock login/spawn failed" }
           }
+          for ($attempt=1; $attempt -le 3; $attempt++) {
+            & $fixture -offline-inbound-ipc-selftest -worker $worker
+            if ($LASTEXITCODE -ne 0) { throw "receive-only Bedrock IPC worker failed" }
+          }
 
       - name: Compile and run .NET Framework 4.8 local safety tests
         shell: pwsh
@@ -88,15 +92,15 @@ jobs:
           foreach ($required in @("BlockCraft.JoinProbe.exe", "BlockCraft.Stage12.BedrockWorker.exe", "BlockCraft.Stage12.IPCFixture.exe")) {
             if (-not ($names -contains $required)) { throw "Missing embedded resource: $required" }
           }
-          New-Item -ItemType Directory -Force "stage12-5-wpf-readiness" | Out-Null
-          $output = "stage12-5-wpf-readiness/BlockCraftRoomStage12_5_ReadinessPreview.exe"
+          New-Item -ItemType Directory -Force "stage12-6-wpf-inbound" | Out-Null
+          $output = "stage12-6-wpf-inbound/BlockCraftRoomStage12_6_ReadOnlyBridgePreview.exe"
           Copy-Item $exe $output
           $hash = (Get-FileHash $output -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  BlockCraftRoomStage12_5_ReadinessPreview.exe" | Set-Content "stage12-5-wpf-readiness/SHA256SUMS.txt" -Encoding ascii
+          "$hash  BlockCraftRoomStage12_6_ReadOnlyBridgePreview.exe" | Set-Content "stage12-6-wpf-inbound/SHA256SUMS.txt" -Encoding ascii
 
       - uses: actions/upload-artifact@v4
         with:
-          name: BlockCraft-RoomLab-Stage12_5-ReadinessPreview-unsigned
-          path: stage12-5-wpf-readiness/
+          name: BlockCraft-RoomLab-Stage12_6-ReadOnlyBridgePreview-unsigned
+          path: stage12-6-wpf-inbound/
           if-no-files-found: error
           retention-days: 14
