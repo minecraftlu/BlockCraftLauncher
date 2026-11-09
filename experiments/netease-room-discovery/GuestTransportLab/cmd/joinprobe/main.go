@@ -23,6 +23,8 @@ func main() {
     attempt := flag.Bool("try-join", false, "allow exactly one real RakNet login and room admission attempt")
     tryWebRTC := flag.Bool("try-webrtc", false, "after real room acceptance attempt WebSocket signaling + ICE/DTLS/SCTP")
     observation := flag.Int("observe-seconds", 8, "read-only connected data-channel observation: 8, 30 or 60 seconds")
+    readOnlyIPC := flag.Bool("try-readonly-ipc",false,"after actual room admission: forward inbound reliable messages to a receive-only local worker, never send gameplay")
+    readOnlyWorker := flag.String("stage12-worker","","absolute path to the reviewed Stage12Worker.exe")
     timeout := flag.Duration("timeout", 60*time.Second, "maximum total duration (10s-120s)")
     machine := flag.Bool("machine-json", false, "emit one versioned ASCII-safe JSON record without secrets")
     ipcSelftest := flag.Bool("ipc-selftest", false, "emit synthetic IPC report without network, account or room access")
@@ -95,6 +97,8 @@ func main() {
         AuthorizedByHost:*authorized,
         AttemptWebRTC:*tryWebRTC,
         ObservationSeconds:*observation,
+        ReadOnlyIPC:*readOnlyIPC,
+        ReadOnlyWorkerPath:*readOnlyWorker,
     })
     if stdinClosed.Load() {
         // Explicit cancellation is a neutral local operation, not a server
@@ -145,6 +149,8 @@ func emitMachine(report joinprobe.Report) {
         ObservationSeconds int `json:"observation_seconds"`
         MinecraftWorldJoined bool `json:"minecraft_world_joined"`
         ModeConfirmed bool `json:"g79_mode_confirmed"`
+        ReadOnlyIPCVerified bool `json:"stage12_readonly_ipc_verified"`
+        ReadOnlyIPCMessages uint64 `json:"stage12_readonly_ipc_messages"`
         Stage12Readiness string `json:"stage12_readiness"`
         GameIdentityVerified bool `json:"stage12_game_identity_verified"`
         GameProtocolVerified bool `json:"stage12_game_protocol_verified"`
@@ -166,6 +172,8 @@ func emitMachine(report joinprobe.Report) {
         ObservationSeconds: report.ObservationSeconds,
         MinecraftWorldJoined: false,
         ModeConfirmed: report.ModeConfirmed,
+        ReadOnlyIPCVerified: report.ReadOnlyIPCVerified,
+        ReadOnlyIPCMessages: report.ReadOnlyIPCMessages,
         Stage12Readiness: stage12readiness.Assess(stage12readiness.Evidence{
             LobbyLoginAccepted: report.LoginAccepted,
             RoomAdmissionAccepted: report.RoomAdmissionAccepted,
