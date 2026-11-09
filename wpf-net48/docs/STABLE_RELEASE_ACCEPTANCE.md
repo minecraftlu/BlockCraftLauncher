@@ -62,3 +62,11 @@
 - v0.9.28 WPF 新增国内镜像优先回官方、下载断点来源校验、长文件超时及缓存复用、可选 MCIM 加速；CurseForge 项目封面、作者、下载量和截图详情已经由源码及 Windows 离线测试验证。
 - [CI #42678383098](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42678383098) 完成 27 项编译与自检；[受控候选版发布 CI #42678756716](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42678756716) 亦成功，且已发布 [v0.9.28-wpf-rc.1](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.28-wpf-rc.1)（prerelease）。
 - **不能仅凭这些结果宣称已经获得国内实测速度优势、模组在线真实安装和完整 Stable 验收。** 中国大陆 ISP 测试结果与实际图片可用性仍待收集，v0.9.27 RC1 继续保留供回退。
+
+## 2026-11-10 · v0.9.29 RC1 实际发布结果
+
+- [GitHub Release v0.9.29-wpf-rc.1](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.29-wpf-rc.1) 已发布，状态为 **prerelease / candidate**，并非 Stable。
+- [受控 Windows 发布构建 #42683268868](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42683268868)：**Success**。编译、静态验证、独立更新助手回滚自测、普通 WPF EXE 与单 EXE 离线测试、SHA-256 清单和发布资产上传均完成。
+- 包含单 EXE、完整 ZIP、单 EXE .sha256 与 RELEASE-SHA256SUMS.txt，公开下载链接不会像 Actions Artifact 那样短期过期。
+- 较早的 [Windows 自动构建 #42682875674](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42682875674) 也通过 28 项检查。
+- **实测边界**：真实联网检测下一新版本、一键替换真实正在使用的 EXE/ZIP、受限权限目录/杀毒软件拦截仍需在 Windows 实机测试。该版本自带更新功能，但 v0.9.28 及更早的版本必须手动安装这一版一次。
