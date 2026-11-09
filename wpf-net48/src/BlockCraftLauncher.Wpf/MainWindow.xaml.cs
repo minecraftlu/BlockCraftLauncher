@@ -1975,19 +1975,15 @@ namespace BlockCraftLauncher.Wpf
                 await PrepareLauncherUpdateAsync(true);
             if (preparedUpdate == null) return;
 
-            var decision = MessageBox.Show(this,
-                "已下载并校验 " + preparedUpdate.Offer.Tag +
-                " 的官方更新包。\n\n现在关闭旧版、安装并自动打开新版启动器窗口？" +
-                "\n完成后会自动显示新版主界面；若启动自检失败，更新程序会尝试恢复旧文件。" +
-                "\n正在运行的 Minecraft 游戏不会被结束。\n\n" +
-                "提示：请勿在安装期间手动删除安装目录。",
-                "确认安装 BlockCraft Launcher 更新",
-                MessageBoxButton.YesNo, MessageBoxImage.Question);
-            if (decision != MessageBoxResult.Yes) return;
+            // The user explicitly requested installation by pressing the
+            // update button. Do not show the old "确认安装" modal on success:
+            // only genuine failures in the external updater need a dialog.
+            // Auto-download never calls this method without user interaction.
             try
             {
                 autoUpdater.StartExternalInstaller(preparedUpdate);
-                Status("外部更新助手已启动；关闭本窗口后将校验、安装并尝试重启。");
+                Status("正在安装已校验的 " + preparedUpdate.Offer.Tag +
+                    "；旧窗口即将关闭，完成后自动打开新版。");
                 Application.Current.Shutdown();
             }
             catch (Exception ex) { ShowError("无法启动独立更新程序", ex); }
