@@ -16,6 +16,20 @@ namespace BlockCraftLauncher.Wpf.Services
         public string Name { get; set; }
         public string Description { get; set; }
         public string Kind { get; set; }
+        public string KindLabel
+        {
+            get
+            {
+                switch (Kind)
+                {
+                    case "mod": return "模组 · Modrinth";
+                    case "shader": return "光影包 · Modrinth";
+                    case "resourcepack": return "资源包 · Modrinth";
+                    case "modpack": return "整合包 · Modrinth";
+                    default: return "社区资源 · Modrinth";
+                }
+            }
+        }
         public override string ToString() => Name + " — " + Description;
     }
 
