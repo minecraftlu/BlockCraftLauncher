@@ -22,10 +22,15 @@ namespace BlockCraftLauncher.OneFile
         [STAThread]
         private static int Main(string[] args)
         {
-            bool probe = args.Length == 1 &&
-                (string.Equals(args[0], "--smoke-test", StringComparison.OrdinalIgnoreCase) ||
-                 string.Equals(args[0], "--download-ui-selftest", StringComparison.OrdinalIgnoreCase) ||
-                 string.Equals(args[0], "--auth-selftest", StringComparison.OrdinalIgnoreCase));
+            // Every noninteractive WPF CI flag must propagate its real exit
+            // code through the outer single EXE. Otherwise a failing child
+            // can look successful because its bootstrap exited immediately.
+            bool probe = args.Length == 1 && new[] {
+                "--smoke-test", "--ui-layout-selftest", "--download-ui-selftest",
+                "--download-selftest", "--modrinth-search-selftest",
+                "--modrinth-deps-selftest", "--saves-restore-selftest",
+                "--instance-detection-selftest", "--auth-selftest"
+            }.Any(flag => string.Equals(flag, args[0], StringComparison.OrdinalIgnoreCase));
             try
             {
                 var package = ReadPackage();
@@ -68,7 +73,7 @@ namespace BlockCraftLauncher.OneFile
                     if (process == null) throw new IOException("无法启动 WPF 主程序。");
                     if (probe)
                     {
-                        if (!process.WaitForExit(35000))
+                        if (!process.WaitForExit(65000))
                         {
                             process.Kill();
                             throw new TimeoutException("单文件启动自检超时。");
