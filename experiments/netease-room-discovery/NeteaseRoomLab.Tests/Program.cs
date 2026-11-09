@@ -665,8 +665,9 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                     throw new InvalidOperationException("Compiled probe IPC selftest failed.");
                 string result = JoinProbeRunner.ParseMachineOutput(output);
                 if (!result.Contains("PE_AUTH_UNAVAILABLE")
+                    || !result.Contains("STAGE12_ADMISSION_NOT_VERIFIED")
                     || result.Contains("JOIN_PROBE_IPC_"))
-                    throw new InvalidOperationException("Actual Go stdout failed C# IPC parser.");
+                    throw new InvalidOperationException("Actual Go stdout failed Stage12.5 C# readiness IPC parser.");
             }
             Console.WriteLine("PASS: actual compiled Go EXE to .NET Framework UTF-8 Stage9.1 IPC");
 
