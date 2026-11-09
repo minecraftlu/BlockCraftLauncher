@@ -53,6 +53,9 @@ for page in (
 updater = (src / "Services" / "LauncherAutoUpdateService.cs").read_text("utf8")
 assert 'RELEASE-SHA256SUMS.txt' in updater
 assert 'StartExternalInstaller' in updater
+assert 'ContentRendered' in (src / "App.xaml.cs").read_text("utf8")
+assert 'AcknowledgeVisibleWindow' in (src / "App.xaml.cs").read_text("utf8")
+assert 'AwaitWindow' in (root / "updater" / "Program.cs").read_text("utf8")
 assert 'SelectOffer' in updater
 assert 'CheckLauncherUpdatesAsync(false)' in main
 assert 'settingsAutoCheck' in main and 'settingsAutoDownload' in main
