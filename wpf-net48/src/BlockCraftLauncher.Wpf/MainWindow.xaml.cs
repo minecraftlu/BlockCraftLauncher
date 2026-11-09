@@ -170,6 +170,10 @@ namespace BlockCraftLauncher.Wpf
         }
         void Navigate(string page)
         {
+            // Cancel searches before replacing the page to avoid a completed
+            // response rendering into a different resource page.
+            resourceSearchCancellation?.Cancel();
+            resourceSearchCancellation = null;
             currentPage = page;
             SideBar.Visibility = page == "首页" ? Visibility.Collapsed : Visibility.Visible;
             SideColumn.Width = page == "首页" ? new GridLength(0) : new GridLength(205);
@@ -604,7 +608,6 @@ namespace BlockCraftLauncher.Wpf
 
         UIElement BuildResources(string type)
         {
-            resourceSearchCancellation?.Cancel();
             resourceType = type;
             resourceResults.Clear();
             resourcePage = 0;
@@ -727,10 +730,10 @@ namespace BlockCraftLauncher.Wpf
                 Height = 470, HorizontalContentAlignment = HorizontalAlignment.Stretch
             };
             ScrollViewer.SetHorizontalScrollBarVisibility(resourceList, ScrollBarVisibility.Disabled);
-            resourceList.MouseDoubleClick += async (sender, args) =>
+            resourceList.MouseDoubleClick += (sender, args) =>
             {
-                if (resourceList.SelectedItem is ResourceHit)
-                    await InstallResourceAsync();
+                if (resourceList.SelectedItem is ResourceHit hit)
+                    ShowResourceDetails(hit);
             };
             resourceCounter = Txt("请输入名称或直接点击搜索，查看 Modrinth 项目", 12, false, true);
             resourcePrevButton = Btn("上一页", async () =>
@@ -761,8 +764,9 @@ namespace BlockCraftLauncher.Wpf
                         Btn("OptiFine 官方下载", OpenOfficialOptiFine)))));
 
             root.Children.Add(Card(Col(Txt("资源安装", 17, true),
-                Txt("选择项目后安装到当前实例，也可以双击项目。下载任务仍会进行兼容性和 SHA-1 校验。", 12, false, true),
+                Txt("单击选择资源；双击查看详情，再决定是否安装。安装流程仍会校验版本、依赖及 SHA-1。", 12, false, true),
                 Row(Btn("安装选中资源", async () => await InstallResourceAsync(), true),
+                    Btn("查看资源详情", () => ShowResourceDetails(resourceList?.SelectedItem as ResourceHit)),
                     Btn("打开下载管理", () => Navigate("下载管理")),
                     Btn("打开实例目录", OpenGameFolder)))));
             return root;
@@ -897,6 +901,70 @@ namespace BlockCraftLauncher.Wpf
                 }
             }
         }
+        void ShowResourceDetails(ResourceHit hit)
+        {
+            if (hit == null)
+            {
+                MessageBox.Show(this, "请先在搜索结果中选择一个项目。", "资源详情");
+                return;
+            }
+
+            var dialog = new Window {
+                Owner = this, Title = hit.Name + " · Modrinth 项目详情",
+                Width = 660, Height = 560, MinWidth = 490, MinHeight = 370,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner
+            };
+            var description = Txt(hit.Description ?? "暂无项目介绍", 13, false, true);
+            description.TextWrapping = TextWrapping.Wrap;
+            var author = Txt("作者：" + (string.IsNullOrWhiteSpace(hit.Author)
+                ? "未提供" : hit.Author), 12, false, true);
+            var panel = Col(
+                Txt(hit.Name, 22, true),
+                Txt(hit.KindLabel + " · " + hit.SourceLabel, 12, false, true),
+                description, new Separator { Margin = new Thickness(0, 12, 0, 12) },
+                author,
+                Txt("分类：" + (hit.CategoryLabel ?? "未知"), 12),
+                Txt("加载器：" + (hit.LoaderLabel ?? "未指定"), 12),
+                Txt("游戏版本：" + (hit.VersionsLabel ?? "未指定"), 12),
+                Txt("下载量：" + (hit.DownloadsLabel ?? "未知"), 12),
+                Txt("更新时间：" + (hit.UpdatedLabel ?? "未知"), 12));
+            panel.Margin = new Thickness(21);
+            var actions = Row(
+                Btn("安装到当前游戏实例", async () =>
+                {
+                    dialog.Close();
+                    await InstallResourceAsync();
+                }, true),
+                Btn("打开 Modrinth 项目网页", () =>
+                {
+                    if (string.IsNullOrWhiteSpace(hit.ProjectId) ||
+                        hit.ProjectId.Length > 64 ||
+                        hit.ProjectId.Any(c => !char.IsLetterOrDigit(c) &&
+                            c != '-' && c != '_'))
+                    {
+                        MessageBox.Show(dialog, "项目 ID 不合法，无法打开官方页面。");
+                        return;
+                    }
+                    string path = hit.Kind == "shader" ? "shader" :
+                        hit.Kind == "resourcepack" ? "resourcepack" :
+                        hit.Kind == "modpack" ? "modpack" : "mod";
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo(
+                            "https://modrinth.com/" + path + "/" +
+                            Uri.EscapeDataString(hit.ProjectId)) { UseShellExecute = true });
+                    }
+                    catch (Exception ex) { ShowError("打开 Modrinth 官方项目页失败", ex); }
+                }),
+                Btn("关闭", dialog.Close));
+            panel.Children.Add(actions);
+            dialog.Content = new ScrollViewer {
+                Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+            };
+            dialog.ShowDialog();
+        }
+
         async Task InstallResourceAsync()
         {
             var hit = resourceList?.SelectedItem as ResourceHit;
