@@ -52,6 +52,17 @@ if ((Get-PeMachine $loader) -ne 0x8664) {
 }
 Write-Host 'Verified x64 WPF EXE and x64 WebView2Loader.dll'
 
+# Update helper must run from a separate process after the launcher exits.
+# WPF solution builds it next to its own csproj, then staging includes it for
+# both ZIP and the onefile embedded payload.
+$updater = Join-Path $root 'updater\bin\Release\net48\BlockCraftLauncher.Updater.exe'
+if (-not (Test-Path -LiteralPath $updater -PathType Leaf) -or
+    (Get-PeMachine $updater) -ne 0x8664) {
+    throw 'Standalone x64 updater did not build; refusing to publish a broken update package'
+}
+Copy-Item -LiteralPath $updater -Destination (Join-Path $folder 'BlockCraftLauncher.Updater.exe') -Force
+Write-Host 'Verified standalone x64 update helper'
+
 $dist = Join-Path $root 'dist'
 New-Item -Path $dist -ItemType Directory -Force | Out-Null
 $name = 'BlockCraftLauncher-v0.9.28-WPF-net48-Alpha-Windows-x64'
