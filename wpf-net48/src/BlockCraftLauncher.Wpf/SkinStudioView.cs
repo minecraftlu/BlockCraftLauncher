@@ -92,7 +92,7 @@ namespace BlockCraftLauncher.Wpf
             return border;
         }
 
-        static Button Button(string caption, Action action, bool accent = false)
+        static Button ActionButton(string caption, Action action, bool accent = false)
         {
             var b = new Button { Content = caption, MinHeight = 36 };
             if (accent)
@@ -164,9 +164,9 @@ namespace BlockCraftLauncher.Wpf
             layer.SelectionChanged += (sender, args) => DrawGuides();
             editorLeft.Children.Add(Card(Column(
                 Label("像素绘制工具", 17, true), toolRow,
-                Row(Button("撤销 Ctrl+Z", () => { document.Undo(); }),
-                    Button("重做 Ctrl+Y", () => { document.Redo(); }),
-                    Button("清除所选图层", ClearSelection)))) );
+                Row(ActionButton("撤销 Ctrl+Z", () => { document.Undo(); }),
+                    ActionButton("重做 Ctrl+Y", () => { document.Redo(); }),
+                    ActionButton("清除所选图层", ClearSelection)))) );
 
             texture.Stretch = Stretch.Fill;
             RenderOptions.SetBitmapScalingMode(texture, BitmapScalingMode.NearestNeighbor);
@@ -265,18 +265,18 @@ namespace BlockCraftLauncher.Wpf
             manage.Children.Add(Label("皮肤名称"));
             manage.Children.Add(skinName);
             manage.Children.Add(Row(
-                Button("保存到皮肤库", SaveToLibrary, true),
-                Button("导出 PNG", ExportPng)));
-            manage.Children.Add(Row(Button("导入 PNG", ImportPng),
-                Button("重新开始", ResetTemplate)));
+                ActionButton("保存到皮肤库", SaveToLibrary, true),
+                ActionButton("导出 PNG", ExportPng)));
+            manage.Children.Add(Row(ActionButton("导入 PNG", ImportPng),
+                ActionButton("重新开始", ResetTemplate)));
             savedSkins.Width = 220;
             StyleSearch(savedSkins);
             manage.Children.Add(Label("打开已保存的皮肤"));
             manage.Children.Add(savedSkins);
             manage.Children.Add(Row(
-                Button("打开选中", LoadFromLibrary),
-                Button("刷新列表", RefreshLibrary)));
-            manage.Children.Add(Button("打开 Minecraft 官方皮肤说明", () =>
+                ActionButton("打开选中", LoadFromLibrary),
+                ActionButton("刷新列表", RefreshLibrary)));
+            manage.Children.Add(ActionButton("打开 Minecraft 官方皮肤说明", () =>
                 Process.Start(new ProcessStartInfo(OfficialArticle) {
                     UseShellExecute = true })));
             manage.Children.Add(Label(
