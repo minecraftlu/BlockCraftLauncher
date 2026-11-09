@@ -15,6 +15,7 @@ namespace BlockCraftLauncher.Wpf.Services
         public string Url { get; set; }
         public string Description { get; set; }
         public bool Newer { get; set; }
+        public bool CompatibleWpf { get; set; }
     }
 
     /// <summary>Read-only GitHub Releases update check. Never executes downloaded files.</summary>
@@ -54,12 +55,35 @@ namespace BlockCraftLauncher.Wpf.Services
                     uri.Scheme != Uri.UriSchemeHttps || uri.Host != "github.com" ||
                     !uri.AbsolutePath.StartsWith("/minecraftlu/BlockCraftLauncher/releases/", StringComparison.Ordinal))
                     url = OfficialReleases;
+                // Do not advertise a legacy Python release (or a room-lab
+                // build) as a directly compatible WPF upgrade merely because
+                // its tag contains a larger semantic version.
+                bool wpfAsset = false;
+                if (root.TryGetValue("assets", out var rawAssets) && rawAssets is object[] assets)
+                {
+                    foreach (var asset in assets)
+                    {
+                        if (!(asset is Dictionary<string, object> file)) continue;
+                        string name = file.TryGetValue("name", out var n) ? Convert.ToString(n) : "";
+                        if (name != null &&
+                            name.IndexOf("BlockCraftLauncher", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                            (name.IndexOf("-WPF-", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                             name.IndexOf("-WPF-OneFile-", StringComparison.OrdinalIgnoreCase) >= 0) &&
+                            (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
+                             name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            wpfAsset = true;
+                            break;
+                        }
+                    }
+                }
                 return new ReleaseNotice
                 {
                     Version = tag,
                     Description = (description ?? "").Length > 1200 ? description.Substring(0, 1200) : description,
                     Url = url,
-                    Newer = IsNewer(tag, "v0.9.27")
+                    CompatibleWpf = wpfAsset,
+                    Newer = wpfAsset && IsNewer(tag, "v0.9.27")
                 };
             }
         }
