@@ -156,6 +156,51 @@ namespace BlockCraft.NeteaseRoomLab
                     || worldJoined || (admitted && !login) || (hostReady && !admitted))
                     return "JOIN_PROBE_IPC_INCONSISTENT：子进程状态标志不一致，未判定成功。";
 
+                // Stage 12.9: preserve the *numeric* signed int8 response
+                // observed from the real server. A missing reply is not a
+                // server rejection. Earlier Go builds lacked these fields;
+                // accept only a wholly absent legacy set, never a partial one.
+                string[] admissionFields = {
+                    "login_reply_observed", "login_reply_code",
+                    "admission_reply_observed", "admission_reply_code",
+                    "admission_diagnosis"
+                };
+                bool anyAdmissionField = false, allAdmissionFields = true;
+                foreach (string field in admissionFields)
+                {
+                    anyAdmissionField |= response.ContainsKey(field);
+                    allAdmissionFields &= response.ContainsKey(field);
+                }
+                bool loginReplyObserved=false, roomReplyObserved=false;
+                int loginReplyCode=0, roomReplyCode=0;
+                string admissionDiagnosis=null;
+                if (anyAdmissionField)
+                {
+                    object rawDiagnosis;
+                    if (!allAdmissionFields
+                        || !ReadBool(response,"login_reply_observed",out loginReplyObserved)
+                        || !ReadSignedByte(response,"login_reply_code",out loginReplyCode)
+                        || !ReadBool(response,"admission_reply_observed",out roomReplyObserved)
+                        || !ReadSignedByte(response,"admission_reply_code",out roomReplyCode)
+                        || !response.TryGetValue("admission_diagnosis",out rawDiagnosis)
+                        || !(rawDiagnosis is string))
+                        return "JOIN_PROBE_IPC_SCHEMA_ERROR：大厅回执数字码或字段结构不合法。";
+                    admissionDiagnosis=(string)rawDiagnosis;
+                    string expected=ComputeAdmissionDiagnosis(roomReplyObserved,roomReplyCode);
+                    if (!String.Equals(expected,admissionDiagnosis,StringComparison.Ordinal)
+                        || (loginReplyObserved && (loginReplyCode == 0)!=login)
+                        || (!loginReplyObserved && (login || loginReplyCode!=0))
+                        || (roomReplyObserved && (!login || ((roomReplyCode==0)!=admitted)))
+                        || (!roomReplyObserved && (admitted || roomReplyCode!=0))
+                        || (statusObject is string && (string)statusObject=="ENTER_ROOM_REJECTED"
+                            && (!roomReplyObserved || roomReplyCode==0))
+                        || (statusObject is string && (string)statusObject=="TAN_LOGIN_REJECTED"
+                            && (!loginReplyObserved || loginReplyCode==0))
+                        || (roomReplyObserved && roomReplyCode!=0
+                            && (string)statusObject!="ENTER_ROOM_REJECTED"))
+                        return "JOIN_PROBE_IPC_INCONSISTENT：入房服务器回执与准入状态不一致。";
+                }
+
                 bool signaling = false, rtc = false;
                 object optional;
                 if (response.TryGetValue("signaling_authenticated", out optional))
@@ -295,6 +340,22 @@ namespace BlockCraft.NeteaseRoomLab
                     return "JOIN_PROBE_IPC_INCONSISTENT：服务器登录标记与状态不匹配。";
 
                 string safeStatus = ReportStatus(frame);
+                if (anyAdmissionField)
+                {
+                    if (roomReplyObserved && roomReplyCode!=0)
+                        safeStatus += Environment.NewLine
+                            + "STAGE12_9_SERVER_ROOM_REPLY：" + ExplainAdmissionDiagnosis(
+                                admissionDiagnosis,roomReplyCode);
+                    else if (!roomReplyObserved && status=="ENTER_ROOM_RESPONSE_MISSING")
+                        safeStatus += Environment.NewLine
+                            + "STAGE12_9_ROOM_REPLY_MISSING：入房请求已发送，但没有可核实的入房回执；"
+                            + "不能称作服务器拒绝。";
+                    if (loginReplyObserved && loginReplyCode!=0)
+                        safeStatus += Environment.NewLine
+                            + "STAGE12_9_LOBBY_LOGIN_REJECTED：大厅拒绝码 "
+                            + loginReplyCode.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                            + "，具体账号原因未验证，未发送入房请求。";
+                }
                 // Stage 12.5 is a read-only prerequisite diagnosis. Recompute
                 // the claimed result from independently parsed server/transport
                 // booleans, rather than trusting an arbitrary child status.
@@ -375,6 +436,50 @@ namespace BlockCraft.NeteaseRoomLab
                     return "网络前置条件已观察到，但缺少网易认可的游戏身份提供者"
                         + "及当前 Bedrock 游戏协议版本证明；未尝试 Minecraft 登录。";
             }
+        }
+
+        // These codes originate from the pinned NetEase TanEnterRoomResponse
+        // int8 protocol field, not guessed from cached room occupancy.
+        public static string ComputeAdmissionDiagnosis(bool replyObserved, int code)
+        {
+            if (!replyObserved) return "ADMISSION_REPLY_NOT_OBSERVED";
+            switch (code)
+            {
+                case 0: return "ADMISSION_SERVER_ACCEPTED_GAME_NOT_JOINED";
+                case 1: return "ADMISSION_ROOM_NOT_FOUND";
+                case 4: return "ADMISSION_ROOM_FULL";
+                case 14: return "ADMISSION_WRONG_PASSCODE";
+                default: return "ADMISSION_REJECTED_REASON_UNKNOWN";
+            }
+        }
+
+        private static string ExplainAdmissionDiagnosis(string classification,int code)
+        {
+            string reason;
+            switch (classification)
+            {
+                case "ADMISSION_ROOM_NOT_FOUND":reason="服务器报告房间不存在或已关闭。";break;
+                case "ADMISSION_ROOM_FULL":reason="服务器报告房间人数已满。";break;
+                case "ADMISSION_WRONG_PASSCODE":reason="服务器报告房间密码不匹配。";break;
+                default:reason="服务器拒绝了入房请求，但该错误码的具体原因尚不明确；"
+                    + "不能断言是权限、账号或版本问题。";break;
+            }
+            return "服务器真实入房回执码 "
+                + code.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + "；" + reason + " 未取得房间准入，不代表 Minecraft 游戏已登录。";
+        }
+
+        private static bool ReadSignedByte(Dictionary<string, object> response,
+            string key, out int value)
+        {
+            value=0;
+            object raw;
+            if (!response.TryGetValue(key,out raw)
+                || (!(raw is int) && !(raw is long))) return false;
+            long number=Convert.ToInt64(raw,System.Globalization.CultureInfo.InvariantCulture);
+            if (number < -128 || number > 127) return false;
+            value=(int)number;
+            return true;
         }
 
         private static bool ReadBool(Dictionary<string, object> response, string key, out bool value)
