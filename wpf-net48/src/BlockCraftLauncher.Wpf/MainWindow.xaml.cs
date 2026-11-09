@@ -1665,7 +1665,7 @@ namespace BlockCraftLauncher.Wpf
             var root = Col(Txt("启动器更新", 24, true),
                 Txt("版本更新仅通过 BlockCraft 官方 GitHub 发布。预览测试包与正式稳定版分开。", 12, false, true));
             root.Children.Add(Card(Col(
-                Txt("当前版本：v0.9.27 WPF 界面优化预览", 18, true),
+                Txt("当前版本：v0.9.28 WPF 国内下载与 CurseForge 图文预览", 18, true),
                 Txt("目标平台：Windows x64 · .NET Framework 4.8 · 可选单 EXE",
                     12, false, true),
                 Txt("为了保护已安装游戏和存档，更新不会直接覆盖旧 Python 启动器。"
@@ -1680,9 +1680,9 @@ namespace BlockCraftLauncher.Wpf
                     Btn("打开官方发布页", () => LauncherReleaseService.OpenOfficialRelease(
                         "https://github.com/minecraftlu/BlockCraftLauncher/releases"))))));
             root.Children.Add(Card(Col(
-                Txt("界面优化测试构建", 18, true),
-                Txt("最新 CI 构建可用于检查布局、字体、按钮以及游戏运行状态。"
-                    + "它属于测试渠道，不等于已经发布的稳定版。",
+                Txt("国内下载与模组图文测试构建", 18, true),
+                Txt("v0.9.28 增加国内线路优先、缓存复用、MCIM 可选下载与 CurseForge 模组封面/截图。"
+                    + "这一版本仍需真实中国大陆网络下载测速与兼容性验收，当前属于候选测试渠道。",
                     12, false, true),
                 Btn("查看预览构建", () => Process.Start(new ProcessStartInfo(
                     "https://github.com/minecraftlu/BlockCraftLauncher/actions/workflows/wpf-net48-alpha-build.yml")
@@ -2221,16 +2221,16 @@ namespace BlockCraftLauncher.Wpf
         }
         void ShowReleaseNotes()
         {
-            MessageBox.Show("BlockCraft Launcher v0.9.27 WPF 界面优化预览\n\n"
-                + "· 顶部蓝色胶囊导航、紧凑分组侧边栏与统一符号字体\n"
-                + "· 全页面统一按钮、卡片、留白和列表信息层级\n"
-                + "· 设置页采用字段名称 / 控件 / 提示双栏排版\n"
-                + "· 本地版本识别、实例导入与路径修复\n"
-                + "· Minecraft 运行状态、退出码和防重复启动\n"
-                + "· 保留已有下载、模组、整合包、存档、账号与联机入口\n\n"
-                + "自动构建通过不代表所有在线功能已完成实机验收。"
-                + " 正式稳定版需要 Windows、微软账号、游戏与双机联机验收。\n"
-                + "界面参考 PCL2 布局层级，未使用 PCL2 专有素材和源码。",
+            MessageBox.Show("BlockCraft Launcher v0.9.28 · 中国大陆下载优化候选版\n\n"
+                + "· 设置新增国内优先下载线路；BMCLAPI 失败后回退 Mojang 官方源\n"
+                + "· 自动线路减少重复测速，暂时异常的镜像会短时冷却\n"
+                + "· 大文件下载延长超时、可复用已校验缓存，断点来源变化时安全重下\n"
+                + "· 主动启用 MCIM 后可为 Modrinth 提供社区镜像下载与官方回退\n"
+                + "· CurseForge 模组列表新增真实项目封面、作者、下载量、近期版本\n"
+                + "· 点击详情可查看作者提供的模组截图，缺失或不安全链接显示占位\n"
+                + "· 保留上一版 PCL2 风格布局、账号、存档和游戏管理功能\n\n"
+                + "说明：Windows 自动构建与离线测试不代表中国大陆线路已经完成真实测速。"
+                + " 正式稳定版还需用户实测国内下载及各类加载器兼容。",
                 "BlockCraft Launcher 更新说明");
         }
         void ShowError(string title, Exception ex) { Log(title + "：" + ex); MessageBox.Show(ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Error); }
