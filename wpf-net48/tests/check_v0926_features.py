@@ -21,7 +21,7 @@ for symbol in (
     "BuildCurseForge", "InstallCurseForgeAsync", "BuildMultiplayer",
     "ScanLanWorldsAsync", "JoinLanWorldAsync", "BuildModUpdates",
     "CheckManagedUpdatesAsync", "ApplyManagedUpdatesAsync", "BuildLauncherUpdates",
-    "CheckLauncherUpdateAsync", "SaveSettings",
+    "CheckLauncherUpdatesAsync", "InstallLauncherUpdateAsync", "SaveSettings",
 ):
     assert symbol in main, symbol
 
