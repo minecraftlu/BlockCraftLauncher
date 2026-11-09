@@ -79,6 +79,8 @@ namespace BlockCraftLauncher.Wpf
             // Normal starts and every offline selftest never write this file.
             string postUpdateToken = smokeTest && !relaunchWindowSelfTest ? null :
                 LauncherRelaunchSignal.ReadToken(e.Args);
+            bool directPreview = e.Args.Any(arg =>
+                string.Equals(arg, "--direct-open", StringComparison.OrdinalIgnoreCase));
 
             if (authSelfTest)
             {
@@ -206,7 +208,10 @@ namespace BlockCraftLauncher.Wpf
                                 {
                                     LauncherRelaunchSignal.AcknowledgeVisibleWindow(postUpdateToken);
                                     if (!relaunchWindowSelfTest)
-                                        window.ShowPostUpdateSuccess();
+                                    {
+                                        if (directPreview) window.ShowDirectOpenNotice();
+                                        else window.ShowPostUpdateSuccess();
+                                    }
                                 }
                                 catch (Exception confirmError)
                                 {
