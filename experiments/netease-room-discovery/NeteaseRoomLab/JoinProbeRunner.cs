@@ -93,7 +93,10 @@ namespace BlockCraft.NeteaseRoomLab
             { "WEBRTC_CHANNELS_OPEN_30S_NO_DATA_GAME_NOT_JOINED", "两条数据通道均为 OPEN；30 秒被动观察内没有收到应用消息。尚未进入世界。" },
             { "WEBRTC_CHANNELS_OPEN_30S_DATA_OBSERVED_GAME_NOT_JOINED", "两条数据通道均为 OPEN；30 秒被动观察收到数据通道消息。尚未验证 Minecraft 游戏协议。" },
             { "WEBRTC_CHANNELS_OPEN_60S_NO_DATA_GAME_NOT_JOINED", "两条数据通道均为 OPEN；60 秒被动观察内没有收到应用消息。尚未进入世界。" },
-            { "WEBRTC_CHANNELS_OPEN_60S_DATA_OBSERVED_GAME_NOT_JOINED", "两条数据通道均为 OPEN；60 秒被动观察收到数据通道消息。尚未验证 Minecraft 游戏协议。" }
+            { "WEBRTC_CHANNELS_OPEN_60S_DATA_OBSERVED_GAME_NOT_JOINED", "两条数据通道均为 OPEN；60 秒被动观察收到数据通道消息。尚未验证 Minecraft 游戏协议。" },
+            { "STAGE12_READONLY_WORKER_INVALID", "未启用有效的 Stage 12 本机只读接收组件；没有发起真实入房。" },
+            { "STAGE12_READONLY_WORKER_UNAVAILABLE_GAME_NOT_JOINED", "真实房间传输曾建立，但本机只读工作进程无法启动。未发送游戏包。" },
+            { "STAGE12_READONLY_IPC_FAILED_GAME_NOT_JOINED", "本机只读 IPC 接收发生错误；未发送 Minecraft 游戏包，也未进入世界。" }
         };
 
         public static bool IsEmbedded
@@ -183,6 +186,14 @@ namespace BlockCraft.NeteaseRoomLab
                 if (response.ContainsKey("unreliable_channel_open")
                     && !ReadBool(response, "unreliable_channel_open", out unreliableOpen))
                     return "JOIN_PROBE_IPC_SCHEMA_ERROR：不可靠通道状态格式错误。";
+                bool inboundIPCVerified=false;
+                long inboundIPCMessages=0;
+                if ((response.ContainsKey("stage12_readonly_ipc_verified")
+                     && !ReadBool(response,"stage12_readonly_ipc_verified",out inboundIPCVerified))
+                    || (response.ContainsKey("stage12_readonly_ipc_messages")
+                     && !ReadUIntBounded(response,"stage12_readonly_ipc_messages",
+                        256,out inboundIPCMessages)))
+                    return "JOIN_PROBE_IPC_SCHEMA_ERROR：Stage 12.6 本机接收统计字段非法。";
                 if ((response.ContainsKey("reliable_messages")
                      && !ReadUIntBounded(response, "reliable_messages", 1000000, out reliableMessages))
                     || (response.ContainsKey("unreliable_messages")
@@ -236,7 +247,9 @@ namespace BlockCraft.NeteaseRoomLab
                     || status == "WEBRTC_CHANNEL_OBSERVER_UNAVAILABLE"
                     || status == "WEBRTC_CHANNELS_NOT_OPEN_GAME_NOT_JOINED"
                     || status == "WEBRTC_CHANNELS_EARLY_CLOSED_GAME_NOT_JOINED"
-                    || status == "WEBRTC_CHANNELS_OBSERVATION_INTERRUPTED";
+                    || status == "WEBRTC_CHANNELS_OBSERVATION_INTERRUPTED"
+                    || status == "STAGE12_READONLY_WORKER_UNAVAILABLE_GAME_NOT_JOINED"
+                    || status == "STAGE12_READONLY_IPC_FAILED_GAME_NOT_JOINED";
                 bool rtcComplete = status == "WEBRTC_TRANSPORT_CONNECTED_GAME_NOT_JOINED";
                 bool rtcStable = status == "WEBRTC_TRANSPORT_STABLE_8S_GAME_NOT_JOINED";
                 bool channels30 = status == "WEBRTC_CHANNELS_OPEN_30S_NO_DATA_GAME_NOT_JOINED"
@@ -271,6 +284,13 @@ namespace BlockCraft.NeteaseRoomLab
                     || (stable && !rtcStable && !channelSuccess)
                     || (rtc && !rtcComplete && !rtcStable && !channelSuccess))
                     return "JOIN_PROBE_IPC_INCONSISTENT：服务器准入、信令和 WebRTC 状态不匹配。";
+                if ((inboundIPCVerified && (!channelSuccess || !login || !admitted
+                        || !hostReady || !signaling || !rtc || !stable
+                        || !reliableOpen || !unreliableOpen
+                        || inboundIPCMessages!=reliableMessages
+                        || inboundIPCMessages>256))
+                    || (!inboundIPCVerified && inboundIPCMessages!=0))
+                    return "JOIN_PROBE_IPC_INCONSISTENT：无法核实 Stage 12.6 接收进程与网易传输状态。";
                 if (status == "TAN_LOGIN_ACCEPTED" && !login)
                     return "JOIN_PROBE_IPC_INCONSISTENT：服务器登录标记与状态不匹配。";
 
@@ -298,6 +318,11 @@ namespace BlockCraft.NeteaseRoomLab
                     safeStatus += Environment.NewLine
                         + expected + "：" + ExplainStage12Readiness(expected);
                 }
+                if (inboundIPCVerified)
+                    safeStatus += Environment.NewLine
+                        + "STAGE12_READONLY_IPC_VERIFIED_GAME_NOT_JOINED：本机只读进程已完成控制握手；"
+                        + "本次从手机方向转交可靠消息 " + inboundIPCMessages
+                        + " 条（可能为 0）。没有向手机发送 Minecraft 游戏包，未登录世界。";
                 if (channelSuccess)
                     safeStatus += Environment.NewLine
                         + "被动观察：" + observedSeconds + " 秒；可靠通道 OPEN、不可靠通道 OPEN。"
