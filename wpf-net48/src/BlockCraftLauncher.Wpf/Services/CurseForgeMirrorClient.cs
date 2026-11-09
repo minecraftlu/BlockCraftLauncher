@@ -11,11 +11,26 @@ using BlockCraftLauncher.Wpf.Models;
 
 namespace BlockCraftLauncher.Wpf.Services
 {
+    public sealed class CurseForgeScreenshot
+    {
+        public string Title { get; set; }
+        public string ThumbnailUrl { get; set; }
+        public string ImageUrl { get; set; }
+    }
+
     public sealed class CurseForgeHit
     {
         public long Id { get; set; }
         public string Name { get; set; }
         public string Summary { get; set; }
+        public string IconUrl { get; set; }
+        public string AuthorLabel { get; set; }
+        public string DownloadsLabel { get; set; }
+        public string CategoryLabel { get; set; }
+        public string VersionsLabel { get; set; }
+        public string OfficialUrl { get; set; }
+        public IReadOnlyList<CurseForgeScreenshot> Screenshots { get; set; } =
+            Array.Empty<CurseForgeScreenshot>();
         public override string ToString() => Name + " — " + Summary;
     }
 
@@ -63,17 +78,130 @@ namespace BlockCraftLauncher.Wpf.Services
             return envelope["data"];
         }
 
+        /// <summary>
+        /// Read-only CurseForge search presentation metadata, compatible with
+        /// the official CurseForge Mod schema and optional MCIM responses.
+        /// Only HTTPS artwork from known Forge CDN / enabled MCIM hosts is
+        /// displayed; never load arbitrary third-party image URLs.
+        /// </summary>
+        internal static string TrustedArtworkUrl(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url) || url.Length > 2048 ||
+                !Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+                uri.Scheme != Uri.UriSchemeHttps || !uri.IsDefaultPort ||
+                uri.UserInfo.Length > 0 || uri.Fragment.Length > 0) return null;
+            string host = uri.Host.ToLowerInvariant();
+            return host == "media.forgecdn.net" ||
+                   host == "mediafilez.forgecdn.net" ||
+                   host == "edge.forgecdn.net" ||
+                   host == "mod.mcimirror.top"
+                ? uri.AbsoluteUri : null;
+        }
+
+        internal static string TrustedOfficialProjectUrl(string url)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+                uri.Scheme != Uri.UriSchemeHttps || !uri.IsDefaultPort ||
+                uri.UserInfo.Length > 0 || uri.Fragment.Length > 0 ||
+                !string.Equals(uri.Host, "www.curseforge.com", StringComparison.OrdinalIgnoreCase) ||
+                !uri.AbsolutePath.StartsWith("/minecraft/mc-mods/", StringComparison.OrdinalIgnoreCase))
+                return null;
+            return uri.AbsoluteUri;
+        }
+
+        static string Truncated(string value, int maxLength)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return "";
+            value = value.Trim();
+            return value.Length <= maxLength ? value : value.Substring(0, maxLength) + "…";
+        }
+
+        internal static IReadOnlyList<CurseForgeHit> ParseSearch(object data)
+        {
+            var entries = data as object[];
+            if (entries == null || entries.Length > 50)
+                throw new InvalidDataException("CurseForge 搜索结果格式或条数异常");
+
+            var hits = new List<CurseForgeHit>();
+            foreach (var item in entries)
+            {
+                var obj = Dict(item);
+                if (obj == null) continue;
+                var id = Id(obj, "id");
+                var logo = Dict(obj.TryGetValue("logo", out var rawLogo) ? rawLogo : null);
+                string icon = TrustedArtworkUrl(Text(logo, "thumbnailUrl")) ??
+                    TrustedArtworkUrl(Text(logo, "url"));
+
+                var authors = obj.TryGetValue("authors", out var rawAuthors)
+                    ? rawAuthors as object[] : null;
+                string author = authors == null ? "" :
+                    string.Join("、", authors.Select(Dict).Where(x => x != null)
+                        .Select(x => Truncated(Text(x, "name"), 44))
+                        .Where(x => x.Length > 0).Take(2));
+                var categories = obj.TryGetValue("categories", out var rawCategories)
+                    ? rawCategories as object[] : null;
+                string category = categories == null ? "" :
+                    string.Join(" · ", categories.Select(Dict).Where(x => x != null)
+                        .Select(x => Truncated(Text(x, "name"), 24))
+                        .Where(x => x.Length > 0).Distinct().Take(2));
+
+                string versions = "";
+                var indexes = obj.TryGetValue("latestFilesIndexes", out var rawIndexes)
+                    ? rawIndexes as object[] : null;
+                if (indexes != null)
+                {
+                    versions = string.Join(" / ", indexes.Select(Dict).Where(x => x != null)
+                        .Select(x => Text(x, "gameVersion"))
+                        .Where(x => Regex.IsMatch(x, @"^\d+\.\d+(?:\.\d+)?$"))
+                        .Distinct().Take(3));
+                }
+                string downloads = "";
+                if (long.TryParse(Text(obj, "downloadCount"), out var count) && count >= 0)
+                    downloads = ModrinthSearchMetadata.DownloadCountLabel(count);
+
+                var screenshots = new List<CurseForgeScreenshot>();
+                var pictures = obj.TryGetValue("screenshots", out var rawScreens)
+                    ? rawScreens as object[] : null;
+                if (pictures != null)
+                    foreach (var shot in pictures.Select(Dict).Where(x => x != null).Take(12))
+                    {
+                        string full = TrustedArtworkUrl(Text(shot, "url"));
+                        string thumb = TrustedArtworkUrl(Text(shot, "thumbnailUrl")) ?? full;
+                        if (full == null || thumb == null) continue;
+                        screenshots.Add(new CurseForgeScreenshot
+                        {
+                            Title = Truncated(Text(shot, "title"), 80),
+                            ThumbnailUrl = thumb, ImageUrl = full
+                        });
+                        if (screenshots.Count == 4) break;
+                    }
+
+                var links = Dict(obj.TryGetValue("links", out var rawLinks) ? rawLinks : null);
+                hits.Add(new CurseForgeHit
+                {
+                    Id = id,
+                    Name = Truncated(Text(obj, "name"), 120),
+                    Summary = Truncated(Text(obj, "summary"), 360),
+                    IconUrl = icon,
+                    AuthorLabel = string.IsNullOrWhiteSpace(author) ? "作者未提供" : author,
+                    DownloadsLabel = string.IsNullOrWhiteSpace(downloads) ? "下载量未知" : downloads,
+                    CategoryLabel = string.IsNullOrWhiteSpace(category) ? "Minecraft 模组" : category,
+                    VersionsLabel = string.IsNullOrWhiteSpace(versions)
+                        ? "版本需安装时确认" : "近期版本：" + versions,
+                    OfficialUrl = TrustedOfficialProjectUrl(Text(links, "websiteUrl")),
+                    Screenshots = screenshots
+                });
+            }
+            return hits;
+        }
+
         public async Task<IReadOnlyList<CurseForgeHit>> SearchAsync(string query, CancellationToken ct)
         {
             if ((query ?? "").Length > 150) throw new ArgumentException("搜索关键词过长");
             var url = "/mods/search?gameId=432&classId=6&index=0&pageSize=20&searchFilter="
                 + Uri.EscapeDataString(query ?? "");
-            var entries = await ApiGetAsync(url, ct) as object[];
-            if (entries == null || entries.Length > 50) throw new InvalidDataException("搜索结果格式或条数异常");
-            return entries.Select(Dict).Where(x => x != null).Select(x => new CurseForgeHit
-            {
-                Id = Id(x, "id"), Name = Text(x, "name"), Summary = Text(x, "summary")
-            }).ToList();
+            var entries = await ApiGetAsync(url, ct);
+            return ParseSearch(entries);
         }
 
         static int LoaderCode(string loader)
