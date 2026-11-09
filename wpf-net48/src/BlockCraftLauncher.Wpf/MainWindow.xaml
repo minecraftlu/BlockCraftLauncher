@@ -123,7 +123,7 @@
                      Foreground="{DynamicResource MutedBrush}" FontSize="11"
                      TextTrimming="CharacterEllipsis"
                      VerticalAlignment="Center"/>
-          <TextBlock Grid.Column="1" Text="BlockCraft  ·  v0.9.31 WPF 预览"
+          <TextBlock Grid.Column="1" Text="BlockCraft  ·  v0.9.32 WPF 预览"
                      FontSize="10" Foreground="{DynamicResource MutedBrush}"
                      VerticalAlignment="Center"/>
         </Grid>
