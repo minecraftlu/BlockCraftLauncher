@@ -4,6 +4,8 @@ on:
   push:
     paths:
       - 'wpf-net48/src/BlockCraftLauncher.Wpf/**'
+      - 'wpf-net48/updater/**'
+      - 'wpf-net48/onefile/**'
       - 'wpf-net48/BlockCraftLauncher-WPF.sln'
       - 'wpf-net48/build/**'
       - 'wpf-net48/tests/**'
