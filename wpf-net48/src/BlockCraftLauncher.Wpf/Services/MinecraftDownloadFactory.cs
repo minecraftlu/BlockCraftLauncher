@@ -134,6 +134,22 @@ namespace BlockCraftLauncher.Wpf.Services
                 return prefer;
             }
 
+            // Some mirrors do not contain every snapshot, installer or
+            // library. A missing mirror resource must still try Mojang.
+            // A 404 from Mojang itself is authoritative and should be
+            // surfaced instead of pretending the file must exist on a mirror.
+            internal static bool NeedsFallback(HttpStatusCode status, bool firstIsMirror)
+            {
+                int code = (int)status;
+                if (code == 429 || code >= 500) return true;
+                return firstIsMirror &&
+                    (status == HttpStatusCode.Unauthorized ||
+                     status == HttpStatusCode.Forbidden ||
+                     status == HttpStatusCode.NotFound ||
+                     status == HttpStatusCode.Gone ||
+                     status == HttpStatusCode.RequestedRangeNotSatisfiable);
+            }
+
             protected override async Task<HttpResponseMessage> SendAsync(
                 HttpRequestMessage request, CancellationToken ct)
             {
@@ -157,8 +173,8 @@ namespace BlockCraftLauncher.Wpf.Services
                     using (var attempt = CloneDownloadRequest(request, first))
                     {
                         var response = await base.SendAsync(attempt, ct);
-                        if (response.IsSuccessStatusCode || (int)response.StatusCode < 500 &&
-                            response.StatusCode != (HttpStatusCode)429)
+                        if (response.IsSuccessStatusCode ||
+                            !NeedsFallback(response.StatusCode, mirrorFirst))
                             return response;
                         response.Dispose();
                     }
