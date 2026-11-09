@@ -537,7 +537,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 first.Substring(7).All(Uri.IsHexDigit);
         }
 
-        static string DirectPreviewExecutable(PreparedLauncherUpdate prepared)
+        internal static string DirectPreviewExecutable(PreparedLauncherUpdate prepared)
         {
             if (prepared == null || prepared.Offer == null ||
                 !string.Equals(prepared.Offer.Mode, InstallMode, StringComparison.Ordinal))
