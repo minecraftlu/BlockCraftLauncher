@@ -23,6 +23,8 @@ namespace BlockCraftLauncher.Wpf
         // not send update HTTP requests or touch user authentication.
         internal bool SuppressAutomaticUpdateCheck { get; set; }
 
+        SkinStudioView skinStudio;
+
         readonly SettingsStore store = new SettingsStore();
         readonly LauncherConfig settings;
         readonly LauncherAutoUpdateService autoUpdater;
@@ -297,6 +299,7 @@ namespace BlockCraftLauncher.Wpf
                 case "整合包": return "整合包搜索";
                 case "CurseForge": return "CurseForge";
                 case "模组更新": return "本地模组管理";
+                case "皮肤 DIY": return "皮肤 DIY 工作室";
                 case "设置": return "启动器设置";
                 default: return page;
             }
@@ -315,6 +318,7 @@ namespace BlockCraftLauncher.Wpf
                 case "整合包": return "\uE8F1";
                 case "CurseForge": return "\uE753";
                 case "模组更新": return "\uE72C";
+                case "皮肤 DIY": return "\uE790";
                 case "多人联机": return "\uE902";
                 case "启动器更新": return "\uE777";
                 case "设置": return "\uE713";
@@ -327,7 +331,7 @@ namespace BlockCraftLauncher.Wpf
             SideMenu.Children.Clear(); sidebarButtons.Clear();
             AddNavSection(SideMenu, "游戏 · 版本下载", new[] { "首页", "游戏版本", "下载管理" }, Navigate, sidebarButtons);
             AddNavSection(SideMenu, "社区 · 在线搜索", new[] { "资源中心", "整合包", "资源包", "光影引擎", "CurseForge" }, Navigate, sidebarButtons);
-            AddNavSection(SideMenu, "管理 · 帮助工具", new[] { "模组更新", "多人联机", "启动器更新", "设置", "运行日志" }, Navigate, sidebarButtons);
+            AddNavSection(SideMenu, "管理 · 帮助工具", new[] { "皮肤 DIY", "模组更新", "多人联机", "启动器更新", "设置", "运行日志" }, Navigate, sidebarButtons);
             SideMenu.Children.Add(Txt("当前账号", 12, true, true));
             SideMenu.Children.Add(Txt(settings.AccountMode == "offline" ? "离线：" + settings.OfflineName :
                 (settings.AccountMode == "microsoft" ? "微软正版：" + settings.AccountName : "未登录"), 13));
@@ -383,6 +387,8 @@ namespace BlockCraftLauncher.Wpf
                 case "资源包": PageHost.Content = BuildResources("resourcepack"); break;
                 case "整合包": PageHost.Content = BuildModpacks(); break;
                 case "CurseForge": PageHost.Content = BuildCurseForge(); break;
+                case "皮肤 DIY": PageHost.Content = skinStudio ??
+                    (skinStudio = new SkinStudioView()); break;
                 case "模组更新": PageHost.Content = BuildModUpdates(); break;
                 case "多人联机": PageHost.Content = BuildMultiplayer(); break;
                 case "启动器更新": PageHost.Content = BuildLauncherUpdates(); break;
@@ -841,6 +847,10 @@ namespace BlockCraftLauncher.Wpf
                 lanWorldList == null || lanWorldList.ItemTemplate == null)
                 throw new InvalidOperationException("服务器与局域网列表没有统一布局模板");
 
+            Navigate("皮肤 DIY");
+            if (skinStudio == null || PageHost.Content != skinStudio)
+                throw new InvalidOperationException("内置 Minecraft 皮肤 DIY 工作室无法打开");
+            skinStudio.VerifyOfflineLayout();
             Navigate("模组更新");
             if (PageHost.Content == null)
                 throw new InvalidOperationException("本地资源管理页面无法打开");
