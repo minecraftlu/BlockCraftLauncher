@@ -1724,7 +1724,7 @@ namespace BlockCraftLauncher.Wpf
             updateNotesText.TextWrapping = TextWrapping.Wrap;
             updateCheckButton = Btn("立即检查新版本", async () =>
                 await CheckLauncherUpdatesAsync(true), true);
-            updateInstallButton = Btn("下载并安装更新", async () =>
+            updateInstallButton = Btn("下载并安装 · 完成后自动打开新版", async () =>
                 await InstallLauncherUpdateAsync(), true);
             root.Children.Add(Card(Col(
                 Txt("更新状态", 18, true),
