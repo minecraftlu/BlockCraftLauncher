@@ -115,6 +115,34 @@ namespace BlockCraftLauncher.Wpf.Services
                     "回退不得修改调用方的原始请求");
             }
 
+            // Mirrors may legitimately lack a new snapshot/library even
+            // when Mojang has it. This must not become a false "download
+            // failed" error. Only missing MIRROR files should trigger
+            // fallback; an official 404 must remain authoritative.
+            foreach (var missing in new[] {
+                HttpStatusCode.NotFound, HttpStatusCode.Forbidden,
+                HttpStatusCode.Gone, HttpStatusCode.RequestedRangeNotSatisfiable
+            })
+            {
+                Require(MinecraftDownloadFactory.MinecraftRouteHandler.NeedsFallback(
+                    missing, true), "缺少镜像资源应回退官方：" + missing);
+                Require(!MinecraftDownloadFactory.MinecraftRouteHandler.NeedsFallback(
+                    missing, false), "官方下载资源不存在不能假称镜像有文件：" + missing);
+                var absent = new FakeHttpHandler((n, req) =>
+                    Reply(n == 1 ? missing : HttpStatusCode.OK));
+                using (var client = new HttpClient(
+                    new MinecraftDownloadFactory.MinecraftRouteHandler(
+                        new LauncherConfig { NetworkMode = "mirror" }) { InnerHandler = absent }))
+                using (var request = OriginalRequest(original))
+                using (var response = await client.SendAsync(request).ConfigureAwait(false))
+                {
+                    Require(response.IsSuccessStatusCode && absent.Requests.Count == 2
+                        && absent.Requests[1].Uri == original &&
+                        absent.Requests[1].Range == "bytes=4096-",
+                        "镜像缺文件后必须从官方恢复断点：" + missing);
+                }
+            }
+
             // A transient timeout caused by the first CDN is not the user's
             // cancellation. It must use the same safe official fallback.
             var timedOut = new FakeHttpHandler((n, req) =>
