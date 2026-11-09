@@ -20,12 +20,11 @@ namespace BlockCraftLauncher.Wpf.Services
         MinecraftLauncher CreateLauncher() => MinecraftDownloadFactory.Create(new MinecraftPath(config.Root), config);
         MinecraftLauncher CreateLauncher(GameProfile profile)
         {
-            // Imported modpacks have an isolated MinecraftPath, including versions and libraries.
-            // Legacy profiles continue using their shared Minecraft game root.
-            string version = string.IsNullOrWhiteSpace(profile.LaunchVersion) ? profile.BaseVersion : profile.LaunchVersion;
-            string metadata = Path.Combine(profile.Directory ?? "", "versions", version, version + ".json");
-            string root = File.Exists(metadata) ? profile.Directory : config.Root;
-            return MinecraftDownloadFactory.Create(new MinecraftPath(root), config);
+            // Always use the same local-root decision as the file detector.
+            // Imported modpacks can keep isolated versions/libraries; legacy
+            // profiles may rely on the shared Minecraft game root.
+            var location = MinecraftInstanceLocator.Resolve(profile, config);
+            return MinecraftDownloadFactory.Create(new MinecraftPath(location.GameRoot), config);
         }
 
         public async Task<IReadOnlyList<string>> ListVersionsAsync()
