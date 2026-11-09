@@ -53,6 +53,12 @@ for page in (
 updater = (src / "Services" / "LauncherAutoUpdateService.cs").read_text("utf8")
 assert 'RELEASE-SHA256SUMS.txt' in updater
 assert 'StartExternalInstaller' in updater
+assert 'OpenPreparedDirectlyAsync' in updater
+assert 'DirectPreviewExecutable' in updater
+assert 'IsPathInsideUpdateStaging' in updater
+assert 'updateDirectOpenButton' in main
+assert 'OpenDownloadedUpdateDirectlyAsync' in main
+assert 'ShowDirectOpenNotice' in main
 assert 'ContentRendered' in (src / "App.xaml.cs").read_text("utf8")
 assert 'AcknowledgeVisibleWindow' in (src / "App.xaml.cs").read_text("utf8")
 assert 'AwaitWindow' in (root / "updater" / "Program.cs").read_text("utf8")
