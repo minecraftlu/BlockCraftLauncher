@@ -10,6 +10,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using BlockCraftLauncher.Wpf.Models;
 using BlockCraftLauncher.Wpf.Services;
@@ -36,6 +37,11 @@ namespace BlockCraftLauncher.Wpf
         readonly Dictionary<string, Button> sidebarButtons = new Dictionary<string, Button>();
         readonly List<string> logs = new List<string>();
         readonly MultiplayerService multiplayer = new MultiplayerService();
+        readonly GameProcessTracker gameProcesses = new GameProcessTracker();
+        readonly HashSet<GameProfile> launchingProfiles = new HashSet<GameProfile>();
+        readonly DispatcherTimer gameProcessTimer = new DispatcherTimer(DispatcherPriority.Background);
+        TextBlock gameProcessText;
+        Button homeLaunchButton;
         ComboBox localResourceKind;
         ListBox localResourceList, serverList, lanWorldList;
         TextBox serverName, serverAddress;
@@ -76,6 +82,23 @@ namespace BlockCraftLauncher.Wpf
             TopMoreButton.Click += (sender, args) => Navigate("模组更新");
             ApplyTheme(); ApplyZoom(); BuildSidebar(); Navigate("首页");
             Log("已读取旧版本配置；WPF 预览设置将单独保存，不覆盖原 Python 启动器配置。");
+            gameProcesses.ProcessExited += (profile, state) =>
+                Log("Minecraft 已退出：" + profile.Name + "（PID " + state.ProcessId
+                    + "，退出码 " + (state.ExitCode?.ToString() ?? "未知") + "）");
+            gameProcessTimer.Interval = TimeSpan.FromSeconds(2);
+            gameProcessTimer.Tick += (sender, args) =>
+            {
+                gameProcesses.Refresh();
+                RefreshGameProcessStatus();
+            };
+            // A smoke-test MainWindow is never shown; avoid starting a timer
+            // before WPF has actually opened the user-facing window.
+            Loaded += (sender, args) => gameProcessTimer.Start();
+            Closed += (sender, args) =>
+            {
+                gameProcessTimer.Stop();
+                gameProcesses.Dispose(); // Does not terminate the Minecraft game.
+            };
         }
 
         static TextBlock Txt(string text, double size = 14, bool bold = false, bool muted = false)
@@ -175,6 +198,8 @@ namespace BlockCraftLauncher.Wpf
             resourceSearchCancellation?.Cancel();
             resourceSearchCancellation = null;
             currentPage = page;
+            gameProcessText = null;
+            homeLaunchButton = null;
             SideBar.Visibility = page == "首页" ? Visibility.Collapsed : Visibility.Visible;
             SideColumn.Width = page == "首页" ? new GridLength(0) : new GridLength(205);
             foreach (var pair in sidebarButtons)
@@ -287,7 +312,10 @@ namespace BlockCraftLauncher.Wpf
                 HorizontalAlignment = HorizontalAlignment.Stretch
             };
             homeProfile.SelectionChanged += (sender, args) =>
+            {
                 activeProfile = homeProfile.SelectedItem as GameProfile;
+                RefreshGameProcessStatus();
+            };
             launchPanel.Children.Add(homeProfile);
             launchPanel.Children.Add(Txt(activeProfile == null ?
                 "尚未安装游戏版本，请先打开下载页。" :
@@ -297,7 +325,12 @@ namespace BlockCraftLauncher.Wpf
             launch.FontSize = 19;
             launch.HorizontalAlignment = HorizontalAlignment.Stretch;
             launch.Margin = new Thickness(0, 12, 0, 12);
+            homeLaunchButton = launch;
             launchPanel.Children.Add(launch);
+            gameProcessText = Txt("", 12, false, true);
+            gameProcessText.Margin = new Thickness(0, 0, 0, 8);
+            launchPanel.Children.Add(gameProcessText);
+            RefreshGameProcessStatus();
             launchPanel.Children.Add(Row(
                 Btn("切换 / 管理实例", ManageInstance),
                 Btn("检查版本文件", CheckInstance),
@@ -1514,12 +1547,56 @@ namespace BlockCraftLauncher.Wpf
             }
             catch (Exception ex) { ShowError("退出账户失败", ex); }
         }
+        void RefreshGameProcessStatus()
+        {
+            if (currentPage != "首页" || gameProcessText == null) return;
+            var profile = activeProfile;
+            if (profile == null)
+            {
+                gameProcessText.Text = "运行状态：未选择游戏实例";
+                if (homeLaunchButton != null) homeLaunchButton.IsEnabled = false;
+                return;
+            }
+
+            var state = gameProcesses.GetState(profile);
+            bool launching = launchingProfiles.Contains(profile);
+            bool running = state.Status == GameProcessStatus.Running;
+            if (homeLaunchButton != null) homeLaunchButton.IsEnabled = !launching && !running;
+            if (launching)
+                gameProcessText.Text = "运行状态：正在准备或启动游戏...";
+            else if (running)
+                gameProcessText.Text = "运行状态：游戏正在运行（本启动器启动，PID " +
+                    state.ProcessId + "）";
+            else if (state.Status == GameProcessStatus.Exited)
+                gameProcessText.Text = "运行状态：游戏已退出（PID " + state.ProcessId
+                    + "，退出码 " + (state.ExitCode?.ToString() ?? "未知") + "）";
+            else if (state.Status == GameProcessStatus.Unavailable)
+                gameProcessText.Text = "运行状态：进程信息暂不可读取，无法判断是否退出";
+            else
+                gameProcessText.Text = "运行状态：尚未由本次启动器会话启动；外部游戏运行状态未知";
+        }
+
         async Task LaunchAsync(string serverAddress = null)
         {
-            if (activeProfile == null) { MessageBox.Show("请先导入或安装游戏实例"); return; }
+            var profile = activeProfile;
+            if (profile == null) { MessageBox.Show("请先导入或安装游戏实例"); return; }
+            if (launchingProfiles.Contains(profile))
+            {
+                Status("当前实例正在启动，请不要重复点击。");
+                return;
+            }
+            if (gameProcesses.GetState(profile).Status == GameProcessStatus.Running)
+            {
+                Status("当前实例已经在运行，请返回游戏窗口；若要进入服务器，请在游戏内连接。");
+                return;
+            }
+
+            launchingProfiles.Add(profile);
+            RefreshGameProcessStatus();
             try
             {
-                Status("准备启动 " + activeProfile.Name);
+                Status("准备启动 " + profile.Name);
+                Process started;
                 if (settings.AccountMode == "microsoft")
                 {
                     // Never silently use an offline identity for a Microsoft
@@ -1552,14 +1629,21 @@ namespace BlockCraftLauncher.Wpf
                         }
                         session = await GetMicrosoftService().GetSessionAsync();
                     }
-                    await minecraft.LaunchMicrosoftAsync(activeProfile, session, serverAddress);
+                    started = await minecraft.LaunchMicrosoftAsync(profile, session, serverAddress);
                 }
                 else if (settings.AccountMode == "offline")
-                    await minecraft.LaunchOfflineAsync(activeProfile, serverAddress);
+                    started = await minecraft.LaunchOfflineAsync(profile, serverAddress);
                 else throw new InvalidOperationException("请先登录微软正版账号或设置离线玩家名。");
-                Status("游戏进程已启动");
+
+                gameProcesses.Track(profile, started);
+                Status("Minecraft 已启动：" + profile.Name + "（PID " + started.Id + "）");
             }
             catch (Exception ex) { ShowError("启动失败", ex); }
+            finally
+            {
+                launchingProfiles.Remove(profile);
+                RefreshGameProcessStatus();
+            }
         }
         void ImportLocalGame()
         {
