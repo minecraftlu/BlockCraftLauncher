@@ -578,6 +578,7 @@ namespace BlockCraftLauncher.Wpf
                 Btn("◇  模组与资源", () => Navigate("资源中心")),
                 Btn("▤  整合包", () => Navigate("整合包")),
                 Btn("☼  光影与材质", () => Navigate("光影引擎")),
+                Btn("皮肤 DIY 工作室", () => Navigate("皮肤 DIY")),
                 Btn("⇩  下载任务", () => Navigate("下载管理")),
                 Btn("⚙  启动器设置", () => Navigate("设置"))));
             root.Children.Add(Card(shortcuts));
