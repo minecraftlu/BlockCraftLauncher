@@ -56,3 +56,12 @@
 - [Windows CI #42655016102](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42655016102) 全部成功，包含普通/单 EXE 两组独立的 Modrinth 依赖与存档恢复离线回归；单 EXE SHA-256 `631bdb047571865ec940d5119ba23611b489408b908b97ded76e9a13860b19f2`。
 - 更完整的逐项状态与正式发布前的真实游戏验收门槛：[`PYTHON_MIGRATION_ACCEPTANCE.md`](PYTHON_MIGRATION_ACCEPTANCE.md)。
 
+
+## 2026-11-10 · 本地版本检测误报修复
+
+- 用户 Windows 实机反馈：**微软正版登录和 Minecraft 游戏启动正常，但“检测游戏文件”仍提示找不到**。
+- 根因：`MinecraftBackend.CreateLauncher(profile)` 启动时允许从实例目录回退到公共 Minecraft 根目录，而旧 `MainWindow.CheckInstance()` 只检查实例目录中的 `versions/<id>/<id>.json`，因此可能产生误报。
+- 新增 `MinecraftInstanceLocator.Resolve()` 作为启动及离线检测的**单一文件定位逻辑**；优先检查独立整合包实例目录，找不到则回退到用户配置的公共游戏根目录。
+- 检测页现在报告已检查版本 ID、实际启动根目录、所用元数据 JSON 的绝对路径和两处候选位置；找到 JSON 不等于所有游戏文件或 Java 都完成校验。主页按钮名称更准确地改为“检查版本文件”。
+- 新增完全离线的 `--instance-detection-selftest`，模拟公共目录可用、独立整合包优先、缺失两处、vanilla 基础版本回退和危险路径拒绝；Windows CI 在正常 WPF EXE 与单文件 EXE 分别运行。账号与游戏文件不受测试影响。
+- 这个改动**不是游戏运行状态/进程探测器**；若用户实际指的是游戏进程未被识别，需要按新的截图和日志另行排查。
