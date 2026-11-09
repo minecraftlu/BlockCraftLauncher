@@ -66,6 +66,21 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                     "LOCAL_BRIDGE_IPC_OK_GAME_NOT_JOINED")
                     .Contains("FAILED_GAME_NOT_JOINED"))
                 throw new InvalidOperationException("Nonzero child exit incorrectly marked OK.");
+            string fullGame = Stage12OfflineBridge.ClassifyGameResult(0,
+                "LOCAL_STAGE12_GAME_IPC_OK_OFFLINE_GAME_NOT_JOINED\r\n");
+            if (!fullGame.Contains("STAGE12_LOCAL_GAME_SPAWN_OK_REMOTE_NOT_JOINED")
+                || !fullGame.Contains("未连接网易服务器")
+                || fullGame.Contains("GAME_JOINED"))
+                throw new InvalidOperationException("Stage 12.4 offline spawn implied real game join.");
+            string injected = Stage12OfflineBridge.ClassifyGameResult(0,
+                "LOCAL_STAGE12_GAME_IPC_OK_OFFLINE_GAME_NOT_JOINED\nLEAKED_PRIVATE_TOKEN");
+            if (!injected.Contains("FAILED_REMOTE_NOT_JOINED")
+                || injected.Contains("LEAKED_PRIVATE_TOKEN"))
+                throw new InvalidOperationException("Untrusted Stage12.4 output exposed secrets.");
+            if (!Stage12OfflineBridge.ClassifyGameResult(1,
+                    "LOCAL_STAGE12_GAME_IPC_OK_OFFLINE_GAME_NOT_JOINED")
+                    .Contains("FAILED_REMOTE_NOT_JOINED"))
+                throw new InvalidOperationException("Non-zero game worker falsely marked spawn success.");
             Console.WriteLine("PASS: Stage12 offline-only IPC output verification and redaction");
         }
 
