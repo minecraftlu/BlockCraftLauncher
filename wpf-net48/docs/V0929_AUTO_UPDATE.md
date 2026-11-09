@@ -29,3 +29,11 @@ v0.9.27 和 v0.9.28 RC 在发布时还没有自动安装助手，因而无法对
 - 单文件安装：更新助手使用带唯一标记的 .blockcraft-previous-*.exe 备份旧版；更新前本地旧 EXE 也可以另外留存。
 - ZIP 安装：备份位于 %LOCALAPPDATA%\BlockCraftLauncher\updates\rollback-* 目录；程序自动自检失败后会恢复旧文件。不要在更新时手动清空此目录。
 - 用户想保留旧安装时，最安全的方法是将新版 EXE 或 ZIP 放在新目录，Minecraft 游戏与世界文件单独保留。
+
+## 2026-11-10 · v0.9.29 RC1 实际发布结果
+
+- [GitHub Release v0.9.29-wpf-rc.1](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.29-wpf-rc.1) 已发布，状态为 **prerelease / candidate**，并非 Stable。
+- [受控 Windows 发布构建 #42683268868](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42683268868)：**Success**。编译、静态验证、独立更新助手回滚自测、普通 WPF EXE 与单 EXE 离线测试、SHA-256 清单和发布资产上传均完成。
+- 包含单 EXE、完整 ZIP、单 EXE .sha256 与 RELEASE-SHA256SUMS.txt，公开下载链接不会像 Actions Artifact 那样短期过期。
+- 较早的 [Windows 自动构建 #42682875674](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42682875674) 也通过 28 项检查。
+- **实测边界**：真实联网检测下一新版本、一键替换真实正在使用的 EXE/ZIP、受限权限目录/杀毒软件拦截仍需在 Windows 实机测试。该版本自带更新功能，但 v0.9.28 及更早的版本必须手动安装这一版一次。
