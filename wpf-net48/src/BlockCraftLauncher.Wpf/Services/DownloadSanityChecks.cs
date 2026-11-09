@@ -120,6 +120,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 "房间实验发布不能成为正式 WPF 更新");
             // This runs a simulated HTTP transport (no DNS or credentials)
             // through the SAME CmlLib game routing handler as production.
+            ChinaDownloadAndCurseForgeSanityChecks.Run();
             MinecraftRouteSanityChecks.RunAsync().GetAwaiter().GetResult();
         }
     }
