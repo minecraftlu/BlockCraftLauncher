@@ -388,7 +388,9 @@ namespace BlockCraftLauncher.Wpf
                 case "整合包": PageHost.Content = BuildModpacks(); break;
                 case "CurseForge": PageHost.Content = BuildCurseForge(); break;
                 case "皮肤 DIY": PageHost.Content = skinStudio ??
-                    (skinStudio = new SkinStudioView()); break;
+                    (skinStudio = new SkinStudioView(UploadSkinToMicrosoftAsync,
+                        () => settings.AccountMode == "microsoft" ?
+                            settings.AccountName : null)); break;
                 case "模组更新": PageHost.Content = BuildModUpdates(); break;
                 case "多人联机": PageHost.Content = BuildMultiplayer(); break;
                 case "启动器更新": PageHost.Content = BuildLauncherUpdates(); break;
@@ -398,6 +400,23 @@ namespace BlockCraftLauncher.Wpf
             }
             PageScroll.ScrollToTop(); Status("当前页面：" + page);
         }
+        async Task UploadSkinToMicrosoftAsync(byte[] png, bool slim)
+        {
+            if (settings.AccountMode != "microsoft")
+                throw new InvalidOperationException(
+                    "当前为离线玩家模式；请先登录拥有 Minecraft Java 的微软正版账号。");
+            var session = await GetMicrosoftService().GetSessionAsync();
+            if (session == null || string.IsNullOrWhiteSpace(session.AccessToken))
+                throw new InvalidOperationException(
+                    "没有有效的 Minecraft Java 正版授权。请退出账号后重新登录。");
+            // Deliberately send tokens only to the first-party HTTPS API;
+            // never expose the token in UI, release logs or user skin files.
+            await MinecraftSkinUploadService.UploadAsync(
+                session.AccessToken, png, slim, updateCancellation.Token);
+            Status("已上传当前皮肤至 Minecraft 官方账户：" + session.Username +
+                "（" + (slim ? "Alex" : "Steve") + "）");
+        }
+
         void Status(string message) { StatusText.Text = message; Log(message); }
         internal void ShowPostUpdateSuccess()
         {
