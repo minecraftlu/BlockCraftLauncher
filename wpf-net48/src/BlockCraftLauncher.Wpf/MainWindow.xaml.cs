@@ -2486,16 +2486,17 @@ namespace BlockCraftLauncher.Wpf
         }
         void ShowReleaseNotes()
         {
-            MessageBox.Show("BlockCraft Launcher v0.9.28 · 中国大陆下载优化候选版\n\n"
-                + "· 设置新增国内优先下载线路；BMCLAPI 失败后回退 Mojang 官方源\n"
-                + "· 自动线路减少重复测速，暂时异常的镜像会短时冷却\n"
-                + "· 大文件下载延长超时、可复用已校验缓存，断点来源变化时安全重下\n"
-                + "· 主动启用 MCIM 后可为 Modrinth 提供社区镜像下载与官方回退\n"
-                + "· CurseForge 模组列表新增真实项目封面、作者、下载量、近期版本\n"
-                + "· 点击详情可查看作者提供的模组截图，缺失或不安全链接显示占位\n"
-                + "· 保留上一版 PCL2 风格布局、账号、存档和游戏管理功能\n\n"
-                + "说明：Windows 自动构建与离线测试不代表中国大陆线路已经完成真实测速。"
-                + " 正式稳定版还需用户实测国内下载及各类加载器兼容。",
+            MessageBox.Show("BlockCraft Launcher v0.9.29 · 自动更新测试版\n\n"
+                + "· 启动后后台自动检查官方 GitHub 新版本（最多每 6 小时一次）\n"
+                + "· 稳定版与 WPF 预览版双通道，默认仅自动检查稳定版\n"
+                + "· 首页、侧边栏和更新中心显示新版本与更新进度\n"
+                + "· 支持一键下载、SHA-256 校验、更新前启动自检\n"
+                + "· 独立更新助手退出后替换文件，启动失败自动恢复旧版\n"
+                + "· 正确更新单文件 EXE 本体，而不是只更新临时缓存\n"
+                + "· 可选自动预下载；最终安装仍需要用户确认\n"
+                + "· 保留 v0.9.28 国内下载优化、CurseForge 图文和其他既有功能\n\n"
+                + "提示：从 v0.9.28 首次升级到本版需要手动安装一次。"
+                + " 正式 Stable 仍需真实 Windows 环境验证在线更新。",
                 "BlockCraft Launcher 更新说明");
         }
         void ShowError(string title, Exception ex) { Log(title + "：" + ex); MessageBox.Show(ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Error); }
