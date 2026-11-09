@@ -22,6 +22,16 @@
 | 资源包、光影辅助组件、离线工具与诊断 | 基础文件管理与诊断 | Iris/Sodium 组合安装、网络测速与诊断导出、账户存档工具 |
 | Windows 构建 | GitHub Actions MSBuild x64，SHA-256、ZIP 打包 | Windows 真机 GUI / 实际下载、登录、启动回归 |
 
+## 2026-11-09 · 原版游戏下载稳定性补丁
+
+- 此轮只修改 WPF 原启动器的 `MinecraftDownloadFactory.MinecraftRouteHandler`，没有修改已取消的网易手机房间实验。
+- 游戏资源通过 Mojang/BMCLAPI 线路切换时保留 Range、User-Agent 等公共下载头；**跨域镜像不会收到官方请求的 Authorization、Cookie、自定义私有头或 If-Range**，官方回退则恢复原始请求。
+- 镜像缺少快照/依赖而返回 403、404、410、416，以及暂时超时、429 或服务端错误时按需回退官方；官方真正返回 404 时不误报镜像有该资源。
+- 安装器的大文件 HttpClient 超时改为 15 分钟，仍可取消任务；没有声称实现文件级并行分块。
+- Windows CI 的 `--download-selftest` 现在使用**完全离线的模拟 HTTP handler** 验证上述行为，且分别在普通 WPF EXE 与打包后的单 EXE 中执行。
+- [Windows CI #42647089376](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42647089376) **success**，下载/主题之外的启动烟雾与微软重新认证离线测试也没有回归。
+- 本轮有经过 Windows 编译和离线测试的 WPF Alpha 构建，但仍需要在真实网络环境实测多版本游戏安装、国产运营商线路和加载器兼容；**不得标记已与 v0.9.26 全功能等价**。
+
 ## 重要的安全边界
 - 不读取或公开旧版的 Microsoft 刷新令牌。
 - .mrpack 的文件名不能逃出新实例目录，限制大小，校验 SHA-1 与 SHA-512；发生失败不会登记实例。
