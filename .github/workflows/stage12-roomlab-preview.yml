@@ -1,4 +1,4 @@
-name: BlockCraft Stage12.7 WPF live readiness diagnostics preview
+name: BlockCraft Stage12.7 WPF offline NetEase codec reference preview
 
 on:
   pull_request:
