@@ -188,6 +188,17 @@
         </Border>
         <TextBlock TextWrapping="Wrap" Foreground="#95BDCE" Margin="0,13,0,3"
                    Text="Stage 12.5 · 真实连接前置条件诊断：运行经房主许可的大厅 / WebRTC 探针后，会显示已证实的服务器与传输阶段；即使双通道 OPEN，也不会把 G79 模式、房间版本号或离线测试视作真正的 Minecraft 游戏授权。" />
+        <StackPanel Margin="0,12,0,0">
+          <Button x:Name="Stage126ReadOnlyButton" IsEnabled="False"
+                  Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left"
+                  Click="Stage126ReadOnly_Click"
+                  Content="Stage 12.6 · 真实房间只读 IPC 接收验证（一次）" />
+          <TextBlock TextWrapping="Wrap" Foreground="#D5B682" Margin="0,6,0,3"
+                     Text="仅在房主允许且真实大厅入房成功、WebRTC 建立后，向本机内嵌工作进程单向转交可靠通道收到的消息。不向手机发送 Minecraft 游戏包；不能验证游戏身份或进入世界。需要 30/60 秒观察。" />
+          <TextBlock x:Name="Stage126ReadOnlyStatusText" TextWrapping="Wrap"
+                     Foreground="#BFD5F4" Margin="0,5,0,0"
+                     Text="STAGE12_READONLY_IPC_NOT_RUN：未连接真实房间的本机接收管道。" />
+        </StackPanel>
         <TextBlock x:Name="RealWebRTCStatusText" Foreground="#BFD5F4" TextWrapping="Wrap" Margin="0,8,0,0"
                    Text="WEBRTC_PROBE_NOT_RUN：未尝试与手机房主建立真实游戏传输。" />
         <TextBlock x:Name="RealJoinStatusText" Foreground="#BFD5F4" TextWrapping="Wrap"
