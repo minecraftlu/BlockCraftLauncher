@@ -78,6 +78,11 @@ jobs:
             }
             $process.Refresh()
             if ($process.ExitCode -ne 0) {
+              $diagnostics = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+              if (Test-Path $diagnostics) {
+                Write-Host '----- Offline skin selftest diagnostics -----'
+                Get-Content $diagnostics -Tail 40 | Write-Host
+              }
               throw "Skin DIY PNG selftest failed: $launcher (exit $($process.ExitCode))"
             }
           }
