@@ -2956,19 +2956,20 @@ namespace BlockCraftLauncher.Wpf
         }
         void ShowReleaseNotes()
         {
-            MessageBox.Show("BlockCraft Launcher v0.9.32 · 搜索界面与更新体验优化\n\n"
-                + "· 点击“下载并安装”后直接执行已校验更新，不再弹出“是/否”确认窗口\n"
-                + "· 新版自动打开并在状态栏显示结果；更新失败时才弹出故障提示\n"
-                + "· 保留自动检测、稳定/预览双通道、SHA-256 验证和独立回滚\n"
-                + "· 游戏版本页新增快捷筛选、清晰的版本列表和安装选项\n"
-                + "· Mod、光影、资源包统一搜索表单、兼容筛选、结果图文卡片和快捷排序\n"
-                + "· CurseForge 增加版本/分类筛选、热度排序和真实模组图标/截图\n"
-                + "· 整合包支持游戏版本选择、排序与分页搜索\n"
-                + "· 下载任务新增名称搜索、状态筛选及列表内进度/速度\n"
-                + "· 首页、侧栏、设置、多人联机、模组管理与日志统一字体、配色和文案\n"
-                + "· 浅色/深色模式下统一搜索区域、按钮、选中态及结果布局\n\n"
-                + "说明：参考 PCL2 的信息组织与交互习惯，界面素材和源码为 BlockCraft 自有实现。"
-                + " Windows 离线回归通过后仍需实机验证各在线下载来源，Stable 发布不会提前宣称完成。",
+            MessageBox.Show("BlockCraft Launcher v0.9.32 · 皮肤 DIY 工作室测试版\n\n"
+                + "· 左侧“管理 → 皮肤 DIY”新增内置 64×64 Minecraft Java 皮肤编辑器\n"
+                + "· 画笔、橡皮擦、取色器、油漆桶、RGB / HEX / 透明度及可缩放像素网格\n"
+                + "· 头部、身体、双臂、双腿、基础层与帽子/袖子/夹克外层分区编辑\n"
+                + "· 支持 Ctrl+Z 撤销、Ctrl+Y 重做、Steve 宽臂与 Alex 纤细模型\n"
+                + "· 实时查看人物正面和背面，可开关第二层显示\n"
+                + "· 导入 64×64 和旧版 64×32 PNG，导出标准 PNG 并保存到本地皮肤库\n"
+                + "· 自动备份未保存草稿，并可恢复上一次的编辑\n"
+                + "· 微软正版用户可单独确认后上传至 Minecraft 官方皮肤服务\n"
+                + "· 离线模式保留 PNG DIY 与本地管理，不伪称可自动同步服务器外观\n"
+                + "· 保留 v0.9.31 中文搜索界面、国内下载优化与成功更新免弹窗\n\n"
+                + "注意：人物预览是 2D 正反面，不是可旋转 3D 模型。"
+                + " 真实微软正版皮肤上传需在 Windows 实机上完成授权验收，"
+                + "当前发布仍是 RC 测试候选版本。",
                 "BlockCraft Launcher · 更新说明");
         }
         void ShowError(string title, Exception ex) { Log(title + "：" + ex); MessageBox.Show(ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Error); }
