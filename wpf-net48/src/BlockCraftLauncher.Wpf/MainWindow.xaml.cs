@@ -2497,17 +2497,17 @@ namespace BlockCraftLauncher.Wpf
         }
         void ShowReleaseNotes()
         {
-            MessageBox.Show("BlockCraft Launcher v0.9.29 · 自动更新测试版\n\n"
-                + "· 启动后后台自动检查官方 GitHub 新版本（最多每 6 小时一次）\n"
-                + "· 稳定版与 WPF 预览版双通道，默认仅自动检查稳定版\n"
-                + "· 首页、侧边栏和更新中心显示新版本与更新进度\n"
-                + "· 支持一键下载、SHA-256 校验、更新前启动自检\n"
-                + "· 独立更新助手退出后替换文件，启动失败自动恢复旧版\n"
-                + "· 正确更新单文件 EXE 本体，而不是只更新临时缓存\n"
-                + "· 可选自动预下载；最终安装仍需要用户确认\n"
-                + "· 保留 v0.9.28 国内下载优化、CurseForge 图文和其他既有功能\n\n"
-                + "提示：从 v0.9.28 首次升级到本版需要手动安装一次。"
-                + " 正式 Stable 仍需真实 Windows 环境验证在线更新。",
+            MessageBox.Show("BlockCraft Launcher v0.9.30 · 自动更新后打开新版窗口\n\n"
+                + "· 继续保留每六小时自动检查、预览/正式版通道及 SHA-256 校验\n"
+                + "· 用户确认安装后，旧启动器自动退出并交给独立更新助手\n"
+                + "· 成功替换并通过启动自检后，自动运行真正的新版本 EXE\n"
+                + "· 新版 WPF 主窗口完成渲染后向更新助手发送一次性确认\n"
+                + "· 自动将新版窗口带到前台，并在状态栏提示更新完成\n"
+                + "· 单 EXE 支持从外层解包器等待到内层 WPF 真实窗口显示\n"
+                + "· 如果不能确认窗口已经显示，会说明原因和手动打开路径\n"
+                + "· 维持更新失败回滚，保留游戏、账号与存档不变\n\n"
+                + "本次窗口自动显示已加入 Windows 离线界面回归。"
+                + " 正式 Stable 发布仍需真实在线升级的终端验收。",
                 "BlockCraft Launcher 更新说明");
         }
         void ShowError(string title, Exception ex) { Log(title + "：" + ex); MessageBox.Show(ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Error); }
