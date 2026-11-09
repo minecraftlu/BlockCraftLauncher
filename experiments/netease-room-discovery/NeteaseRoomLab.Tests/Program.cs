@@ -463,6 +463,115 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 .Contains("SERVER_ROOM_ADMISSION_ACCEPTED"))
                 throw new InvalidOperationException("Verified response was incorrectly rejected.");
 
+            // Stage 12.9: report only server-returned signed int8 codes.
+            // Never infer code 4 from a stale room occupancy snapshot.
+            const string admissionEvidence = @"{""status"":""ENTER_ROOM_REJECTED"","
+                + @"""login_accepted"":true,""room_admission_accepted"":false,"
+                + @"""host_ready_seen"":false,""minecraft_world_joined"":false,"
+                + @"""login_reply_observed"":true,""login_reply_code"":0,"
+                + @"""admission_reply_observed"":true,""admission_reply_code"":4,"
+                + @"""admission_diagnosis"":""ADMISSION_ROOM_FULL""}";
+            string realFull = JoinProbeRunner.ParseMachineOutput(prefix + admissionEvidence);
+            if (!realFull.Contains("STAGE12_9_SERVER_ROOM_REPLY")
+                || !realFull.Contains("回执码 4")
+                || !realFull.Contains("服务器报告房间人数已满")
+                || realFull.Contains("JOIN_PROBE_IPC_"))
+                throw new InvalidOperationException("Server admission code 4 not displayed accurately.");
+
+            string notFound = admissionEvidence.Replace(@"""admission_reply_code"":4",
+                    @"""admission_reply_code"":1")
+                .Replace("ADMISSION_ROOM_FULL","ADMISSION_ROOM_NOT_FOUND");
+            string wrongPassword = admissionEvidence.Replace(@"""admission_reply_code"":4",
+                    @"""admission_reply_code"":14")
+                .Replace("ADMISSION_ROOM_FULL","ADMISSION_WRONG_PASSCODE");
+            string unknownCode = admissionEvidence.Replace(@"""admission_reply_code"":4",
+                    @"""admission_reply_code"":-127")
+                .Replace("ADMISSION_ROOM_FULL","ADMISSION_REJECTED_REASON_UNKNOWN");
+            foreach (var row in new[] {
+                new {Json=notFound,Expected="回执码 1"},
+                new {Json=wrongPassword,Expected="回执码 14"},
+                new {Json=unknownCode,Expected="回执码 -127"}
+            })
+            {
+                string parsed=JoinProbeRunner.ParseMachineOutput(prefix+row.Json);
+                if (!parsed.Contains(row.Expected) || parsed.Contains("JOIN_PROBE_IPC_"))
+                    throw new InvalidOperationException("Genuine server int8 response misclassified.");
+                if (row.Expected=="回执码 -127" && !parsed.Contains("具体原因尚不明确"))
+                    throw new InvalidOperationException("Unknown room rejection got an invented cause.");
+            }
+            string roomMissing = admissionEvidence
+                .Replace("ENTER_ROOM_REJECTED","ENTER_ROOM_RESPONSE_MISSING")
+                .Replace(@"""admission_reply_observed"":true",@"""admission_reply_observed"":false")
+                .Replace(@"""admission_reply_code"":4",@"""admission_reply_code"":0")
+                .Replace("ADMISSION_ROOM_FULL","ADMISSION_REPLY_NOT_OBSERVED");
+            string missingDisplay=JoinProbeRunner.ParseMachineOutput(prefix+roomMissing);
+            if (!missingDisplay.Contains("STAGE12_9_ROOM_REPLY_MISSING")
+                || missingDisplay.Contains("STAGE12_9_SERVER_ROOM_REPLY"))
+                throw new InvalidOperationException("Missing server response was described as a rejection.");
+            string roomAccepted=admissionEvidence.Replace("ENTER_ROOM_REJECTED","SERVER_ROOM_ADMISSION_ACCEPTED")
+                .Replace(@"""room_admission_accepted"":false",@"""room_admission_accepted"":true")
+                .Replace(@"""admission_reply_code"":4",@"""admission_reply_code"":0")
+                .Replace("ADMISSION_ROOM_FULL","ADMISSION_SERVER_ACCEPTED_GAME_NOT_JOINED");
+            if (!JoinProbeRunner.ParseMachineOutput(prefix+roomAccepted)
+                    .Contains("SERVER_ROOM_ADMISSION_ACCEPTED"))
+                throw new InvalidOperationException("Server admission success code 0 was rejected.");
+
+            string loginRejected = admissionEvidence
+                .Replace("ENTER_ROOM_REJECTED","TAN_LOGIN_REJECTED")
+                .Replace(@"""login_accepted"":true",@"""login_accepted"":false")
+                .Replace(@"""login_reply_code"":0",@"""login_reply_code"":-2")
+                .Replace(@"""admission_reply_observed"":true",@"""admission_reply_observed"":false")
+                .Replace(@"""admission_reply_code"":4",@"""admission_reply_code"":0")
+                .Replace("ADMISSION_ROOM_FULL","ADMISSION_REPLY_NOT_OBSERVED");
+            if (!JoinProbeRunner.ParseMachineOutput(prefix+loginRejected)
+                    .Contains("大厅拒绝码 -2"))
+                throw new InvalidOperationException("Lobby login rejected code was not surfaced.");
+            string[] forgedAdmission = {
+                admissionEvidence.Replace("ADMISSION_ROOM_FULL","ADMISSION_WRONG_PASSCODE"),
+                admissionEvidence.Replace(@"""admission_reply_observed"":true",
+                    @"""admission_reply_observed"":false"),
+                admissionEvidence.Replace(@"""room_admission_accepted"":false",
+                    @"""room_admission_accepted"":true"),
+                admissionEvidence.Replace(@"""admission_reply_code"":4",
+                    @"""admission_reply_code"":0"),
+                admissionEvidence.Replace(@"""login_reply_observed"":true",
+                    @"""login_reply_observed"":false"),
+                admissionEvidence.Replace(@"""admission_reply_code"":4",
+                    @"""admission_reply_code"":127"),
+                admissionEvidence.Replace("ENTER_ROOM_REJECTED","ENTER_ROOM_RESPONSE_MISSING"),
+                roomAccepted.Replace(@"""room_admission_accepted"":true",
+                    @"""room_admission_accepted"":false")
+            };
+            foreach (string forged in forgedAdmission)
+            {
+                if (!JoinProbeRunner.ParseMachineOutput(prefix + forged)
+                        .Contains("JOIN_PROBE_IPC_INCONSISTENT"))
+                    throw new InvalidOperationException("Forged admission attestation was accepted.");
+            }
+            string[] badCodeFormats = {
+                admissionEvidence.Replace(@"""admission_reply_code"":4",
+                    @"""admission_reply_code"":999"),
+                admissionEvidence.Replace(@"""admission_reply_code"":4",
+                    @"""admission_reply_code"":""4"""),
+                admissionEvidence.Replace(@"""admission_reply_code"":4",
+                    @"""admission_reply_code"":4.2"),
+                admissionEvidence.Replace(@"""admission_reply_code"":4,",""),
+                admissionEvidence.Replace(@"""login_reply_code"":0",
+                    @"""login_reply_code"":-200")
+            };
+            foreach (string invalid in badCodeFormats)
+            {
+                if (!JoinProbeRunner.ParseMachineOutput(prefix+invalid)
+                        .Contains("JOIN_PROBE_IPC_SCHEMA_ERROR"))
+                    throw new InvalidOperationException("Invalid server admission code was not rejected.");
+            }
+            string secretRoomReply=admissionEvidence.Substring(0,admissionEvidence.Length-1)
+                + @",""raw_server_payload"":""NEVER_LOG_COOKIE_OR_TOKEN""}";
+            if (JoinProbeRunner.ParseMachineOutput(prefix+secretRoomReply)
+                    .Contains("NEVER_LOG_COOKIE_OR_TOKEN"))
+                throw new InvalidOperationException("Untrusted server payload leaked into WPF UI.");
+            Console.WriteLine("PASS: Stage12.9 signed admission codes, missing reply and tamper protection");
+
             if (!JoinProbeRunner.ParseMachineOutput("noise\n" + prefix + failed)
                     .Contains("JOIN_PROBE_IPC_UNEXPECTED_OUTPUT")
                 || !JoinProbeRunner.ParseMachineOutput(prefix + failed + "\n" + prefix + failed)
