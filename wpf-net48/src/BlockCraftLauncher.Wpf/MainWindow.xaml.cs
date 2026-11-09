@@ -1756,7 +1756,7 @@ namespace BlockCraftLauncher.Wpf
                 Row(updateCheckButton, updateInstallButton,
                     updateDirectOpenButton,
                     Btn("打开官方发布页", () => LauncherReleaseService.OpenOfficialRelease(
-                        "https://github.com/minecraftlu/BlockCraftLauncher/releases")))),
+                        "https://github.com/minecraftlu/BlockCraftLauncher/releases"))),
                 Txt("“直接打开”会先下载并校验新版，从临时目录试用；旧安装保留。"
                     + "正式覆盖更新请使用“下载并安装”，完成后会自动打开新版窗口。", 12, false, true))));
             root.Children.Add(Card(Col(Txt("自动更新设置", 18, true),
