@@ -26,3 +26,11 @@
 - 待真实设备验收：GitHub 在线下载、直接打开新版本后实际显示 UI、旧版只在新窗口显示后关闭，以及是否按预期保留原快捷方式安装。
 
 **Stable 门槛：** v0.9.30 RC2 发布并通过 Windows CI 后，还必须有用户实际 Windows 端验证两种更新方式，才能合并到正式版。不能仅凭 CI 声称已有正式稳定版。
+
+## 2026-11-10 · v0.9.30 RC2 直接打开已发布
+
+- [GitHub Release v0.9.30-wpf-rc.2](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.30-wpf-rc.2)：单 EXE、完整 ZIP、SHA-256；状态为 **prerelease**，尚非 Stable 正式版。
+- [受控 Windows CI #42689464615](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42689464615) **Success**，包含静态检查、普通 ZIP 与单 EXE 自检、完整 EXE/ZIP 校验和故障回滚、实际 WPF `ContentRendered` 显示检测（永久更新与直接打开两种模式）、SHA-256 发布资产上传。
+- 原 v0.9.30 RC1 保留，用户可在 RC1 中打开设置 → 启动器自动更新 → 预览版 → 更新中心 → 立即检查新版本，检测并安装 RC2。
+- 安装 RC2 后，下一次发布兼容新版本时可同时选择「下载并安装 · 完成后自动打开新版」或「直接打开新版（不覆盖旧版）」；RC2 本身目前没有比 RC2 更高的测试版时不会显示直接打开按钮可用。
+- 真实 Windows 在线下载、从 RC1 到 RC2 升级后实际打开窗口，以及后续版本直接打开新窗口的实机验证仍待用户反馈。**不得将发布状态写成 Stable 已验收。**
