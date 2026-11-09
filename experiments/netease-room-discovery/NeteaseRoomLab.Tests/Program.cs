@@ -639,7 +639,9 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 readonlyPositive.Replace(@"""stage12_readonly_ipc_messages"":0",
                     @"""stage12_readonly_ipc_messages"":1"),
                 readonlyPositive.Replace(@"""stage12_readonly_ipc_verified"":true",
-                    @"""stage12_readonly_ipc_verified"":false"),
+                    @"""stage12_readonly_ipc_verified"":false")
+                    .Replace(@"""stage12_readonly_ipc_messages"":0",
+                        @"""stage12_readonly_ipc_messages"":2"),
                 readonlyPositive.Replace(@"""observation_seconds"":30",
                     @"""observation_seconds"":8")
             };
