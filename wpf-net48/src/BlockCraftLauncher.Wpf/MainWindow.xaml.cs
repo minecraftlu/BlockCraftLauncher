@@ -140,6 +140,48 @@ namespace BlockCraftLauncher.Wpf
             if (muted) label.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
             return label;
         }
+        static UIElement PageHeading(string group, string title, string summary)
+        {
+            var overline = Txt("BLOCKCRAFT   /   " + group, 11, true, true);
+            overline.SetResourceReference(TextBlock.ForegroundProperty, "AccentBrush");
+            overline.Margin = new Thickness(2, 0, 0, 4);
+            var heading = Txt(title, 25, true);
+            heading.Margin = new Thickness(0, 0, 0, 5);
+            var description = Txt(summary, 12, false, true);
+            description.Margin = new Thickness(0, 0, 0, 17);
+            return Col(overline, heading, description);
+        }
+
+        static Border SearchCard(UIElement content)
+        {
+            var panel = Card(content);
+            panel.SetResourceReference(FrameworkElement.StyleProperty, "SearchPanel");
+            return panel;
+        }
+
+        static Border ResultsCard(UIElement content)
+        {
+            var panel = Card(content);
+            panel.SetResourceReference(FrameworkElement.StyleProperty, "ResultsPanel");
+            return panel;
+        }
+
+        static void ApplySearchInputStyle(Control control, string hint)
+        {
+            if (control is TextBox)
+                control.SetResourceReference(FrameworkElement.StyleProperty, "SearchTextBox");
+            else if (control is ComboBox)
+                control.SetResourceReference(FrameworkElement.StyleProperty, "SearchComboBox");
+            control.ToolTip = hint;
+        }
+
+        static Button FilterChipButton(string caption, Action action)
+        {
+            var b = Btn(caption, action);
+            b.SetResourceReference(FrameworkElement.StyleProperty, "FilterChip");
+            return b;
+        }
+
         static string ActionGlyph(string caption)
         {
             if (caption.StartsWith("启动")) return "\uE768";
@@ -403,8 +445,8 @@ namespace BlockCraftLauncher.Wpf
         {
             // Prominent selected instance and one clear launch action,
             // followed by compact download and account management cards.
-            var root = Col(Txt("启动 Minecraft", 24, true),
-                Txt("选择已经安装的游戏实例，然后开始你的方块世界。", 13, false, true));
+            var root = Col(PageHeading("游戏启动", "启动 Minecraft",
+                "选择已安装的游戏版本，确认玩家身份后开始游戏。"));
 
             var updateNotice = Col(Txt("发现启动器新版本", 17, true));
             homeUpdateText = Txt("", 12, false, true);
@@ -502,8 +544,8 @@ namespace BlockCraftLauncher.Wpf
         }
         UIElement BuildVersions()
         {
-            var root = Col(Txt("Minecraft 游戏版本", 24, true),
-                Txt("选择版本和加载器，安装任务在后台运行。请勿同时使用旧版安装同一游戏版本。", 13, false, true));
+            var root = Col(PageHeading("游戏下载 / Minecraft", "Minecraft 游戏版本",
+                "按名称和发布类型筛选游戏版本，随后选择兼容加载器进行安装。"));
             var toolbar = Row();
             versionQuery = new TextBox { Width = 260, ToolTip = "搜索版本号" };
             versionQuery.TextChanged += (s, e) => FilterVersions();
@@ -603,8 +645,8 @@ namespace BlockCraftLauncher.Wpf
 
         UIElement BuildDownloadCenter()
         {
-            var root = Col(Txt("下载管理", 24, true),
-                Txt("Minecraft、加载器、Modrinth、整合包与 CurseForge 任务集中查看。支持进度、取消和失败重试。", 12, false, true));
+            var root = Col(PageHeading("下载中心 / 任务", "下载管理",
+                "集中查看游戏、加载器、模组与整合包的进度、速度和失败重试。"));
             root.Children.Add(Txt("下载任务", 17, true));
             downloadList = new ListBox { ItemsSource = downloads.Jobs, Height = 285,
                 ItemTemplate = (DataTemplate)FindResource("DownloadItemTemplate"),
@@ -800,8 +842,8 @@ namespace BlockCraftLauncher.Wpf
 
             string title = type == "mod" ? "搜索 Mod" :
                 type == "shader" ? "搜索光影包" : "搜索资源包";
-            var root = Col(Txt(title, 24, true),
-                Txt("搜索 Minecraft 社区资源，按版本与分类筛选；选择后使用原有 SHA-1 安全下载流程。", 12, false, true));
+            var root = Col(PageHeading("下载中心 / 社区资源", title,
+                "按名称、游戏版本、加载器、分类和下载来源查找资源；安装时自动核对兼容性与文件完整性。"));
 
             resourceQuery = new TextBox {
                 ToolTip = "输入资源名称；留空时搜索热门项目"
@@ -1178,9 +1220,8 @@ namespace BlockCraftLauncher.Wpf
         }
         UIElement BuildCurseForge()
         {
-            var root = Col(Txt("CurseForge 模组", 24, true),
-                Txt("通过已授权的 MCIM 镜像查询 Minecraft 模组；列表可显示项目封面、作者、下载量与截图。"
-                    + " 安装时仍会检查版本、依赖、下载权限和 SHA-1。", 12, false, true));
+            var root = Col(PageHeading("下载中心 / CurseForge", "CurseForge 模组",
+                "搜索模组名称、浏览作者实拍截图与项目介绍；下载前再次核对版本、依赖及授权链接。"));
             if (!settings.McimEnabled)
                 return Col(
                     Txt("CurseForge 需要主动启用 MCIM 社区镜像。启用后将从该镜像获取项目图片与模组信息，"
@@ -1382,8 +1423,8 @@ namespace BlockCraftLauncher.Wpf
 
         UIElement BuildModpacks()
         {
-            var root = Col(Txt("Modrinth 整合包", 24, true),
-                Txt("支持搜索、下载和导入 .mrpack；使用独立实例，验证路径与 SHA-1 / SHA-512。", 12, false, true));
+            var root = Col(PageHeading("下载中心 / 整合包", "整合包下载",
+                "搜索 Modrinth 整合包，按游戏版本和热度筛选，支持安全导入 .mrpack。"));
             packSearchQuery = new TextBox { Width = 320 };
             root.Children.Add(Card(Col(Txt("在线搜索", 18, true),
                 Row(packSearchQuery, Btn("搜索 Modrinth", async () => await SearchModpacksAsync(), true)))));
@@ -1484,8 +1525,8 @@ namespace BlockCraftLauncher.Wpf
 
         UIElement BuildModUpdates()
         {
-            var root = Col(Txt("本地模组与资源管理", 24, true),
-                Txt("管理当前实例的模组、光影和资源包；仅操作用户选择的文件，不自动修改其他 JAR。在线模组版本更新仍在迁移中。", 12, false, true));
+            var root = Col(PageHeading("游戏管理 / 本地资源", "模组与资源管理",
+                "查看当前实例的模组、光影和资源包；导入、启用和停用只作用于选中的文件。"));
             if (activeProfile == null) return Col(Txt("请先在首页选择游戏实例。"), Btn("返回首页", () => Navigate("首页")));
             root.Children.Add(Txt("当前实例：" + activeProfile.Name));
             localResourceKind = new ComboBox { ItemsSource = new[] { "模组", "光影", "资源包" }, SelectedIndex = 0,
@@ -1592,7 +1633,8 @@ namespace BlockCraftLauncher.Wpf
 
         UIElement BuildMultiplayer()
         {
-            var root = Col(Txt("多人联机", 24, true), Txt("服务器收藏 · 可选 TCP 连通性检查 · 复制地址。游戏内仍需选择多人游戏连接。", 12, false, true));
+            var root = Col(PageHeading("多人游戏 / 服务器", "多人联机",
+                "收藏常用服务器、查看本地联机世界并检查连接。服务器收藏不代表已经加入游戏。"));
             serverList = new ListBox { Height = 270, Margin = new Thickness(0, 8, 0, 10),
                 ItemTemplate = (DataTemplate)FindResource("ServerItemTemplate") };
             root.Children.Add(Card(serverList));
@@ -1719,9 +1761,8 @@ namespace BlockCraftLauncher.Wpf
         }
         UIElement BuildLauncherUpdates()
         {
-            var root = Col(Txt("启动器更新", 24, true),
-                Txt("PCL 风格：自动检测、校验后安装，或直接打开已下载的新版本试用。"
-                    + "稳定版和测试版独立，默认不强制下载或安装。", 12, false, true));
+            var root = Col(PageHeading("启动器 / 更新", "启动器更新",
+                "自动检查官方版本，支持校验后静默安装并打开新版；可选择不覆盖安装的临时试用。"));
 
             root.Children.Add(Card(Col(
                 Txt("当前版本 · " + LauncherAutoUpdateService.CurrentTag, 18, true),
@@ -2033,8 +2074,8 @@ namespace BlockCraftLauncher.Wpf
 
         UIElement BuildSettings()
         {
-            var root = Col(Txt("启动器设置", 24, true),
-                Txt("个人设置保存在 BlockCraft 独立配置文件中，不覆盖原 Python 启动器。", 12, false, true));
+            var root = Col(PageHeading("启动器 / 首选项", "启动器设置",
+                "个性化外观、下载线路、自动更新与游戏环境；独立保存，不影响已有游戏与账户。"));
 
             var appearance = SettingsForm();
             settingsTheme = new ComboBox { ItemsSource = new[] { "深色", "浅色" },
@@ -2190,7 +2231,9 @@ namespace BlockCraftLauncher.Wpf
             var box = new TextBox { Text = string.Join(Environment.NewLine, logs), IsReadOnly = true,
                 AcceptsReturn = true, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Height = 450,
                 TextWrapping = TextWrapping.Wrap };
-            return Col(Txt("运行日志", 24, true), Card(box), Btn("刷新日志", () => Navigate("运行日志")));
+            return Col(PageHeading("启动器 / 诊断", "运行日志",
+                "查看本次运行记录，排查下载失败、登录状态与游戏启动问题。"),
+                Card(box), Btn("刷新日志", () => Navigate("运行日志")));
         }
         void EditOfflineAccount()
         {
