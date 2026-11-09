@@ -26,6 +26,7 @@ namespace BlockCraftLauncher.Wpf.Services
         public string IconUrl { get; set; }
         public string AuthorLabel { get; set; }
         public string DownloadsLabel { get; set; }
+        public long DownloadCount { get; set; }
         public string CategoryLabel { get; set; }
         public string VersionsLabel { get; set; }
         public string OfficialUrl { get; set; }
@@ -185,6 +186,7 @@ namespace BlockCraftLauncher.Wpf.Services
                     IconUrl = icon,
                     AuthorLabel = string.IsNullOrWhiteSpace(author) ? "作者未提供" : author,
                     DownloadsLabel = string.IsNullOrWhiteSpace(downloads) ? "下载量未知" : downloads,
+                    DownloadCount = Math.Max(0, count),
                     CategoryLabel = string.IsNullOrWhiteSpace(category) ? "Minecraft 模组" : category,
                     VersionsLabel = string.IsNullOrWhiteSpace(versions)
                         ? "版本需安装时确认" : "近期版本：" + versions,
