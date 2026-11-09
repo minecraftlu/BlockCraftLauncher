@@ -2132,8 +2132,9 @@ namespace BlockCraftLauncher.Wpf
                 Txt("“直接打开”会先下载并校验新版，从临时目录试用；旧安装保留。"
                     + "正式覆盖更新请使用“下载并安装”，完成后会自动打开新版窗口。", 12, false, true))));
             root.Children.Add(Card(Col(Txt("自动更新设置", 18, true),
-                Txt("设置 → 自动更新，可切换稳定版/预览版通道，开启后台检查或自动下载。"
-                    + "安装前会要求退出当前启动器，Minecraft 游戏进程不会被强制关闭。", 12, false, true),
+                Txt("设置中可切换稳定版或预览版、开启后台检查和预下载。"
+                    + "点击“下载并安装”即开始更新，不再弹出二次确认；旧启动器自动退出，"
+                    + "成功后打开新版，失败才显示错误提示。运行中的 Minecraft 游戏不会被结束。", 12, false, true),
                 Row(Btn("修改自动更新设置", () => Navigate("设置")),
                     Btn("查看构建记录", () => LauncherReleaseService.OpenOfficialRelease(
                         "https://github.com/minecraftlu/BlockCraftLauncher/releases"))))));
