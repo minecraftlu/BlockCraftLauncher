@@ -135,7 +135,12 @@ func emitMachine(report joinprobe.Report) {
     record := struct {
         Status string `json:"status"`
         LoginAccepted bool `json:"login_accepted"`
+        LoginReplyObserved bool `json:"login_reply_observed"`
+        LoginReplyCode int8 `json:"login_reply_code"`
         RoomAdmissionAccepted bool `json:"room_admission_accepted"`
+        AdmissionReplyObserved bool `json:"admission_reply_observed"`
+        AdmissionReplyCode int8 `json:"admission_reply_code"`
+        AdmissionDiagnosis string `json:"admission_diagnosis"`
         HostReadySeen bool `json:"host_ready_seen"`
         SignalingAuthenticated bool `json:"signaling_authenticated"`
         WebRTCTransportConnected bool `json:"webrtc_transport_connected"`
@@ -158,7 +163,12 @@ func emitMachine(report joinprobe.Report) {
     }{
         Status: report.Status,
         LoginAccepted: report.LoginAccepted,
+        LoginReplyObserved: report.LoginReplyObserved,
+        LoginReplyCode: report.LoginReplyCode,
         RoomAdmissionAccepted: report.RoomAdmissionAccepted,
+        AdmissionReplyObserved: report.AdmissionReplyObserved,
+        AdmissionReplyCode: report.AdmissionReplyCode,
+        AdmissionDiagnosis: report.AdmissionDiagnosis,
         HostReadySeen: report.HostReadySeen,
         SignalingAuthenticated: report.SignalingAuthenticated,
         WebRTCTransportConnected: report.WebRTCTransportConnected,
