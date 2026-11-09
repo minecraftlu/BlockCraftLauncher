@@ -625,7 +625,8 @@ namespace BlockCraftLauncher.Wpf
                 FindResource("VersionItemTemplate") == null ||
                 FindResource("DownloadItemTemplate") == null ||
                 FindResource("ServerItemTemplate") == null ||
-                FindResource("LocalResourceItemTemplate") == null)
+                FindResource("LocalResourceItemTemplate") == null ||
+                FindResource("CurseForgeItemTemplate") == null)
                 throw new InvalidOperationException("资源、游戏版本或下载任务缺少卡片布局模板");
 
             Navigate("首页");
