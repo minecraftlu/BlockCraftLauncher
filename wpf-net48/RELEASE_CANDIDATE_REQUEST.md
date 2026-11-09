@@ -1,28 +1,35 @@
-# BlockCraft Launcher v0.9.30 WPF Release Candidate 2 · Direct Open
+# BlockCraft Launcher v0.9.31 · Unified Search UI & Failure-Only Update Dialogs (RC1)
 
-- Candidate tag: `v0.9.30-wpf-rc.2` (NEW; do not overwrite RC1)
-- Channel: **prerelease/candidate**, not Stable
-- Windows 10/11 x64 · WPF .NET Framework 4.8
-- Single EXE and full ZIP with standalone updater
+- Candidate tag: `v0.9.31-wpf-rc.1`
+- Channel: **GitHub prerelease / candidate**, not Stable
+- Target: Windows 10/11 x64, WPF, C# .NET Framework 4.8
+- Distribution: OneFile EXE and complete ZIP, both with standalone update helper
 - Development branch: `feature/wpf-net48-alpha-v0.9.27`
 - Request date: 2026-11-10
 
-## Next Stable feature: 直接打开新版
+## Included features
 
-- Update center gains `直接打开新版（不覆盖旧版）`.
-- After normal GitHub Release check and SHA-256 verification, user confirms direct-open. The new EXE/ZIP app runs from a private update staging folder, **not replacing the original installed launcher**.
-- Only after the newly opened WPF main window reaches `ContentRendered` and acknowledges its random token does the previous launcher close.
-- The newly opened window explicitly labels itself as a temporary preview; desktop shortcut still starts the old installed EXE.
-- Existing `下载并安装 · 完成后自动打开新版` remains the permanent update path, with old application backup, startup selftest and rollback.
-- OneFile and full ZIP verify all eligible WPF assets; ZIP direct-open compares **every extracted file** against the SHA-256-verified original archive and refuses extra or modified payloads.
-- Keep Microsoft login, Minecraft version downloads, Forge/Fabric/NeoForge, CurseForge artwork, game saves and Java multiplayer behavior untouched.
+- Remove normal "确认安装 BlockCraft Launcher 更新 / 是 / 否" modal from the **new** launcher when the user explicitly clicks `下载并安装`. Verified update continues to close the old WPF, applies files and automatically opens the new window; true update failures still show errors and rollback prompts.
+- Do not force-install or close Minecraft when automatically detecting or pre-downloading updates. Keep explicit separate temporary `直接打开新版` preview action.
+- Every main page now shares the same Chinese navigation hierarchy, page heading, dark/light adaptive search colors, cards, labels and control sizing.
+- Minecraft game version download: search name, categorized release/snapshot filtering, quick chips and version cards.
+- Modrinth mod / shader / resource packs: name, source, game version, loader, category, quick-sort, paginated icon-result cards.
+- CurseForge: opt-in MCIM, real mod cover images/screenshots, current-page version and category filters, downloads sorting and attribution; no unapproved file URLs.
+- Modrinth modpacks: keyword, game version and sort filters, page navigation, proper result covers; original independent install behavior unchanged.
+- Download tasks: search name and kind, state filters, result count, item progress/speed and selected task details.
+- Preserve saved game files, Microsoft accounts, versions, installed mods, and network/multiplayer behavior.
 
-## Tested and gating
+## Windows CI & release gates
 
-- [Windows CI #42688924777](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42688924777) passed 29 steps, including normal and OneFile UI/window tests, direct-preview SHA-256 checks and temporary-file security checks.
-- The controlled release workflow must perform a fresh clean Windows build, file rollback test, normal and OneFile tests, release SHA-256 generation and upload only on **complete success**.
-- Tests include actual WPF main window rendering for both installed-update relaunch and direct-open, not just successful CreateProcess.
-- **Do not label Stable yet.** Manual Windows testing remains required for real online download, direct-open from v0.9.30 RC1 to RC2, permanent EXE/ZIP upgrade, low permissions/antivirus and game/account/save preservation.
-- The existing v0.9.30 RC1 GitHub Release remains available for rollback.
+- [Windows WPF build #42693187901](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42693187901): **Success**, 29 successful build and regression steps (normal ZIP and OneFile).
+- Static test enforces that normal update install contains **no `MessageBox.Show`** yet preserves `StartExternalInstaller`, application exit and `ShowError` failure path.
+- `--ui-layout-selftest` verifies all navigation and download search controls, offline CurseForge filtering, layouts and bindings; existing download/auth/save and update rollback offline checks still run.
+- Build a new EXE and ZIP in clean Windows runner; run release checks, independent updater selftest, WPF/OneFile tests and SHA-256 manifest before publishing.
+- Publish only **v0.9.31-wpf-rc.1 prerelease**. Do not merge to main, mark Stable, or overwrite v0.9.30 RC2 without real end-to-end Windows testing.
+- IMPORTANT: v0.9.30 RC2 binary still includes its own old confirmation dialog. Installing v0.9.31 using RC2's updater will show the old prompt once. The new no-dialog behavior applies when v0.9.31 is subsequently used to install a **future** compatible release. A direct manual install of RC1 avoids the old prompt immediately.
 
-Details: `wpf-net48/docs/V0930_DIRECT_OPEN.md`.
+## Pending real-device acceptance
+
+Chinese Windows network download/Modrinth/CurseForge search and images, SHA-256, actual upgrade to future version without confirmation, game compatibility, light/dark DPI, error rollback under permissions/antivirus; only then qualify future Stable.
+
+Full specification: `wpf-net48/docs/V0931_UNIFIED_UI_AND_SILENT_UPDATES.md`.
