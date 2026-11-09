@@ -1496,47 +1496,125 @@ namespace BlockCraftLauncher.Wpf
             catch (Exception ex) { ShowError("检查启动器更新失败", ex); }
         }
 
+        // Shared two-column settings rows, matching the PCL2-style label /
+        // value rhythm. Kept in WPF so it works across light/dark themes.
+        static Grid SettingsForm()
+        {
+            var form = new Grid { Margin = new Thickness(2, 7, 0, 0) };
+            form.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(164) });
+            form.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            return form;
+        }
+
+        static void SettingRow(Grid form, string name, FrameworkElement editor, string description = null)
+        {
+            int row = form.RowDefinitions.Count;
+            form.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var title = Txt(name, 13);
+            title.VerticalAlignment = VerticalAlignment.Top;
+            title.Margin = new Thickness(0, 9, 13, 14);
+            Grid.SetRow(title, row);
+            Grid.SetColumn(title, 0);
+            form.Children.Add(title);
+
+            var right = new StackPanel { Margin = new Thickness(0, 0, 0, 12) };
+            editor.HorizontalAlignment = HorizontalAlignment.Stretch;
+            if (editor is TextBox input)
+            {
+                input.MinWidth = 100;
+                input.Margin = new Thickness(0, 0, 0, 2);
+            }
+            else if (editor is ComboBox choice)
+                choice.Margin = new Thickness(0, 0, 0, 2);
+            right.Children.Add(editor);
+            if (!string.IsNullOrWhiteSpace(description))
+            {
+                var note = Txt(description, 11, false, true);
+                note.Margin = new Thickness(0, 3, 0, 0);
+                right.Children.Add(note);
+            }
+            Grid.SetRow(right, row);
+            Grid.SetColumn(right, 1);
+            form.Children.Add(right);
+        }
+
         UIElement BuildSettings()
         {
-            var root = Col(Txt("启动器设置", 24, true), Txt("配置单独保存为 WPF 预览文件，不覆盖旧启动器的 settings.json。", 12, false, true));
-            var p = Col(Txt("外观与缩放", 18, true), Txt("主题", 13, false, true));
-            settingsTheme = new ComboBox { ItemsSource = new[] { "深色", "浅色" }, SelectedItem = settings.Theme, Width = 250, HorizontalAlignment = HorizontalAlignment.Left };
-            settingsTheme.SelectionChanged += (s, e) => { settings.Theme = Convert.ToString(settingsTheme.SelectedItem); ApplyTheme(); };
-            p.Children.Add(settingsTheme);
-            zoomValue = Txt(settings.Zoom + "%", 14, true);
-            settingsZoom = new Slider { Minimum = 80, Maximum = 140, TickFrequency = 10, IsSnapToTickEnabled = true, Value = settings.Zoom,
-                Width = 300, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 8) };
-            settingsZoom.ValueChanged += (s, e) => { settings.Zoom = (int)settingsZoom.Value; ApplyZoom(); if (zoomValue != null) zoomValue.Text = settings.Zoom + "%"; };
-            p.Children.Add(Txt("界面缩放（全部控件，布局跟随重排）", 13, false, true)); p.Children.Add(settingsZoom); p.Children.Add(zoomValue);
-            root.Children.Add(Card(p));
-            var paths = Col(Txt("游戏与下载", 18, true));
-            paths.Children.Add(Txt("Minecraft 游戏根目录", 13, false, true));
-            settingsRoot = new TextBox { Text = settings.Root };
-            paths.Children.Add(settingsRoot);
-            paths.Children.Add(Txt("Java 可执行文件（预留，启动库可自行查找运行时）", 13, false, true));
-            settingsJava = new TextBox { Text = settings.JavaPath }; paths.Children.Add(settingsJava);
-            paths.Children.Add(Txt("下载线路：自动 / 官方 / BMCLAPI 镜像（仅支持的 Mojang 文件）", 13, false, true));
-            settingsNetworkMode = new ComboBox { ItemsSource = new[] { "auto", "official", "mirror" },
-                SelectedItem = settings.NetworkMode, Width = 240, HorizontalAlignment = HorizontalAlignment.Left };
-            paths.Children.Add(settingsNetworkMode);
-            paths.Children.Add(Txt("下载文件并发连接数（2～32）", 13, false, true));
-            settingsDownloadThreads = new TextBox { Text = settings.DownloadThreads.ToString(), Width = 130 };
-            paths.Children.Add(settingsDownloadThreads);
-            paths.Children.Add(Txt("下载重试次数（1～6）", 13, false, true));
-            settingsDownloadRetries = new TextBox { Text = settings.DownloadRetries.ToString(), Width = 130 };
-            paths.Children.Add(settingsDownloadRetries);
-            paths.Children.Add(Txt("HTTP/HTTPS 代理", 13, false, true));
-            settingsProxy = new TextBox { Text = settings.Proxy }; paths.Children.Add(settingsProxy);
-            settingsMcim = new CheckBox { IsChecked = settings.McimEnabled,
-                Content = "启用可选 MCIM 镜像（CurseForge 元数据和部分 JAR 下载）" };
-            paths.Children.Add(settingsMcim);
-            paths.Children.Add(Txt("MCIM 是非官方镜像。启用前请确认有权接入该服务，并遵守资源作者的下载/分发限制。", 12, false, true));
-            paths.Children.Add(Txt("离线玩家名称", 13, false, true));
-            settingsPlayer = new TextBox { Text = settings.OfflineName }; paths.Children.Add(settingsPlayer);
-            paths.Children.Add(Txt("内存（MB）", 13, false, true));
-            settingsMemory = new TextBox { Text = settings.MemoryMb.ToString() }; paths.Children.Add(settingsMemory);
-            paths.Children.Add(Row(Btn("保存设置", SaveSettings, true), Btn("恢复 100% 缩放", () => { settingsZoom.Value = 100; })));
-            root.Children.Add(Card(paths)); return root;
+            var root = Col(Txt("启动器设置", 24, true),
+                Txt("个人设置保存在 BlockCraft 独立配置文件中，不覆盖原 Python 启动器。", 12, false, true));
+
+            var appearance = SettingsForm();
+            settingsTheme = new ComboBox { ItemsSource = new[] { "深色", "浅色" },
+                SelectedItem = settings.Theme, MaxWidth = 240 };
+            settingsTheme.SelectionChanged += (sender, args) =>
+            {
+                settings.Theme = Convert.ToString(settingsTheme.SelectedItem);
+                ApplyTheme();
+            };
+            SettingRow(appearance, "界面主题", settingsTheme, "使用系统原生字体、按钮和统一导航符号");
+
+            zoomValue = Txt(settings.Zoom + "%", 13, true);
+            zoomValue.VerticalAlignment = VerticalAlignment.Center;
+            zoomValue.Margin = new Thickness(11, 0, 0, 0);
+            settingsZoom = new Slider
+            {
+                Minimum = 80, Maximum = 140, TickFrequency = 10,
+                IsSnapToTickEnabled = true, Value = settings.Zoom,
+                Width = 265, VerticalAlignment = VerticalAlignment.Center
+            };
+            settingsZoom.ValueChanged += (sender, args) =>
+            {
+                settings.Zoom = (int)settingsZoom.Value;
+                ApplyZoom();
+                if (zoomValue != null) zoomValue.Text = settings.Zoom + "%";
+            };
+            var zoomRow = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
+            zoomRow.Children.Add(settingsZoom);
+            zoomRow.Children.Add(zoomValue);
+            SettingRow(appearance, "界面缩放", zoomRow, "80%～140%；调整后主页面和侧边栏同步缩放");
+            root.Children.Add(Card(Col(Txt("外观", 18, true), appearance)));
+
+            var game = SettingsForm();
+            settingsRoot = new TextBox { Text = settings.Root, ToolTip = "Minecraft 根目录（含 versions、libraries 等）" };
+            SettingRow(game, "游戏根目录", settingsRoot, "独立实例可使用自己的游戏文件夹");
+            settingsJava = new TextBox { Text = settings.JavaPath, ToolTip = "留空时由启动组件自动选择 Java" };
+            SettingRow(game, "Java 路径", settingsJava, "留空则由 Minecraft 启动组件自动查找运行环境");
+            settingsPlayer = new TextBox { Text = settings.OfflineName, MaxWidth = 240 };
+            SettingRow(game, "离线玩家名", settingsPlayer, "3～16 位字母、数字或下划线；正版账号不受影响");
+            settingsMemory = new TextBox { Text = settings.MemoryMb.ToString(), MaxWidth = 180 };
+            SettingRow(game, "游戏内存（MB）", settingsMemory, "例如 4096，启动时至少分配 512 MB");
+            root.Children.Add(Card(Col(Txt("游戏与账号", 18, true), game)));
+
+            var network = SettingsForm();
+            settingsNetworkMode = new ComboBox {
+                ItemsSource = new[] { "auto", "official", "mirror" },
+                SelectedItem = settings.NetworkMode, MaxWidth = 240 };
+            SettingRow(network, "下载线路", settingsNetworkMode,
+                "auto 自动 · official 官方 · mirror 镜像（仅受支持资源）");
+            settingsDownloadThreads = new TextBox { Text = settings.DownloadThreads.ToString(), MaxWidth = 130 };
+            SettingRow(network, "并发连接", settingsDownloadThreads, "2～32 个连接");
+            settingsDownloadRetries = new TextBox { Text = settings.DownloadRetries.ToString(), MaxWidth = 130 };
+            SettingRow(network, "失败重试", settingsDownloadRetries, "1～6 次");
+            settingsProxy = new TextBox { Text = settings.Proxy, ToolTip = "HTTP/HTTPS 代理地址，可留空" };
+            SettingRow(network, "HTTP 代理", settingsProxy);
+            settingsMcim = new CheckBox
+            {
+                IsChecked = settings.McimEnabled,
+                Content = new TextBlock
+                {
+                    Text = "启用 MCIM（CurseForge 可选镜像）",
+                    TextWrapping = TextWrapping.Wrap
+                }
+            };
+            SettingRow(network, "社区镜像", settingsMcim,
+                "MCIM 非官方服务，启用前请确认接入权限并遵守作者许可");
+            root.Children.Add(Card(Col(Txt("下载与网络", 18, true), network)));
+
+            root.Children.Add(Row(
+                Btn("保存设置", SaveSettings, true),
+                Btn("恢复 100% 缩放", () => { settingsZoom.Value = 100; }),
+                Btn("打开游戏目录", OpenGameFolder)));
+            return root;
         }
         void SaveSettings()
         {
