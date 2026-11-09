@@ -77,7 +77,7 @@ namespace BlockCraftLauncher.Wpf
             // The external updater supplies a one-time random token. Only a
             // fully rendered, visible main window may acknowledge relaunch.
             // Normal starts and every offline selftest never write this file.
-            string postUpdateToken = smokeTest ? null :
+            string postUpdateToken = smokeTest && !relaunchWindowSelfTest ? null :
                 LauncherRelaunchSignal.ReadToken(e.Args);
 
             if (authSelfTest)
