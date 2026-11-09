@@ -453,12 +453,31 @@ namespace BlockCraft.NeteaseRoomLab
             return RunAsync(room, helperPath, tryWebRTC, 8, cancellationToken);
         }
 
-        public static async Task<string> RunAsync(
+        public static Task<string> RunAsync(
             string room, string helperPath, bool tryWebRTC,
             int observationSeconds, CancellationToken cancellationToken)
         {
+            return RunCoreAsync(room,helperPath,tryWebRTC,
+                observationSeconds,cancellationToken,false);
+        }
+
+        public static Task<string> RunReadOnlyIPCAsync(
+            string room, string helperPath, int observationSeconds,
+            CancellationToken cancellationToken)
+        {
+            return RunCoreAsync(room,helperPath,true,
+                observationSeconds,cancellationToken,true);
+        }
+
+        private static async Task<string> RunCoreAsync(
+            string room,string helperPath,bool tryWebRTC,
+            int observationSeconds,CancellationToken cancellationToken,
+            bool useReadOnlyIPC)
+        {
             if (observationSeconds != 8 && observationSeconds != 30 && observationSeconds != 60)
                 return "OBSERVATION_DURATION_INVALID：只允许 8、30 或 60 秒被动观察。";
+            if (useReadOnlyIPC && (observationSeconds != 30 && observationSeconds != 60))
+                return "STAGE12_READONLY_WORKER_INVALID：只读接收需要 30 或 60 秒观察。";
             if (cancellationToken.IsCancellationRequested)
                 return "LOCAL_PROBE_CANCELLED：本机用户取消了测试。";
             if (String.IsNullOrWhiteSpace(room) || room.Length > 10)
@@ -477,6 +496,10 @@ namespace BlockCraft.NeteaseRoomLab
             try
             {
                 string localExecutable = ExtractVerifiedExecutable();
+                string inboundWorker = useReadOnlyIPC ? ExtractReadOnlyWorker() : null;
+                if (useReadOnlyIPC && inboundWorker == null)
+                    return "STAGE12_READONLY_WORKER_UNAVAILABLE_GAME_NOT_JOINED："
+                        + "当前 EXE 未内置完整的只读接收工作进程。";
                 if (localExecutable == null)
                     return "JOIN_PROBE_COMPONENT_UNAVAILABLE：当前 EXE 没有嵌入真实 RakNet 探针。"
                         + " 请使用新的稳定版实验构建。";
@@ -496,7 +519,9 @@ namespace BlockCraft.NeteaseRoomLab
                         + " -cancel-on-stdin-close"
                         + (tryWebRTC ? " -try-webrtc -observe-seconds "
                             + observationSeconds.ToString(
-                                System.Globalization.CultureInfo.InvariantCulture) : ""),
+                                System.Globalization.CultureInfo.InvariantCulture) : "")
+                        + (useReadOnlyIPC ? " -try-readonly-ipc -stage12-worker \""
+                            + inboundWorker + "\"" : ""),
                     WorkingDirectory = Path.GetDirectoryName(localExecutable),
                     RedirectStandardInput = true,
                     RedirectStandardOutput = true,
@@ -582,6 +607,46 @@ namespace BlockCraft.NeteaseRoomLab
             }
             try { await exit; return true; }
             catch (Exception) { return false; }
+        }
+
+        // Copy the reviewed embedded Stage12Worker to the private workspace.
+        // A digest-specific directory avoids overwriting a running binary,
+        // while the fixed basename is required by the Go safety gate.
+        private static string ExtractReadOnlyWorker()
+        {
+            using (var stream = Assembly.GetExecutingAssembly()
+                .GetManifestResourceStream(Stage12OfflineBridge.WorkerResource))
+            {
+                if (stream == null) return null;
+                byte[] bytes;
+                using (var memory = new MemoryStream())
+                {
+                    stream.CopyTo(memory);
+                    bytes = memory.ToArray();
+                }
+                byte[] hash;
+                using (var sha = SHA256.Create()) hash = sha.ComputeHash(bytes);
+                string digest = BitConverter.ToString(hash).Replace("-","").ToLowerInvariant();
+                string folder = Path.Combine(GuestEmailAuth.GetWorkspace(),
+                    "stage12-receiver-" + digest.Substring(0,16));
+                Directory.CreateDirectory(folder);
+                string target = Path.Combine(folder,"Stage12Worker.exe");
+                if (File.Exists(target))
+                {
+                    using (var existing = File.OpenRead(target))
+                    using (var sha = SHA256.Create())
+                    {
+                        var got = sha.ComputeHash(existing);
+                        bool same = got.Length == hash.Length;
+                        for (int i=0;same && i<hash.Length;i++)
+                            if (got[i]!=hash[i]) same=false;
+                        if (same) {Array.Clear(bytes,0,bytes.Length);return target;}
+                    }
+                }
+                File.WriteAllBytes(target,bytes);
+                Array.Clear(bytes,0,bytes.Length);
+                return target;
+            }
         }
 
         private static string ExtractVerifiedExecutable()
