@@ -64,6 +64,7 @@
     <Compile Include="JoinProbeRunner.cs" />
     <Compile Include="Stage12OfflineBridge.cs" />
     <Compile Include="Stage127CodecReference.cs" />
+    <Compile Include="Stage128ClientBuildReference.cs" />
     <EmbeddedResource Include="..\GuestTransportLab\dist\BlockCraft.JoinProbe.exe" Condition="Exists('..\GuestTransportLab\dist\BlockCraft.JoinProbe.exe')">
       <LogicalName>BlockCraft.JoinProbe.exe</LogicalName>
     </EmbeddedResource>
