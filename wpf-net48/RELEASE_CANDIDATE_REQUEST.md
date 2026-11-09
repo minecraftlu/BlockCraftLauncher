@@ -1,31 +1,28 @@
-# BlockCraft Launcher v0.9.30 WPF Release Candidate 1
+# BlockCraft Launcher v0.9.30 WPF Release Candidate 2 · Direct Open
 
-- Candidate tag: `v0.9.30-wpf-rc.1`
+- Candidate tag: `v0.9.30-wpf-rc.2` (NEW; do not overwrite RC1)
 - Channel: **prerelease/candidate**, not Stable
-- Target: Windows 10/11 x64, C# / WPF / .NET Framework 4.8
-- Formats: portable single EXE and complete ZIP, both with the standalone updater
+- Windows 10/11 x64 · WPF .NET Framework 4.8
+- Single EXE and full ZIP with standalone updater
 - Development branch: `feature/wpf-net48-alpha-v0.9.27`
-- Date: 2026-11-10
+- Request date: 2026-11-10
 
-## Requested feature: automatically open new launcher window after update
+## Next Stable feature: 直接打开新版
 
-- After a user confirms the final installation prompt, old WPF exits; standalone updater applies verified replacement and starts the original installed **new** launcher executable.
-- New WPF actually renders its `MainWindow`, brings it to the foreground, sets a non-modal «更新完成» status and emits a one-time per-launch random confirmation file.
-- Update helper waits for the true WPF child process to report a rendered window, including when the single EXE outer bootstrap exits before its child.
-- When a window cannot be confirmed, no duplicate launches, no overwrite of an already running new version. Instead prompt for manual launch at the known actual application EXE path.
-- Retain v0.9.29: official SHA-256 updates, stable/preview channels, opt-in auto download, independent rollback helper, preserved Minecraft worlds/authentication, and original game process unaffected.
+- Update center gains `直接打开新版（不覆盖旧版）`.
+- After normal GitHub Release check and SHA-256 verification, user confirms direct-open. The new EXE/ZIP app runs from a private update staging folder, **not replacing the original installed launcher**.
+- Only after the newly opened WPF main window reaches `ContentRendered` and acknowledges its random token does the previous launcher close.
+- The newly opened window explicitly labels itself as a temporary preview; desktop shortcut still starts the old installed EXE.
+- Existing `下载并安装 · 完成后自动打开新版` remains the permanent update path, with old application backup, startup selftest and rollback.
+- OneFile and full ZIP verify all eligible WPF assets; ZIP direct-open compares **every extracted file** against the SHA-256-verified original archive and refuses extra or modified payloads.
+- Keep Microsoft login, Minecraft version downloads, Forge/Fabric/NeoForge, CurseForge artwork, game saves and Java multiplayer behavior untouched.
 
-## Automated testing completed
+## Tested and gating
 
-- [Windows CI #42685988330](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42685988330): **success**, compiles and exercises both launcher forms, normal feature regressions, isolated updater file rollback and actual `ContentRendered` window acknowledgment.
-- Both the multi-file and OneFile Windows executables are launched with a one-time test token. The WPF child emits a render proof after its real window is shown; the harness verifies correct PID, timestamp and success exit code.
-- Update helper tests asynchronous window-ready marker detection, missing-marker handling, and EXE and ZIP file rollback without executing fake dummy binaries.
-- Controlled release workflow reruns all checks and generates independent SHA-256 digest manifests before GitHub Release.
+- [Windows CI #42688924777](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42688924777) passed 29 steps, including normal and OneFile UI/window tests, direct-preview SHA-256 checks and temporary-file security checks.
+- The controlled release workflow must perform a fresh clean Windows build, file rollback test, normal and OneFile tests, release SHA-256 generation and upload only on **complete success**.
+- Tests include actual WPF main window rendering for both installed-update relaunch and direct-open, not just successful CreateProcess.
+- **Do not label Stable yet.** Manual Windows testing remains required for real online download, direct-open from v0.9.30 RC1 to RC2, permanent EXE/ZIP upgrade, low permissions/antivirus and game/account/save preservation.
+- The existing v0.9.30 RC1 GitHub Release remains available for rollback.
 
-## Do not mistake CI for full Stable acceptance
-
-- Candidate must be visibly tagged **prerelease**. No Stable/automatic update channel promotion before real Windows end-to-end installation from v0.9.29 RC1 to v0.9.30 RC1.
-- Required user verification: actual new main window appears automatically and shows the new version, old launcher closes, no duplicated window, Microsoft login remains usable, game and saved worlds remain intact, both install types where feasible.
-- No unsupported NetEase mobile-room claims. Previous RCs and Python launcher must not be replaced.
-
-Details: `wpf-net48/docs/V0930_AUTO_RELAUNCH.md`.
+Details: `wpf-net48/docs/V0930_DIRECT_OPEN.md`.
