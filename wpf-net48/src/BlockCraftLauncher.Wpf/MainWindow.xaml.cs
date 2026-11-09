@@ -56,7 +56,10 @@ namespace BlockCraftLauncher.Wpf
         string resourceType = "mod";
         int resourcePage;
         CheckBox resourceMatchVersion;
-        ComboBox resourceSort;
+        ComboBox resourceSort, resourceSource, resourceVersion, resourceCategory, resourceLoader;
+        Button resourceSearchButton, resourcePrevButton, resourceNextButton;
+        TextBlock resourceCounter;
+        CancellationTokenSource resourceSearchCancellation;
         CancellationTokenSource currentOperation;
         bool loadingVersions;
 
@@ -113,12 +116,26 @@ namespace BlockCraftLauncher.Wpf
             sidebar.Children.Add(title);
             foreach (var name in names)
             {
-                var btn = Btn(NavGlyph(name) + "    " + name, () => navigate(name));
+                var btn = Btn(NavGlyph(name) + "    " + NavLabel(name), () => navigate(name));
                 btn.SetResourceReference(FrameworkElement.StyleProperty, "SidebarItem");
                 sidebar.Children.Add(btn); buttonMap[name] = btn;
             }
             sidebar.Children.Add(new Separator { Margin = new Thickness(8, 9, 10, 13) });
         }
+        static string NavLabel(string page)
+        {
+            switch (page)
+            {
+                case "游戏版本": return "原版游戏";
+                case "资源中心": return "Mod";
+                case "光影引擎": return "光影包";
+                case "资源包": return "资源包";
+                case "整合包": return "整合包";
+                case "CurseForge": return "CurseForge";
+                default: return page;
+            }
+        }
+
         static string NavGlyph(string page)
         {
             switch (page)
@@ -142,7 +159,7 @@ namespace BlockCraftLauncher.Wpf
         {
             SideMenu.Children.Clear(); sidebarButtons.Clear();
             AddNavSection(SideMenu, "游戏", new[] { "首页", "游戏版本", "下载管理" }, Navigate, sidebarButtons);
-            AddNavSection(SideMenu, "资源下载", new[] { "资源中心", "光影引擎", "资源包", "整合包", "CurseForge" }, Navigate, sidebarButtons);
+            AddNavSection(SideMenu, "社区资源", new[] { "资源中心", "整合包", "资源包", "光影引擎", "CurseForge" }, Navigate, sidebarButtons);
             AddNavSection(SideMenu, "管理与工具", new[] { "模组更新", "多人联机", "启动器更新", "设置", "运行日志" }, Navigate, sidebarButtons);
             SideMenu.Children.Add(Txt("当前账号", 12, true, true));
             SideMenu.Children.Add(Txt(settings.AccountMode == "offline" ? "离线：" + settings.OfflineName :
@@ -578,17 +595,18 @@ namespace BlockCraftLauncher.Wpf
 
         UIElement BuildResources(string type)
         {
+            resourceSearchCancellation?.Cancel();
             resourceType = type;
             resourceResults.Clear();
             resourcePage = 0;
-            var title = type == "mod" ? "Modrinth · 模组下载" :
-                type == "shader" ? "光影引擎与光影包" : "资源包与材质";
+
+            string title = type == "mod" ? "搜索 Mod" :
+                type == "shader" ? "搜索光影包" : "搜索资源包";
             var root = Col(Txt(title, 24, true),
-                Txt("按游戏版本和加载器筛选资源。安装前会校验文件 SHA-1，并使用独立下载任务。", 12, false, true));
+                Txt("搜索 Minecraft 社区资源，按版本与分类筛选；选择后使用原有 SHA-1 安全下载流程。", 12, false, true));
 
             resourceQuery = new TextBox {
-                Width = 365,
-                ToolTip = "输入资源名称或关键词；留空可以浏览热门项目"
+                ToolTip = "输入资源名称；留空时搜索热门项目"
             };
             resourceQuery.KeyDown += async (sender, args) =>
             {
@@ -599,72 +617,145 @@ namespace BlockCraftLauncher.Wpf
                     args.Handled = true;
                 }
             };
+
+            resourceVersion = new ComboBox {
+                IsEditable = true, IsTextSearchEnabled = true,
+                ItemsSource = (new[] { "全部（也可自行输入）", activeProfile?.BaseVersion,
+                    "1.21.11", "1.21.10", "1.21.8", "1.21.1", "1.20.1", "1.19.4" })
+                    .Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().ToArray(),
+                SelectedIndex = 0,
+                ToolTip = "选择或输入 Minecraft Java 版本，例如 1.21.1"
+            };
+            resourceSource = new ComboBox {
+                ItemsSource = new[] { "Modrinth", "CurseForge（独立搜索）" },
+                SelectedIndex = 0,
+                ToolTip = "CurseForge 使用单独的可选 MCIM 服务，并非自动合并的搜索来源"
+            };
+            resourceCategory = new ComboBox {
+                ItemsSource = new[] {
+                    "全部类型", "性能优化", "科技", "冒险", "装饰", "实用工具",
+                    "世界生成", "生物", "支持库", "玩法", "装备", "存储", "管理"
+                },
+                SelectedIndex = 0,
+                IsEnabled = type == "mod"
+            };
             resourceMatchVersion = new CheckBox {
-                Content = "匹配当前实例的游戏版本和加载器",
-                IsChecked = activeProfile != null,
-                VerticalAlignment = VerticalAlignment.Center
+                Content = "仅显示当前游戏实例兼容资源",
+                IsChecked = false,
+                IsEnabled = activeProfile != null,
+                ToolTip = "启用后按当前实例的 Minecraft 版本和加载器搜索"
+            };
+            resourceLoader = new ComboBox {
+                ItemsSource = new[] { "全部加载器", "Fabric", "Forge", "NeoForge", "Quilt" },
+                SelectedIndex = 0, Width = 130, IsEnabled = type == "mod",
+                ToolTip = "按加载器类别筛选；勾选当前实例兼容时优先使用实例的加载器"
             };
             resourceSort = new ComboBox {
-                ItemsSource = new[] { "相关度优先", "下载量最高", "最近更新", "最新发布" },
-                SelectedIndex = 0,
-                Width = 150
+                ItemsSource = new[] { "相关度", "下载量", "最近更新", "最新发布" },
+                SelectedIndex = 0, Width = 132
             };
-            var search = Col(Txt("查找资源", 17, true),
-                Txt("搜索关键词", 12, false, true),
-                Row(resourceQuery,
-                    Btn("🔍  搜索", async () => {
-                        resourcePage = 0;
-                        await SearchResourcesAsync();
-                    }, true)));
-            var filters = Row(resourceMatchVersion, Txt("排序方式", 12, false, true),
-                resourceSort);
-            search.Children.Add(filters);
-            root.Children.Add(Card(search));
+
+            // 4-column search card: two rows of Name/Source and Version/Type,
+            // matching the reference information hierarchy without borrowing
+            // proprietary artwork or performing unsafe multi-provider merging.
+            var form = new Grid { Margin = new Thickness(3, 7, 3, 5) };
+            form.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(58) });
+            form.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            form.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });
+            form.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(208) });
+            form.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            form.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var labelName = Txt("名称", 13);
+            labelName.Margin = new Thickness(0, 9, 5, 0);
+            var labelSource = Txt("来源", 13);
+            labelSource.Margin = new Thickness(4, 9, 5, 0);
+            var labelVersion = Txt("版本", 13);
+            labelVersion.Margin = new Thickness(0, 9, 5, 0);
+            var labelCategory = Txt("类型", 13);
+            labelCategory.Margin = new Thickness(4, 9, 5, 0);
+            Place(form, labelName, 0, 0);
+            Place(form, resourceQuery, 0, 1);
+            Place(form, labelSource, 0, 2);
+            Place(form, resourceSource, 0, 3);
+            Place(form, labelVersion, 1, 0);
+            Place(form, resourceVersion, 1, 1);
+            Place(form, labelCategory, 1, 2);
+            Place(form, resourceCategory, 1, 3);
+
+            resourceSearchButton = Btn("搜索", async () =>
+            {
+                resourcePage = 0;
+                await SearchResourcesAsync();
+            }, true);
+            resourceSearchButton.MinWidth = 142;
+            var clearButton = Btn("重置条件", () =>
+            {
+                resourceSearchCancellation?.Cancel();
+                resourceQuery.Text = "";
+                resourceVersion.SelectedIndex = 0;
+                resourceSource.SelectedIndex = 0;
+                resourceCategory.SelectedIndex = 0;
+                resourceLoader.SelectedIndex = 0;
+                resourceSort.SelectedIndex = 0;
+                resourceMatchVersion.IsChecked = false;
+                resourcePage = 0;
+                resourceResults.Clear();
+                if (resourceCounter != null)
+                    resourceCounter.Text = "条件已重置，点击搜索查看资源";
+                if (resourcePrevButton != null) resourcePrevButton.IsEnabled = false;
+                if (resourceNextButton != null) resourceNextButton.IsEnabled = false;
+            });
+            clearButton.MinWidth = 140;
+            var filters = Row(resourceMatchVersion, Txt("加载器", 12, false, true),
+                resourceLoader, Txt("排序", 12, false, true), resourceSort);
+            var searchCard = Col(Txt(title, 17, true), form, filters,
+                Row(resourceSearchButton, clearButton));
+            root.Children.Add(Card(searchCard));
 
             resourceList = new ListBox {
                 ItemsSource = resourceResults,
                 ItemTemplate = (DataTemplate)FindResource("ResourceItemTemplate"),
-                Height = 445,
-                HorizontalContentAlignment = HorizontalAlignment.Stretch
+                Height = 470, HorizontalContentAlignment = HorizontalAlignment.Stretch
             };
             ScrollViewer.SetHorizontalScrollBarVisibility(resourceList, ScrollBarVisibility.Disabled);
-            // PCL-like direct interaction: select once to inspect, double-click
-            // to install using the existing verified DownloadTaskCenter flow.
             resourceList.MouseDoubleClick += async (sender, args) =>
             {
                 if (resourceList.SelectedItem is ResourceHit)
                     await InstallResourceAsync();
             };
-            var results = Col(Txt("搜索结果", 17, true),
-                Txt("项目标题与描述分行显示；选择项目后点击“安装”，或双击资源条目。", 12, false, true),
-                resourceList);
-            results.Children.Add(Row(
-                Btn("←  上一页", async () => {
-                    resourcePage = Math.Max(0, resourcePage - 1);
-                    await SearchResourcesAsync();
-                }),
-                Btn("下一页  →", async () => {
-                    resourcePage++;
-                    await SearchResourcesAsync();
-                }),
-                Txt("每页最多 20 个项目", 11, false, true)));
+            resourceCounter = Txt("请输入名称或直接点击搜索，查看 Modrinth 项目", 12, false, true);
+            resourcePrevButton = Btn("上一页", async () =>
+            {
+                if (resourcePage <= 0) return;
+                resourcePage--;
+                await SearchResourcesAsync();
+            });
+            resourcePrevButton.IsEnabled = false;
+            resourceNextButton = Btn("下一页", async () =>
+            {
+                resourcePage++;
+                await SearchResourcesAsync();
+            });
+            resourceNextButton.IsEnabled = false;
+            var results = Col(resourceCounter, resourceList,
+                Row(resourcePrevButton, resourceNextButton));
             root.Children.Add(Card(results));
 
             if (type == "shader")
                 root.Children.Add(Card(Col(Txt("光影运行组件", 17, true),
-                    Txt("可从 Modrinth 获取与实例版本匹配的 Iris 和 Sodium。"
-                        + "OptiFine 需在其官方网站获取。", 12, false, true),
+                    Txt("Iris 与 Sodium 将按当前游戏实例的 Minecraft 版本及加载器匹配。"
+                        + "OptiFine 必须由用户访问其官方网站下载。", 12, false, true),
                     Row(Btn("安装 Iris", async () =>
                             await InstallGraphicsModAsync("YL57xq9U", "Iris Shaders"), true),
                         Btn("安装 Sodium", async () =>
                             await InstallGraphicsModAsync("AANobbMI", "Sodium")),
-                        Btn("OptiFine 官网", OpenOfficialOptiFine)))));
+                        Btn("OptiFine 官方下载", OpenOfficialOptiFine)))));
 
-            root.Children.Add(Card(Col(Txt("下载与安装", 17, true),
-                Txt("选中的资源会安装到当前游戏实例；未选择实例或资源时不会执行下载。", 12, false, true),
+            root.Children.Add(Card(Col(Txt("资源安装", 17, true),
+                Txt("选择项目后安装到当前实例，也可以双击项目。下载任务仍会进行兼容性和 SHA-1 校验。", 12, false, true),
                 Row(Btn("安装选中资源", async () => await InstallResourceAsync(), true),
-                    Btn("打开下载任务", () => Navigate("下载管理")),
-                    Btn("打开实例文件夹", OpenGameFolder)))));
+                    Btn("打开下载管理", () => Navigate("下载管理")),
+                    Btn("打开实例目录", OpenGameFolder)))));
             return root;
         }
         async Task InstallGraphicsModAsync(string projectId, string name)
@@ -704,22 +795,98 @@ namespace BlockCraftLauncher.Wpf
 
         async Task SearchResourcesAsync()
         {
-            Status("正在搜索 Modrinth...");
-            try
+            // An opt-in alternate provider remains a separate workflow. We
+            // never promise merged results when CurseForge is not enabled.
+            if (resourceSource?.SelectedIndex == 1)
             {
-                using (var client = new ModrinthClient(settings))
+                string query = resourceQuery?.Text ?? "";
+                Navigate("CurseForge");
+                if (cfSearchQuery != null) cfSearchQuery.Text = query;
+                if (settings.McimEnabled && !string.IsNullOrWhiteSpace(query))
+                    await SearchCurseForgeAsync();
+                return;
+            }
+
+            var oldRequest = resourceSearchCancellation;
+            oldRequest?.Cancel();
+            using (var request = new CancellationTokenSource(TimeSpan.FromSeconds(35)))
+            {
+                resourceSearchCancellation = request;
+                if (resourceSearchButton != null) resourceSearchButton.IsEnabled = false;
+                if (resourceCounter != null)
+                    resourceCounter.Text = "正在向 Modrinth 搜索项目...";
+                Status("正在搜索 Modrinth...");
+                try
                 {
                     string sort = new[] { "relevance", "downloads", "updated", "newest" }
-                        [Math.Max(0, resourceSort?.SelectedIndex ?? 0)];
-                    bool compatible = resourceMatchVersion?.IsChecked == true;
-                    var result = await client.SearchAsync(resourceQuery.Text, resourceType,
-                        CancellationToken.None, compatible ? activeProfile?.BaseVersion : null,
-                        compatible ? activeProfile?.Loader : null, sort, resourcePage * 20);
-                    resourceResults.Clear(); foreach (var item in result) resourceResults.Add(item);
+                        [Math.Max(0, Math.Min(3, resourceSort?.SelectedIndex ?? 0))];
+                    bool compatible = resourceMatchVersion?.IsChecked == true && activeProfile != null;
+                    string selectedVersion = resourceVersion?.Text?.Trim();
+                    string gameVersion = compatible ? activeProfile.BaseVersion :
+                        string.IsNullOrWhiteSpace(selectedVersion) ||
+                        selectedVersion.StartsWith("全部", StringComparison.Ordinal) ?
+                        null : selectedVersion;
+                    string loader = compatible ? activeProfile.Loader :
+                        resourceLoader?.SelectedIndex > 0 ?
+                        (resourceLoader.SelectedItem as string)?.ToLowerInvariant() : null;
+                    string category = null;
+                    if (resourceType == "mod" && resourceCategory != null &&
+                        resourceCategory.SelectedIndex > 0)
+                    {
+                        string[] categories = { null, "optimization", "technology",
+                            "adventure", "decoration", "utility", "worldgen", "mobs",
+                            "library", "gameplay", "equipment", "storage", "management" };
+                        category = categories[Math.Min(resourceCategory.SelectedIndex,
+                            categories.Length - 1)];
+                    }
+                    using (var client = new ModrinthClient(settings))
+                    {
+                        var result = await client.SearchPageAsync(resourceQuery.Text,
+                            resourceType, request.Token, gameVersion, loader, sort,
+                            resourcePage * 20, category);
+                        if (request.IsCancellationRequested ||
+                            !ReferenceEquals(resourceSearchCancellation, request))
+                            return;
+                        resourceResults.Clear();
+                        foreach (var item in result.Hits) resourceResults.Add(item);
+                        int total = Math.Min(2000, result.TotalHits);
+                        if (resourceCounter != null)
+                            resourceCounter.Text = total == 0
+                                ? "没有找到匹配的项目，请尝试清除筛选条件"
+                                : "Modrinth 搜索结果  ·  第 " + (resourcePage + 1) +
+                                  " 页  ·  共 " + result.TotalHits + " 项";
+                        if (resourcePrevButton != null)
+                            resourcePrevButton.IsEnabled = resourcePage > 0;
+                        if (resourceNextButton != null)
+                            resourceNextButton.IsEnabled = result.Hits.Count == 20 &&
+                                (resourcePage + 1) * 20 < total;
+                        Status("Modrinth 第 " + (resourcePage + 1) + " 页，"
+                            + result.Hits.Count + " 个资源");
+                    }
                 }
-                Status("搜索结果：第 " + (resourcePage + 1) + " 页，共 " + resourceResults.Count + " 项");
+                catch (OperationCanceledException)
+                {
+                    if (ReferenceEquals(resourceSearchCancellation, request) &&
+                        resourceCounter != null)
+                        resourceCounter.Text = "搜索已取消或超时，请重试";
+                }
+                catch (Exception ex)
+                {
+                    if (!ReferenceEquals(resourceSearchCancellation, request)) return;
+                    if (resourceCounter != null)
+                        resourceCounter.Text = "搜索失败，请调整关键词或网络设置";
+                    ShowError("Modrinth 搜索失败", ex);
+                }
+                finally
+                {
+                    if (ReferenceEquals(resourceSearchCancellation, request))
+                    {
+                        resourceSearchCancellation = null;
+                        if (resourceSearchButton != null)
+                            resourceSearchButton.IsEnabled = true;
+                    }
+                }
             }
-            catch (Exception ex) { ShowError("搜索失败", ex); }
         }
         async Task InstallResourceAsync()
         {
