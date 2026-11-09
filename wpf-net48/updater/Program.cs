@@ -243,9 +243,9 @@ namespace BlockCraftLauncher.Updater
                     // new WPF process. The ZIP and original EXE were verified,
                     // but the GUI may be delayed or blocked by Windows.
                     string text = "新版本文件已完成安装并通过启动自检，" +
-                        "但未能确认新版窗口已显示。\\n\\n" +
-                        "可手动打开：\\n" + executable +
-                        "\\n\\n如果被杀毒软件拦截，请查看其安全提示。";
+                        "但未能确认新版窗口已显示。\n\n" +
+                        "可手动打开：\n" + executable +
+                        "\n\n如果被杀毒软件拦截，请查看其安全提示。";
                     WriteLog(new IOException(text));
                     MessageBox.Show(text, "BlockCraft Launcher · 启动确认",
                         MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -562,7 +562,7 @@ namespace BlockCraftLauncher.Updater
                     Thread.Sleep(170);
                     Directory.CreateDirectory(Path.GetDirectoryName(marker));
                     File.WriteAllText(marker, Process.GetCurrentProcess().Id +
-                        "\\n" + DateTime.UtcNow.ToString("o"));
+                        "\n" + DateTime.UtcNow.ToString("o"));
                 });
                 emitter.Start();
                 bool visible = AwaitWindow(marker, 3000,
