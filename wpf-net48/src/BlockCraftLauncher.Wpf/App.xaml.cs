@@ -25,11 +25,14 @@ namespace BlockCraftLauncher.Wpf
                 string.Equals(arg, "--auth-selftest", StringComparison.OrdinalIgnoreCase));
             bool downloadSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--download-selftest", StringComparison.OrdinalIgnoreCase));
+            bool dependencySelfTest = e.Args.Any(arg =>
+                string.Equals(arg, "--modrinth-deps-selftest", StringComparison.OrdinalIgnoreCase));
             bool downloadPageSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--download-ui-selftest", StringComparison.OrdinalIgnoreCase));
             bool layoutSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--ui-layout-selftest", StringComparison.OrdinalIgnoreCase));
-            smokeTest = authSelfTest || downloadSelfTest || downloadPageSelfTest || layoutSelfTest || e.Args.Any(arg =>
+            smokeTest = authSelfTest || downloadSelfTest || dependencySelfTest ||
+                downloadPageSelfTest || layoutSelfTest || e.Args.Any(arg =>
                 string.Equals(arg, "--smoke-test", StringComparison.OrdinalIgnoreCase));
             // The CI probe must never open a browser, download Minecraft,
             // touch account tokens, or display a GUI message. Both ordinary
@@ -87,6 +90,21 @@ namespace BlockCraftLauncher.Wpf
                 {
                     WriteDiagnostic(ex);
                     Shutdown(26);
+                }
+                return;
+            }
+
+            if (dependencySelfTest)
+            {
+                try
+                {
+                    ModrinthDependencySanityChecks.Run();
+                    Shutdown(0);
+                }
+                catch (Exception ex)
+                {
+                    WriteDiagnostic(ex);
+                    Shutdown(28);
                 }
                 return;
             }
