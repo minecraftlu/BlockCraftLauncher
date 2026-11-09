@@ -270,6 +270,10 @@ namespace BlockCraft.NeteaseRoomLab
             if (Stage126ReadOnlyButton != null)
                 Stage126ReadOnlyButton.IsEnabled = RealWebRTCButton != null
                     && RealWebRTCButton.IsEnabled && Stage12OfflineBridge.IsEmbedded;
+            if (Stage127CodecButton != null)
+                Stage127CodecButton.IsEnabled = Stage127CodecReference.IsAvailable
+                    && !stage12OfflineRunning && !joinProbeRunning && !livePreflightRunning
+                    && !authHelperRunning && !g79CheckRunning;
             if (LivePreflightButton != null)
                 LivePreflightButton.IsEnabled = !joinProbeRunning && !livePreflightRunning && !authHelperRunning
                     && !g79CheckRunning && AuthConsentBox.IsChecked == true
@@ -480,6 +484,52 @@ namespace BlockCraft.NeteaseRoomLab
         private async void Stage126ReadOnly_Click(object sender, RoutedEventArgs e)
         {
             await RunRealWebRTCAsync(true);
+        }
+
+        private async void Stage127Codec_Click(object sender, RoutedEventArgs e)
+        {
+            if (stage12OfflineRunning || joinProbeRunning || livePreflightRunning
+                || authHelperRunning || g79CheckRunning)
+                return;
+            if (!Stage127CodecReference.IsAvailable)
+            {
+                Stage127CodecStatusText.Text =
+                    "STAGE12_7_PROTOCOL_CHECK_UNAVAILABLE：此启动器没有内嵌检查工具。";
+                return;
+            }
+            string enteredVersion = Stage127ProtocolBox.Text;
+            string normalized;
+            if (!Stage127CodecReference.TryNormalizeVersion(enteredVersion, out normalized))
+            {
+                Stage127CodecStatusText.Text =
+                    Stage127CodecReference.Classify(enteredVersion, -1, "");
+                return;
+            }
+            stage12OfflineRunning = true;
+            activeStage12Cancellation = new CancellationTokenSource();
+            UpdateAuthButtons();
+            Stage127CodecStatusText.Text =
+                "STAGE12_7_PROTOCOL_CHECK_RUNNING：正在本机查询固定公开参考表，不连接服务器。";
+            try
+            {
+                Stage127CodecStatusText.Text = await Stage127CodecReference.RunAsync(
+                    normalized, activeStage12Cancellation.Token);
+            }
+            catch (Exception)
+            {
+                Stage127CodecStatusText.Text =
+                    "STAGE12_7_PROTOCOL_CHECK_FAILED_GAME_NOT_JOINED：本地查询未通过。";
+            }
+            finally
+            {
+                stage12OfflineRunning = false;
+                if (activeStage12Cancellation != null)
+                {
+                    activeStage12Cancellation.Dispose();
+                    activeStage12Cancellation = null;
+                }
+                UpdateAuthButtons();
+            }
         }
 
         private async Task RunRealWebRTCAsync(bool inboundOnly)
