@@ -11,47 +11,49 @@ foreach ($exe in $launchers) {
     if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
         throw "Missing WPF/OneFile relaunch target: $exe"
     }
-    $nonce = [Guid]::NewGuid().ToString('N')
-    $marker = Join-Path $env:LOCALAPPDATA ("BlockCraftLauncher\updates\relaunch-$nonce.ok")
-    if (Test-Path -LiteralPath $marker) {
-        throw 'Untrusted pre-existing relaunch marker; refusing to pass'
-    }
-    $process = $null
-    try {
-        $process = Start-Process -FilePath $exe -ArgumentList @(
-            '--after-update', $nonce, '--window-relaunch-selftest'
-        ) -PassThru
-        if (-not $process.WaitForExit(60000)) {
-            $process.Kill()
-            throw "WPF relaunch-window probe timed out: $exe"
-        }
-        $process.Refresh()
-        if ($process.ExitCode -ne 0) {
-            throw "WPF relaunch-window probe exited with $($process.ExitCode): $exe"
-        }
-        if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) {
-            throw "The new main window was not rendered or acknowledged: $exe"
-        }
-        $lines = @(Get-Content -LiteralPath $marker)
-        if ($lines.Count -lt 2 -or $lines[0] -notmatch '^[0-9]+$' -or
-            $lines[1] -notmatch '^20[0-9]{2}-') {
-            throw "Invalid rendered-window acknowledgement: $exe"
-        }
-        $childPid = [int]$lines[0]
-        if ($exe -like '*OneFile*' -and $childPid -eq $process.Id) {
-            throw "OneFile wrapper did not acknowledge from the actual WPF child process"
-        }
-        if ($exe -notlike '*OneFile*' -and $childPid -ne $process.Id) {
-            throw "Wrong WPF PID wrote the window acknowledgement"
-        }
-        Write-Host "PASS: new main window rendered and acknowledged for $(Split-Path $exe -Leaf)"
-    }
-    finally {
+    foreach ($mode in @('installed-update', 'direct-open')) {
+        $nonce = [Guid]::NewGuid().ToString('N')
+        $marker = Join-Path $env:LOCALAPPDATA ("BlockCraftLauncher\updates\relaunch-$nonce.ok")
         if (Test-Path -LiteralPath $marker) {
-            Remove-Item -LiteralPath $marker -Force
+            throw 'Untrusted pre-existing relaunch marker; refusing to pass'
         }
-        if ($process -ne $null) {
-            try { $process.Dispose() } catch { }
+        $process = $null
+        try {
+            $flags = @('--after-update', $nonce, '--window-relaunch-selftest')
+            if ($mode -eq 'direct-open') { $flags += '--direct-open' }
+            $process = Start-Process -FilePath $exe -ArgumentList $flags -PassThru
+            if (-not $process.WaitForExit(60000)) {
+                $process.Kill()
+                throw "WPF relaunch-window probe timed out ($mode): $exe"
+            }
+            $process.Refresh()
+            if ($process.ExitCode -ne 0) {
+                throw "WPF relaunch-window probe exited $($process.ExitCode) ($mode): $exe"
+            }
+            if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) {
+                throw "The new main window was not rendered or acknowledged ($mode): $exe"
+            }
+            $lines = @(Get-Content -LiteralPath $marker)
+            if ($lines.Count -lt 2 -or $lines[0] -notmatch '^[0-9]+$' -or
+                $lines[1] -notmatch '^20[0-9]{2}-') {
+                throw "Invalid rendered-window acknowledgement ($mode): $exe"
+            }
+            $childPid = [int]$lines[0]
+            if ($exe -like '*OneFile*' -and $childPid -eq $process.Id) {
+                throw 'OneFile wrapper did not acknowledge from the actual WPF child process'
+            }
+            if ($exe -notlike '*OneFile*' -and $childPid -ne $process.Id) {
+                throw 'Wrong WPF PID wrote the window acknowledgement'
+            }
+            Write-Host "PASS: $mode displays real main window for $(Split-Path $exe -Leaf)"
+        }
+        finally {
+            if (Test-Path -LiteralPath $marker) {
+                Remove-Item -LiteralPath $marker -Force
+            }
+            if ($process -ne $null) {
+                try { $process.Dispose() } catch { }
+            }
         }
     }
 }
