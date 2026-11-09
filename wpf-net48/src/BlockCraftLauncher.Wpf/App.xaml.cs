@@ -175,6 +175,7 @@ namespace BlockCraftLauncher.Wpf
                 try
                 {
                     var window = new MainWindow();
+                    window.SuppressAutomaticUpdateCheck = relaunchWindowSelfTest;
                     if (window.Content == null)
                         throw new InvalidOperationException("WPF 主窗口没有初始化内容");
                     if (smokeTest)
