@@ -1,36 +1,31 @@
-# BlockCraft Launcher v0.9.29 WPF Release Candidate 1
+# BlockCraft Launcher v0.9.30 WPF Release Candidate 1
 
-- Candidate tag: v0.9.29-wpf-rc.1
-- Channel: **prerelease / candidate**, not Stable
+- Candidate tag: `v0.9.30-wpf-rc.1`
+- Channel: **prerelease/candidate**, not Stable
 - Target: Windows 10/11 x64, C# / WPF / .NET Framework 4.8
-- Formats: Portable OneFile EXE, complete ZIP containing the update helper
-- Development branch: feature/wpf-net48-alpha-v0.9.27
-- Request date: 2026-11-10
+- Formats: portable single EXE and complete ZIP, both with the standalone updater
+- Development branch: `feature/wpf-net48-alpha-v0.9.27`
+- Date: 2026-11-10
 
-## New PCL-like automatic update workflow
+## Requested feature: automatically open new launcher window after update
 
-- Launcher startup checks official GitHub Releases every six hours by default, without delaying Minecraft launch.
-- Stable / WPF preview channels are separated; Stable is the default and never selects NetEase room-lab or legacy Python assets.
-- Main screen and update center show new version announcements and release description.
-- User can opt into automatic background downloads, while installation always requires confirmation to close the launcher.
-- GitHub-hosted assets must match exact recognized architecture/package names and the official release's SHA-256 manifest.
-- Update packages are prepared in a staging area and smoke-tested before installation; no scripts or third-party mirror EXEs are executed.
-- The standalone update helper waits until the WPF process exits, updates the actual original single EXE or the extracted ZIP application directory, and smoke-tests the replacement. A failed start restores old executable or DLL files.
-- The new singlefile bootstrap now forwards all WPF CI test exit codes rather than masking failures.
-- No saved Minecraft worlds, launcher authentication data or existing Python launcher should be modified; live game processes remain running.
+- After a user confirms the final installation prompt, old WPF exits; standalone updater applies verified replacement and starts the original installed **new** launcher executable.
+- New WPF actually renders its `MainWindow`, brings it to the foreground, sets a non-modal «更新完成» status and emits a one-time per-launch random confirmation file.
+- Update helper waits for the true WPF child process to report a rendered window, including when the single EXE outer bootstrap exits before its child.
+- When a window cannot be confirmed, no duplicate launches, no overwrite of an already running new version. Instead prompt for manual launch at the known actual application EXE path.
+- Retain v0.9.29: official SHA-256 updates, stable/preview channels, opt-in auto download, independent rollback helper, preserved Minecraft worlds/authentication, and original game process unaffected.
 
-## CI and release signoff
+## Automated testing completed
 
-- [Windows CI #42682875674](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42682875674): success, 28 steps with ordinary and single-EXE tests.
-- New updater static, simulated rollback, SHA-256, Safe ZIP extraction and release channel tests passed in Windows CI.
-- Build the two formats again in a clean Windows runner; run every offline selftest and generate official SHA-256 manifests before publishing.
-- Publish **only as GitHub prerelease v0.9.29-wpf-rc.1**. Do not mark Stable without real Windows end-to-end tests of both update paths, Chinese GitHub downloads, access controls and post-update relaunch.
-- Users of v0.9.28 and older must **manually install v0.9.29 once** because previous binaries did not include an updater; after that the UI can install compatible future releases.
+- [Windows CI #42685988330](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42685988330): **success**, compiles and exercises both launcher forms, normal feature regressions, isolated updater file rollback and actual `ContentRendered` window acknowledgment.
+- Both the multi-file and OneFile Windows executables are launched with a one-time test token. The WPF child emits a render proof after its real window is shown; the harness verifies correct PID, timestamp and success exit code.
+- Update helper tests asynchronous window-ready marker detection, missing-marker handling, and EXE and ZIP file rollback without executing fake dummy binaries.
+- Controlled release workflow reruns all checks and generates independent SHA-256 digest manifests before GitHub Release.
 
-## Remaining limits
+## Do not mistake CI for full Stable acceptance
 
-- In-app automatic checks and one-click update machinery are verified offline and compiled; they are not yet user-tested end-to-end with a later actual v0.9.30 release.
-- A GitHub Release cannot update an app built from the Python/Go architecture in-place; old and new applications are kept separate.
-- NetEase mobile room integration remains experimental and unsupported.
+- Candidate must be visibly tagged **prerelease**. No Stable/automatic update channel promotion before real Windows end-to-end installation from v0.9.29 RC1 to v0.9.30 RC1.
+- Required user verification: actual new main window appears automatically and shows the new version, old launcher closes, no duplicated window, Microsoft login remains usable, game and saved worlds remain intact, both install types where feasible.
+- No unsupported NetEase mobile-room claims. Previous RCs and Python launcher must not be replaced.
 
-Details: wpf-net48/docs/V0929_AUTO_UPDATE.md
+Details: `wpf-net48/docs/V0930_AUTO_RELAUNCH.md`.
