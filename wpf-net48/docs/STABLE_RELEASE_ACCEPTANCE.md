@@ -47,3 +47,12 @@
 - 用户反馈：**v0.9.27 WPF UI 优化版的功能正常运行**；尚未按 OS、Minecraft 各版本、加载器、网络和存档功能逐项提供测试记录，因此不将这条整体反馈等同于全部验收。
 - 用户随后进一步明确反馈：**微软正版登录成功**，将交互授权与登录路径标记为「用户实测成功」。这是使用体验反馈，不是本仓库自动重放真人 Microsoft 令牌的测试。
 - 不能据此宣称 Microsoft 访问令牌静默续期、正版游戏启动、登出及多账号切换均成功；这些维持待验证状态。发行包不读取、不保存、不发布用户提供的任何凭据。
+
+## 2026-11-10 · Release Candidate 发布
+
+- 发行标记：`v0.9.27-wpf-rc.1`，**GitHub prerelease（RC，尚非 Stable）**。
+- 由 `.github/workflows/wpf-net48-controlled-release.yml` 在专用 WPF 开发分支的 Release Candidate 请求触发，完成 Windows x64 打包、源码静态检查、普通 EXE 与单 EXE 离线回归和 SHA-256 文件生成。
+- [GitHub Actions #42675105225](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42675105225)：success。
+- [公开下载页](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.27-wpf-rc.1)：包含单文件 EXE、完整 ZIP、EXE 独立 SHA-256 及完整发布 SHA-256 清单。
+- 额外修复：当仓库只有预览版本、没有 WPF 正式版时，更新中心不应因 `/releases/latest` 返回 404 失败；现在筛选官方 Releases 列表中的可兼容 WPF Stable，并排除网易房间实验版、旧版 Python、Alpha 包、异常 URL 和伪造版本号。
+- 用户已确认 WPF 主要使用功能正常、微软正版交互登录成功；仍未逐项完成游戏版本安装/启动、正版续期、双机局域网与 DPI 全范围实机回归。**正式 Stable Release 继续受验收门槛限制。**
