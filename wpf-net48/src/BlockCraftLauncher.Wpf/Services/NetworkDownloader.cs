@@ -37,7 +37,9 @@ namespace BlockCraftLauncher.Wpf.Services
                 handler.UseProxy = true;
                 handler.Proxy = new WebProxy(settings.Proxy);
             }
-            http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(45) };
+            // 45 seconds was too short for large JARs on domestic links.
+            // Metadata requests have their own shorter timeout below.
+            http = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(20) };
             http.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher-WPF/0.9.27");
             attempts = Math.Max(1, Math.Min(6, settings.DownloadRetries));
         }
@@ -72,31 +74,104 @@ namespace BlockCraftLauncher.Wpf.Services
                 !uri.IsDefaultPort) throw new ArgumentException("只允许标准 HTTPS 下载链接");
             string mirror = MirrorMojangUri(official);
             if (mirror == null || mode == "official") return new[] { official };
-            if (mode == "mirror") return new[] { mirror, official };
+            if (mode == "mirror" || mode == "china") return new[] { mirror, official };
             // Auto has a conservative official-first fallback for public CDN
             // hosts; the source choice can be explicitly set by the user.
             return new[] { official, mirror };
         }
 
+        /// <summary>
+        /// Optional, opt-in MCIM acceleration for official Modrinth metadata
+        /// and CDN files or approved CurseForge CDN files. Unknown hosts and
+        /// auth/account endpoints are never mirrored.
+        /// </summary>
+        internal static string MirrorCommunityUri(string url)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+                uri.Scheme != Uri.UriSchemeHttps || !uri.IsDefaultPort ||
+                !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Fragment))
+                return null;
+            string prefix;
+            switch (uri.Host.ToLowerInvariant())
+            {
+                case "api.modrinth.com": prefix = "/modrinth"; break;
+                case "cdn.modrinth.com":
+                case "edge.forgecdn.net":
+                case "mediafilez.forgecdn.net": prefix = ""; break;
+                default: return null;
+            }
+            return "https://mod.mcimirror.top" + prefix + uri.AbsolutePath + uri.Query;
+        }
+
+        internal static IReadOnlyList<string> RoutesForDownload(string official, string mode, bool mcimEnabled)
+        {
+            if (!Uri.TryCreate(official, UriKind.Absolute, out var uri) ||
+                uri.Scheme != Uri.UriSchemeHttps || !uri.IsDefaultPort || uri.UserInfo.Length > 0)
+                throw new ArgumentException("只允许标准 HTTPS 下载链接");
+            if (mcimEnabled && mode != "official")
+            {
+                string optional = MirrorCommunityUri(official);
+                if (optional != null)
+                    return new[] { optional, official };
+            }
+            return Routes(official, mode);
+        }
+
+        static string PartialOriginId(string candidate, string sha1)
+        {
+            using (var sha = SHA256.Create())
+            {
+                // Do not persist URLs or tokens in the sidecar on disk.
+                byte[] data = System.Text.Encoding.UTF8.GetBytes(candidate + "\n" + sha1.ToLowerInvariant());
+                return BitConverter.ToString(sha.ComputeHash(data)).Replace("-", "");
+            }
+        }
+
+        /// <summary>
+        /// Never resume a .part file against a different mirror URL or hash.
+        /// Resume is safe only for the exact same source; final SHA-1 still
+        /// validates the whole downloaded payload before moving into place.
+        /// </summary>
+        internal static long PreparePartialForRoute(string part, string candidate, string sha1)
+        {
+            string marker = part + ".origin";
+            string expected = PartialOriginId(candidate, sha1);
+            if (File.Exists(part))
+            {
+                string previous = File.Exists(marker) ? File.ReadAllText(marker).Trim() : "";
+                if (string.Equals(previous, expected, StringComparison.OrdinalIgnoreCase))
+                    return new FileInfo(part).Length;
+                File.Delete(part);
+            }
+            File.WriteAllText(marker, expected);
+            return 0;
+        }
+
         public async Task<string> GetStringWithFallbackAsync(string officialUrl, string networkMode, CancellationToken ct)
         {
             Exception last = null;
-            foreach (string url in Routes(officialUrl, networkMode))
+            foreach (string url in RoutesForDownload(officialUrl, networkMode, settings.McimEnabled))
             {
                 for (int i = 0; i < Math.Min(2, attempts); i++)
                 {
                     ct.ThrowIfCancellationRequested();
                     try
                     {
-                        using (var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct))
+                        // Fail over rapidly for metadata; the 20-minute file
+                        // timeout must never stall a lightweight API request.
+                        using (var linked = CancellationTokenSource.CreateLinkedTokenSource(ct))
                         {
+                            linked.CancelAfter(TimeSpan.FromSeconds(18));
+                            using (var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, linked.Token))
+                            {
                             if (TemporaryStatus(response.StatusCode))
                                 throw new HttpRequestException("线路暂时不可用：" + response.StatusCode);
                             response.EnsureSuccessStatusCode();
                             var data = await response.Content.ReadAsStringAsync();
                             if (data.Length > 12 * 1024 * 1024)
                                 throw new InvalidDataException("远端元数据超过大小限制");
-                            return data;
+                                return data;
+                            }
                         }
                     }
                     catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
@@ -142,7 +217,7 @@ namespace BlockCraftLauncher.Wpf.Services
         {
             string part = fullPath + ".blockcraft.part";
             Exception last = null;
-            var routes = Routes(url, settings.NetworkMode);
+            var routes = RoutesForDownload(url, settings.NetworkMode, settings.McimEnabled);
             foreach (var candidate in routes)
             {
                 for (int retry = 0; retry < attempts; retry++)
@@ -150,7 +225,7 @@ namespace BlockCraftLauncher.Wpf.Services
                     ct.ThrowIfCancellationRequested();
                     try
                     {
-                        long offset = File.Exists(part) ? new FileInfo(part).Length : 0;
+                        long offset = PreparePartialForRoute(part, candidate, sha1);
                         if (offset > 1024L * 1024 * 1024 * 4)
                         {
                             File.Delete(part);
@@ -216,6 +291,8 @@ namespace BlockCraftLauncher.Wpf.Services
                         }
                         if (File.Exists(fullPath)) File.Replace(part, fullPath, null);
                         else File.Move(part, fullPath);
+                        string origin = part + ".origin";
+                        if (File.Exists(origin)) File.Delete(origin);
                         return;
                     }
                     catch (Exception ex) when (ex is IOException || ex is HttpRequestException ||
