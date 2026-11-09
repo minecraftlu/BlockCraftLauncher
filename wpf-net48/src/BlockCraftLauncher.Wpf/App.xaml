@@ -24,6 +24,8 @@
       <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
       <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
       <Setter Property="FontSize" Value="13"/>
+      <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+      <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
     </Style>
     <Style TargetType="TextBlock">
       <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
@@ -34,10 +36,11 @@
       <Setter Property="Background" Value="{DynamicResource PanelAltBrush}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushTheme}"/>
       <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="Padding" Value="15,8"/>
-      <Setter Property="MinHeight" Value="36"/>
+      <Setter Property="Padding" Value="14,7"/>
+      <Setter Property="MinHeight" Value="35"/>
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="Margin" Value="0,0,8,8"/>
+      <Setter Property="FontSize" Value="12.5"/>
       <Setter Property="HorizontalContentAlignment" Value="Center"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
       <Setter Property="Template">
@@ -46,7 +49,7 @@
             <Border x:Name="Chrome" Background="{TemplateBinding Background}"
                     BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}"
-                    CornerRadius="6" Padding="{TemplateBinding Padding}">
+                    CornerRadius="5" Padding="{TemplateBinding Padding}">
               <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                 VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                                 RecognizesAccessKey="True"/>
@@ -72,44 +75,70 @@
       <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
     </Style>
+    <!-- PCL-inspired pill navigation. Independent implementation and icons. -->
     <Style x:Key="HeaderTab" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="Foreground" Value="{DynamicResource HeaderTextBrush}"/>
       <Setter Property="BorderThickness" Value="0"/>
-      <Setter Property="MinWidth" Value="84"/>
-      <Setter Property="Height" Value="42"/>
+      <Setter Property="MinWidth" Value="92"/>
+      <Setter Property="MinHeight" Value="35"/>
+      <Setter Property="Height" Value="37"/>
       <Setter Property="Margin" Value="3,0"/>
-      <Setter Property="Padding" Value="12,7"/>
-      <Setter Property="FontSize" Value="14"/>
+      <Setter Property="Padding" Value="13,7"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="TabChrome" CornerRadius="19"
+                    Background="{TemplateBinding Background}"
+                    Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                RecognizesAccessKey="False"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="TabChrome" Property="Opacity" Value="0.88"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="TabChrome" Property="Opacity" Value="0.73"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.40"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
     <Style x:Key="HeaderTabActive" TargetType="Button" BasedOn="{StaticResource HeaderTab}">
       <Setter Property="Background" Value="#FFFFFF"/>
       <Setter Property="Foreground" Value="#166DC2"/>
-      <Setter Property="FontWeight" Value="Bold"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
     </Style>
     <Style x:Key="SidebarItem" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-      <Setter Property="Height" Value="38"/>
-      <Setter Property="MinHeight" Value="38"/>
+      <Setter Property="Height" Value="39"/>
+      <Setter Property="MinHeight" Value="39"/>
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="BorderThickness" Value="0"/>
       <Setter Property="HorizontalContentAlignment" Value="Left"/>
-      <Setter Property="Padding" Value="13,7"/>
-      <Setter Property="Margin" Value="0,1,0,2"/>
-      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Padding" Value="12,6"/>
+      <Setter Property="Margin" Value="0,2,0,2"/>
+      <Setter Property="FontSize" Value="12.5"/>
     </Style>
     <Style x:Key="SidebarItemActive" TargetType="Button" BasedOn="{StaticResource SidebarItem}">
       <Setter Property="Background" Value="{DynamicResource SelectedBrush}"/>
       <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
-      <Setter Property="FontWeight" Value="Bold"/>
-      <Setter Property="BorderThickness" Value="0,0,0,0"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="BorderThickness" Value="3,0,0,0"/>
     </Style>
     <Style x:Key="Panel" TargetType="Border">
       <Setter Property="Background" Value="{DynamicResource PanelBrush}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushTheme}"/>
       <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="CornerRadius" Value="9"/>
-      <Setter Property="Padding" Value="17"/>
-      <Setter Property="Margin" Value="0,0,0,14"/>
+      <Setter Property="CornerRadius" Value="7"/>
+      <Setter Property="Padding" Value="17,16"/>
+      <Setter Property="Margin" Value="0,0,0,13"/>
     </Style>
     <Style x:Key="Heading" TargetType="TextBlock">
       <Setter Property="FontSize" Value="22"/>
@@ -204,7 +233,7 @@
           <Border Width="65" Height="65" VerticalAlignment="Top"
                   Background="{DynamicResource BadgeBrush}" CornerRadius="8">
             <Grid>
-              <TextBlock Text="◇" FontSize="31"
+              <TextBlock Text="&#xE8B7;" FontSize="29" FontFamily="Segoe MDL2 Assets"
                          Foreground="{DynamicResource AccentBrush}"
                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
               <Image Source="{Binding IconUrl}" Width="64" Height="64"
@@ -265,7 +294,7 @@
               BorderThickness="0,0,0,1">
         <Grid>
           <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/><ColumnDefinition Width="170"/>
+            <ColumnDefinition Width="*"/><ColumnDefinition Width="100"/>
           </Grid.ColumnDefinitions>
           <StackPanel>
             <TextBlock Text="{Binding Id}" FontSize="14" FontWeight="SemiBold"/>
