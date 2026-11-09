@@ -415,6 +415,43 @@ namespace BlockCraftLauncher.Updater
                 catch (InvalidDataException) { escaped = true; }
                 if (!escaped || SafeRelative("subfolder\\test.dll") == null)
                     throw new Exception("路径安全验证失效");
+
+                // A fake executable is intentionally unable to pass the
+                // post-install launch test. Verify that an EXE replacement
+                // automatically returns the previous file byte-for-byte.
+                string originalExe = Path.Combine(target, "launcher.exe");
+                string incomingExe = Path.Combine(source, "incoming.exe");
+                File.WriteAllText(originalExe, "old-single-exe", Encoding.ASCII);
+                File.WriteAllText(incomingExe, "new-single-exe", Encoding.ASCII);
+                bool onefileRollback = false;
+                try { ApplySingleExe(originalExe, incomingExe, Hash(incomingExe)); }
+                catch { onefileRollback = true; }
+                if (!onefileRollback || File.ReadAllText(originalExe) != "old-single-exe")
+                    throw new Exception("单文件启动失败后未自动回滚");
+
+                // The directory updater must also restore DLLs and the main
+                // WPF executable when its post-install smoke test fails.
+                string fullStage = Path.Combine(root, "full-package");
+                string install = Path.Combine(root, "full-install");
+                Directory.CreateDirectory(fullStage);
+                Directory.CreateDirectory(install);
+                var parts = new[] { WpfExe, "BlockCraftLauncher.Updater.exe",
+                    "one.dll", "two.dll", "three.dll", "four.dll", "five.dll" };
+                foreach (string part in parts)
+                    File.WriteAllText(Path.Combine(fullStage, part), "incoming-" + part, Encoding.ASCII);
+                File.WriteAllText(Path.Combine(install, WpfExe), "old-wpf", Encoding.ASCII);
+                File.WriteAllText(Path.Combine(install, "world.txt"), "world-data", Encoding.ASCII);
+                using (var writer = new StreamWriter(Path.Combine(fullStage, ManifestName), false, Encoding.ASCII))
+                    foreach (string part in parts)
+                        writer.WriteLine(Hash(Path.Combine(fullStage, part)) + "  " + part);
+                bool zipRollback = false;
+                try { ApplyDirectory(install, fullStage, new string('a', 64)); }
+                catch { zipRollback = true; }
+                if (!zipRollback ||
+                    File.ReadAllText(Path.Combine(install, WpfExe)) != "old-wpf" ||
+                    File.Exists(Path.Combine(install, "one.dll")) ||
+                    File.ReadAllText(Path.Combine(install, "world.txt")) != "world-data")
+                    throw new Exception("ZIP 更新失败后未自动恢复文件");
                 return 0;
             }
             catch (Exception error) { WriteLog(error); return 40; }
