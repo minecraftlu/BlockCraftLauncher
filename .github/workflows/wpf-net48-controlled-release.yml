@@ -19,7 +19,7 @@ on:
       real_device_acceptance:
         description: 'I completed the Windows, account, Minecraft and LAN acceptance checklist'
         type: boolean
-        required: true
+        required: false
         default: false
 
 jobs:
