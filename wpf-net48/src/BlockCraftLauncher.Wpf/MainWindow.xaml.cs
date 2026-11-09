@@ -717,7 +717,9 @@ namespace BlockCraftLauncher.Wpf
             Navigate("设置");
             if (settingsTheme == null || settingsZoom == null ||
                 settingsRoot == null || settingsNetworkMode == null ||
-                settingsDownloadThreads == null || settingsMemory == null)
+                settingsDownloadThreads == null || settingsMemory == null ||
+                settingsUpdateChannel == null || settingsAutoCheck == null ||
+                settingsAutoDownload == null)
                 throw new InvalidOperationException("设置页面缺少字段或布局");
 
             Navigate("首页");
