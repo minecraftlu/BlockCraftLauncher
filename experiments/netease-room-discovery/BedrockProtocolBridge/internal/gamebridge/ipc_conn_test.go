@@ -6,6 +6,7 @@ import (
     "errors"
     "io"
     "net"
+    "os"
     "testing"
     "time"
 
@@ -13,12 +14,17 @@ import (
 )
 
 func pairLocalIPC(ctx context.Context) (*IPCPacketConn,*IPCPacketConn,error) {
-    c2sRead,c2sWrite:=io.Pipe()
-    s2cRead,s2cWrite:=io.Pipe()
-    client,err:=NewIPCPacketConn(ctx,s2cRead,c2sWrite)
+    // Use actual OS anonymous pipes, as used by the two Windows worker
+    // processes. io.Pipe has ZERO buffering; both Bedrock peers may send
+    // before their receive loops start and deadlock with that fake fixture.
+    c2sRead,c2sWrite,err:=os.Pipe()
     if err!=nil{return nil,nil,err}
+    s2cRead,s2cWrite,err:=os.Pipe()
+    if err!=nil{_ =c2sRead.Close();_ =c2sWrite.Close();return nil,nil,err}
+    client,err:=NewIPCPacketConn(ctx,s2cRead,c2sWrite)
+    if err!=nil{_ =c2sRead.Close();_ =s2cWrite.Close();return nil,nil,err}
     server,err:=NewIPCPacketConn(ctx,c2sRead,s2cWrite)
-    if err!=nil{_ =client.Close();return nil,nil,err}
+    if err!=nil{_ =client.Close();_ =c2sRead.Close();_ =s2cWrite.Close();return nil,nil,err}
     return client,server,nil
 }
 
