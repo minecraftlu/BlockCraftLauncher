@@ -70,7 +70,7 @@ namespace BlockCraftLauncher.Wpf
             TopLaunchButton.Click += (sender, args) => Navigate("首页");
             TopDownloadButton.Click += (sender, args) => Navigate("游戏版本");
             TopSettingsButton.Click += (sender, args) => Navigate("设置");
-            TopMoreButton.Click += (sender, args) => Navigate("资源中心");
+            TopMoreButton.Click += (sender, args) => Navigate("模组更新");
             ApplyTheme(); ApplyZoom(); BuildSidebar(); Navigate("首页");
             Log("已读取旧版本配置；WPF 预览设置将单独保存，不覆盖原 Python 启动器配置。");
         }
@@ -589,6 +589,15 @@ namespace BlockCraftLauncher.Wpf
             resourceQuery = new TextBox {
                 Width = 365,
                 ToolTip = "输入资源名称或关键词；留空可以浏览热门项目"
+            };
+            resourceQuery.KeyDown += async (sender, args) =>
+            {
+                if (args.Key == System.Windows.Input.Key.Enter)
+                {
+                    resourcePage = 0;
+                    await SearchResourcesAsync();
+                    args.Handled = true;
+                }
             };
             resourceMatchVersion = new CheckBox {
                 Content = "匹配当前实例的游戏版本和加载器",
