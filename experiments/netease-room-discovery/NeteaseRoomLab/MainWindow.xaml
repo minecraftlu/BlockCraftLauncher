@@ -186,6 +186,8 @@
                        Text="STAGE12_LOCAL_GAME_SPAWN_NOT_RUN：尚未测试独立进程间的模拟游戏世界。" />
           </StackPanel>
         </Border>
+        <TextBlock TextWrapping="Wrap" Foreground="#95BDCE" Margin="0,13,0,3"
+                   Text="Stage 12.5 · 真实连接前置条件诊断：运行经房主许可的大厅 / WebRTC 探针后，会显示已证实的服务器与传输阶段；即使双通道 OPEN，也不会把 G79 模式、房间版本号或离线测试视作真正的 Minecraft 游戏授权。" />
         <TextBlock x:Name="RealWebRTCStatusText" Foreground="#BFD5F4" TextWrapping="Wrap" Margin="0,8,0,0"
                    Text="WEBRTC_PROBE_NOT_RUN：未尝试与手机房主建立真实游戏传输。" />
         <TextBlock x:Name="RealJoinStatusText" Foreground="#BFD5F4" TextWrapping="Wrap"
