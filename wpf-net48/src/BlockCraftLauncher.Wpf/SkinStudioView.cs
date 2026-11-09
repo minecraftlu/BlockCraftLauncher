@@ -730,6 +730,14 @@ namespace BlockCraftLauncher.Wpf
                 if (File.Exists(path)) File.Replace(temporary, path, null);
                 else File.Move(temporary, path);
             }
+            catch
+            {
+                // The PNG was only written to staging, not committed to the
+                // user's chosen location. Keep the document unsaved and
+                // eligible for an automatic recovery draft.
+                document.MarkUnsaved();
+                throw;
+            }
             finally
             {
                 try { if (File.Exists(temporary)) File.Delete(temporary); }
