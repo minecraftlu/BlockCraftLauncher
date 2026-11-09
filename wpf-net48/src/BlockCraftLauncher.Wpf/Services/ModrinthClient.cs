@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.IO;
+using System.Security.Cryptography;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -35,6 +37,9 @@ namespace BlockCraftLauncher.Wpf.Services
 
     public sealed class ModrinthClient : IDisposable
     {
+        // Do not interleave commits and registry writes for one game instance.
+        private static readonly ConcurrentDictionary<string, SemaphoreSlim> InstallLocks =
+            new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
         readonly NetworkDownloader network;
         readonly LauncherConfig settings;
         readonly JavaScriptSerializer json = new JavaScriptSerializer();
@@ -73,6 +78,8 @@ namespace BlockCraftLauncher.Wpf.Services
         public async Task<string> DownloadLatestAsync(ResourceHit hit, GameProfile profile, CancellationToken ct, IProgress<DownloadBytes> progress = null)
         {
             if (hit == null || profile == null) throw new ArgumentNullException("请选择资源和游戏实例");
+            if (hit.Kind == "mod")
+                return await DownloadModWithDependenciesAsync(hit, profile, ct, progress);
             if (hit.Kind != "mod" && hit.Kind != "shader" && hit.Kind != "resourcepack")
                 throw new NotSupportedException("整合包安装需要安全解压及依赖处理，本预览版尚未迁移。请使用旧版。");
             string url = "https://api.modrinth.com/v2/project/" + Uri.EscapeDataString(hit.ProjectId) + "/version";
@@ -118,6 +125,126 @@ namespace BlockCraftLauncher.Wpf.Services
                 hit.Name, Get(latest, "id"), filename, sha1);
             return destination;
         }
+        static string FileHash(string path)
+        {
+            using (var input = File.OpenRead(path))
+            using (var sha = SHA1.Create())
+                return BitConverter.ToString(sha.ComputeHash(input)).Replace("-", "")
+                    .ToLowerInvariant();
+        }
+
+        /// <summary>
+        /// Download root mod and every transitive *required* Modrinth
+        /// dependency in a bounded plan. Stage all files before publishing,
+        /// then register the completed set in one atomic registry update.
+        /// No existing mod/JAR is overwritten, even on retries.
+        /// </summary>
+        public async Task<string> DownloadModWithDependenciesAsync(ResourceHit hit,
+            GameProfile profile, CancellationToken ct, IProgress<DownloadBytes> progress = null,
+            IProgress<string> stage = null)
+        {
+            if (hit == null || hit.Kind != "mod" || profile == null)
+                throw new ArgumentException("请先选择模组和有效游戏实例");
+            if (string.IsNullOrWhiteSpace(profile.Directory))
+                throw new InvalidDataException("游戏实例缺少有效目录");
+            string root = Path.GetFullPath(profile.Directory);
+            string mods = Path.Combine(root, "mods");
+            var gate = InstallLocks.GetOrAdd(root, _ => new SemaphoreSlim(1, 1));
+            await gate.WaitAsync(ct);
+            string staging = null;
+            var committed = new List<string>();
+            try
+            {
+                stage?.Report("正在检查必需依赖、循环引用及版本兼容性...");
+                var planner = new ModrinthDependencyPlanner(
+                    (uri, token) => network.GetStringWithFallbackAsync(uri, "official", token));
+                var plan = await planner.PlanAsync(hit.ProjectId,
+                    profile.BaseVersion, profile.Loader, ct);
+                if (plan.Count == 0)
+                    throw new InvalidDataException("Modrinth 未返回可安装的资源");
+                // All metadata must pass validation BEFORE the first download.
+                var toInstall = new List<PlannedModrinthFile>();
+                foreach (var row in plan)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    string target = Path.Combine(mods, row.Filename);
+                    if (File.Exists(target))
+                    {
+                        if (!FileHash(target).Equals(row.Sha1, StringComparison.OrdinalIgnoreCase))
+                            throw new IOException("实例已有同名但不同版本的模组；"
+                                + "为保护已有文件，安装已中止：" + row.Filename);
+                        // Already present and hash-correct: it can satisfy a
+                        // dependency, but must NOT be reclassified as a managed
+                        // mod if a user installed the JAR manually.
+                        continue;
+                    }
+                    toInstall.Add(row);
+                }
+                if (toInstall.Count == 0)
+                    return Path.Combine(mods, plan.Last().Filename);
+
+                Directory.CreateDirectory(mods);
+                staging = Path.Combine(root, ".blockcraft-mod-stage-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(staging);
+                int current = 0;
+                foreach (var row in toInstall)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    current++;
+                    stage?.Report("下载必需模组 " + current + "/" + toInstall.Count
+                        + "：" + row.Filename);
+                    await network.DownloadVerifiedDetailedAsync(row.DownloadUrl,
+                        Path.Combine(staging, row.Filename), row.Sha1, ct, progress);
+                }
+
+                ct.ThrowIfCancellationRequested();
+                foreach (var row in toInstall)
+                {
+                    // File.Move will throw rather than overwrite a user JAR.
+                    // Recheck immediately before publishing because another
+                    // process may have changed the destination after planning.
+                    string destination = Path.Combine(mods, row.Filename);
+                    if (File.Exists(destination))
+                        throw new IOException("安装过程中检测到另一个同名模组，"
+                            + "为避免覆盖已中止：" + row.Filename);
+                    File.Move(Path.Combine(staging, row.Filename), destination);
+                    committed.Add(destination);
+                }
+                ct.ThrowIfCancellationRequested();
+                var records = toInstall.Select(row => new ManagedResource {
+                    ProjectId = row.ProjectId, Kind = "mod",
+                    Title = row.Title, VersionId = row.VersionId,
+                    Filename = row.Filename, Sha1 = row.Sha1
+                }).ToArray();
+                new ManagedModUpdateService(settings).RecordBatch(profile, records);
+                stage?.Report("已完成模组及 " + (plan.Count - 1)
+                    + " 项必需依赖的兼容性校验与安装。");
+                return Path.Combine(mods, plan.Last().Filename);
+            }
+            catch
+            {
+                // Only remove files created by THIS operation. Existing mods
+                // and manually imported resources must never be touched.
+                foreach (var file in committed)
+                {
+                    try { if (File.Exists(file)) File.Delete(file); }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
+                throw;
+            }
+            finally
+            {
+                if (staging != null)
+                {
+                    try { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
+                gate.Release();
+            }
+        }
+
         public async Task<string> DownloadModpackArchiveAsync(ResourceHit hit, string destination, CancellationToken ct, IProgress<DownloadBytes> progress = null)
         {
             if (hit == null || hit.Kind != "modpack") throw new ArgumentException("请选择 Modrinth 整合包");
