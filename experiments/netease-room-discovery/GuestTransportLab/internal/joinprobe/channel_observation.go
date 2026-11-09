@@ -66,8 +66,10 @@ func observeDataChannelsWithSink(ctx context.Context, conn channelObservationSou
         counters.unreliableBytes.Add(uint64(length))
     })
     closed := make(chan struct{}, 1)
+    readerExited:=make(chan struct{})
     var sinkFailed atomic.Bool
     go func() {
+        defer close(readerExited)
         for {
             data, err := conn.ReadPacket()
             if err != nil {
@@ -150,6 +152,17 @@ func observeDataChannelsWithSink(ctx context.Context, conn channelObservationSou
     obs.unreliableMessages = min(counters.unreliableMessages.Load(), maxReportedPassiveMessages)
     obs.reliableBytes = min(counters.reliableBytes.Load(), maxReportedPassiveBytes)
     obs.unreliableBytes = min(counters.unreliableBytes.Load(), maxReportedPassiveBytes)
-    obs.forwardError = sinkFailed.Load()
+    // On a worker-backed session, return only after the single network
+    // reader has released its potential STDIN writer. Otherwise Stop/EOF
+    // can race an unfinished DATA frame and falsely fail the worker.
+    _=conn.Close()
+    if sink!=nil {
+        select {
+        case <-readerExited:
+        case <-time.After(2*time.Second):
+            obs.forwardError=true
+        }
+    }
+    obs.forwardError=obs.forwardError || sinkFailed.Load()
     return obs
 }
