@@ -103,14 +103,58 @@ namespace BlockCraftLauncher.Wpf
 
         static TextBlock Txt(string text, double size = 14, bool bold = false, bool muted = false)
         {
-            var label = new TextBlock { Text = text, FontSize = size, FontWeight = bold ? FontWeights.Bold : FontWeights.Normal,
-                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, size >= 20 ? 7 : 10) };
+            var label = new TextBlock
+            {
+                Text = text,
+                FontSize = size >= 22 ? size - 1 : size,
+                FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal,
+                TextWrapping = TextWrapping.Wrap,
+                LineHeight = size >= 20 ? size + 9 : size + 6,
+                Margin = new Thickness(0, 0, 0, size >= 20 ? 12 : 9)
+            };
             if (muted) label.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
             return label;
         }
+        static string ActionGlyph(string caption)
+        {
+            if (caption.StartsWith("启动")) return "\uE768";
+            if (caption.StartsWith("下载") || caption.StartsWith("安装")) return "\uE896";
+            if (caption.StartsWith("搜索") || caption.StartsWith("检查") || caption.StartsWith("扫描")) return "\uE721";
+            if (caption.StartsWith("刷新") || caption.StartsWith("重试") || caption.StartsWith("更新")) return "\uE72C";
+            if (caption.StartsWith("取消") || caption.StartsWith("删除") || caption.StartsWith("移除")) return "\uE711";
+            if (caption.StartsWith("打开") || caption.StartsWith("导入") || caption.StartsWith("选择")) return "\uE8B7";
+            if (caption.StartsWith("保存") || caption.StartsWith("备份")) return "\uE74E";
+            if (caption.StartsWith("登录") || caption.StartsWith("连接")) return "\uE77B";
+            if (caption.StartsWith("设置") || caption.StartsWith("恢复")) return "\uE713";
+            if (caption.StartsWith("查看") || caption.StartsWith("管理")) return "\uE8A7";
+            if (caption.StartsWith("返回") || caption.StartsWith("前往")) return "\uE72B";
+            return "";
+        }
         static Button Btn(string caption, Action action, bool accent = false)
         {
-            var b = new Button { Content = caption, MinHeight = 38 };
+            // Consistent Segoe MDL2 icons replace mixed emoji, box symbols and
+            // font-dependent characters across all generated feature pages.
+            var text = (caption ?? "").Trim();
+            while (text.Length > 0 && "▶⬇◇▤☼⇩⚙▣⟳ ".IndexOf(text[0]) >= 0)
+                text = text.Substring(1).TrimStart();
+            var b = new Button { MinHeight = 37 };
+            var content = new StackPanel { Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            string glyph = ActionGlyph(text);
+            if (glyph.Length > 0)
+            {
+                var symbol = new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                    FontSize = 14, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0) };
+                symbol.SetBinding(TextBlock.ForegroundProperty,
+                    new Binding("Foreground") { Source = b, Mode = BindingMode.OneWay });
+                content.Children.Add(symbol);
+            }
+            var label = new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center,
+                TextWrapping = TextWrapping.NoWrap };
+            label.SetBinding(TextBlock.ForegroundProperty,
+                new Binding("Foreground") { Source = b, Mode = BindingMode.OneWay });
+            content.Children.Add(label);
+            b.Content = content;
             if (accent) b.SetResourceReference(StyleProperty, "AccentButton");
             b.Click += (sender, args) => action();
             return b;
@@ -135,15 +179,32 @@ namespace BlockCraftLauncher.Wpf
         static void AddNavSection(Panel sidebar, string heading, IEnumerable<string> names, Action<string> navigate, Dictionary<string, Button> buttonMap)
         {
             var title = Txt(heading, 11, true, true);
-            title.Margin = new Thickness(10, 4, 0, 8);
+            title.Margin = new Thickness(13, 5, 0, 8);
             sidebar.Children.Add(title);
             foreach (var name in names)
             {
-                var btn = Btn(NavGlyph(name) + "    " + NavLabel(name), () => navigate(name));
+                var btn = new Button();
+                var content = new StackPanel { Orientation = Orientation.Horizontal,
+                    VerticalAlignment = VerticalAlignment.Center };
+                var icon = new TextBlock { Text = NavGlyph(name),
+                    FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                    FontSize = 15, Width = 21, VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 9, 0) };
+                icon.SetBinding(TextBlock.ForegroundProperty,
+                    new Binding("Foreground") { Source = btn, Mode = BindingMode.OneWay });
+                var label = new TextBlock { Text = NavLabel(name), FontSize = 12.5,
+                    VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+                label.SetBinding(TextBlock.ForegroundProperty,
+                    new Binding("Foreground") { Source = btn, Mode = BindingMode.OneWay });
+                content.Children.Add(icon);
+                content.Children.Add(label);
+                btn.Content = content;
+                btn.Click += (sender, args) => navigate(name);
                 btn.SetResourceReference(FrameworkElement.StyleProperty, "SidebarItem");
-                sidebar.Children.Add(btn); buttonMap[name] = btn;
+                sidebar.Children.Add(btn);
+                buttonMap[name] = btn;
             }
-            sidebar.Children.Add(new Separator { Margin = new Thickness(8, 9, 10, 13) });
+            sidebar.Children.Add(new Separator { Margin = new Thickness(10, 8, 10, 13) });
         }
         static string NavLabel(string page)
         {
@@ -163,19 +224,20 @@ namespace BlockCraftLauncher.Wpf
         {
             switch (page)
             {
-                case "首页": return "⌂";
-                case "游戏版本": return "▣";
-                case "下载管理": return "⇩";
-                case "资源中心": return "◇";
-                case "光影引擎": return "☼";
-                case "资源包": return "▤";
-                case "整合包": return "⬡";
-                case "CurseForge": return "♧";
-                case "模组更新": return "↻";
-                case "多人联机": return "◎";
-                case "启动器更新": return "⟳";
-                case "设置": return "⚙";
-                default: return "≡";
+                case "首页": return "\uE80F";
+                case "游戏版本": return "\uE8A5";
+                case "下载管理": return "\uE896";
+                case "资源中心": return "\uE8B7";
+                case "光影引擎": return "\uE790";
+                case "资源包": return "\uE8A7";
+                case "整合包": return "\uE8F1";
+                case "CurseForge": return "\uE753";
+                case "模组更新": return "\uE72C";
+                case "多人联机": return "\uE902";
+                case "启动器更新": return "\uE777";
+                case "设置": return "\uE713";
+                case "运行日志": return "\uE8A5";
+                default: return "\uE8A7";
             }
         }
         void BuildSidebar()
@@ -201,7 +263,7 @@ namespace BlockCraftLauncher.Wpf
             gameProcessText = null;
             homeLaunchButton = null;
             SideBar.Visibility = page == "首页" ? Visibility.Collapsed : Visibility.Visible;
-            SideColumn.Width = page == "首页" ? new GridLength(0) : new GridLength(205);
+            SideColumn.Width = page == "首页" ? new GridLength(0) : new GridLength(188);
             foreach (var pair in sidebarButtons)
                 pair.Value.SetResourceReference(FrameworkElement.StyleProperty,
                     pair.Key == page ? "SidebarItemActive" : "SidebarItem");
@@ -301,7 +363,7 @@ namespace BlockCraftLauncher.Wpf
             hero.ColumnDefinitions.Add(new ColumnDefinition {
                 Width = new GridLength(37, GridUnitType.Star) });
 
-            var launchPanel = Col(Txt("▶  准备启动", 19, true),
+            var launchPanel = Col(Txt("启动游戏", 19, true),
                 Txt("当前游戏实例", 12, false, true));
             homeProfile = new ComboBox
             {
@@ -358,8 +420,8 @@ namespace BlockCraftLauncher.Wpf
             hero.Children.Add(right);
             root.Children.Add(hero);
 
-            var shortcuts = Col(Txt("快速入口", 18, true),
-                Txt("无需在多个页面间反复查找功能。", 12, false, true));
+            var shortcuts = Col(Txt("快捷操作", 18, true),
+                Txt("下载游戏、管理资源和调整设置", 12, false, true));
             shortcuts.Children.Add(Row(
                 Btn("⬇  下载游戏版本", () => Navigate("游戏版本"), true),
                 Btn("◇  模组与资源", () => Navigate("资源中心")),
@@ -369,9 +431,9 @@ namespace BlockCraftLauncher.Wpf
                 Btn("⚙  启动器设置", () => Navigate("设置"))));
             root.Children.Add(Card(shortcuts));
 
-            root.Children.Add(Card(Col(Txt("启动器提示", 16, true),
-                Txt("当前为 WPF Alpha 迁移版本。所有下载和安装任务仍使用 BlockCraft 自己的服务与校验流程；"
-                    + "未完成迁移的功能会如实提示，不会覆盖原版启动器。", 12, false, true),
+            root.Children.Add(Card(Col(Txt("使用提示", 16, true),
+                Txt("当前版本包含独立的 Minecraft 版本管理、下载与联机入口。"
+                    + "尚未完成真实设备验收的功能将继续标为预览，不会覆盖旧版启动器。", 12, false, true),
                 Btn("查看本次更新说明", ShowReleaseNotes))));
             return root;
         }
