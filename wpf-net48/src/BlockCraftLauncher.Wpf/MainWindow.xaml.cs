@@ -1946,6 +1946,9 @@ namespace BlockCraftLauncher.Wpf
             try
             {
                 Status("正在直接打开已校验的新版，确认窗口显示后关闭当前窗口...");
+                if (updateStatusText != null)
+                    updateStatusText.Text = "正在直接打开 " + candidate.Offer.Tag +
+                        "，等待新主窗口渲染...";
                 bool shown = await autoUpdater.OpenPreparedDirectlyAsync(candidate,
                     updateCancellation.Token);
                 if (!shown || updateCancellation.IsCancellationRequested) return;
@@ -2560,6 +2563,7 @@ namespace BlockCraftLauncher.Wpf
                 + "· 新版 WPF 主窗口完成渲染后向更新助手发送一次性确认\n"
                 + "· 自动将新版窗口带到前台，并在状态栏提示更新完成\n"
                 + "· 单 EXE 支持从外层解包器等待到内层 WPF 真实窗口显示\n"
+                + "· 更新中心新增“直接打开新版”，已校验后从临时目录试用，不覆盖现有安装\n"
                 + "· 如果不能确认窗口已经显示，会说明原因和手动打开路径\n"
                 + "· 维持更新失败回滚，保留游戏、账号与存档不变\n\n"
                 + "本次窗口自动显示已加入 Windows 离线界面回归。"
