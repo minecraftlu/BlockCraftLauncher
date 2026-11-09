@@ -115,7 +115,8 @@ namespace BlockCraftLauncher.Wpf
             Loaded += async (sender, args) =>
             {
                 gameProcessTimer.Start();
-                await CheckLauncherUpdatesAsync(false);
+                if (!SuppressAutomaticUpdateCheck)
+                    await CheckLauncherUpdatesAsync(false);
             };
             Closed += (sender, args) =>
             {
