@@ -18,6 +18,10 @@
     <SolidColorBrush x:Key="HeaderBrush" Color="#176DC1"/>
     <SolidColorBrush x:Key="HeaderTextBrush" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="BadgeBrush" Color="#E8F3FF"/>
+    <SolidColorBrush x:Key="SecondaryAccentBrush" Color="#4E9BDD"/>
+    <SolidColorBrush x:Key="SoftDividerBrush" Color="#E6EDF6"/>
+    <SolidColorBrush x:Key="SearchSurfaceBrush" Color="#F9FCFF"/>
+    <SolidColorBrush x:Key="SuccessBrush" Color="#278A6B"/>
 
     <Style TargetType="Window">
       <Setter Property="Background" Value="{DynamicResource WindowBrush}"/>
@@ -136,9 +140,49 @@
       <Setter Property="Background" Value="{DynamicResource PanelBrush}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushTheme}"/>
       <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="CornerRadius" Value="7"/>
-      <Setter Property="Padding" Value="17,16"/>
-      <Setter Property="Margin" Value="0,0,0,13"/>
+      <Setter Property="CornerRadius" Value="10"/>
+      <Setter Property="Padding" Value="18,16"/>
+      <Setter Property="Margin" Value="0,0,0,14"/>
+    </Style>
+    <!-- Shared PCL-style search and download layouts. Distinct original
+         visual assets, same familiar label/filter/results information flow. -->
+    <Style x:Key="SearchPanel" TargetType="Border" BasedOn="{StaticResource Panel}">
+      <Setter Property="Padding" Value="19,16,19,12"/>
+      <Setter Property="Background" Value="{DynamicResource SearchSurfaceBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushTheme}"/>
+    </Style>
+    <Style x:Key="ResultsPanel" TargetType="Border" BasedOn="{StaticResource Panel}">
+      <Setter Property="Padding" Value="12,15,12,12"/>
+      <Setter Property="MinHeight" Value="145"/>
+    </Style>
+    <Style x:Key="SectionCaption" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="Margin" Value="0,0,0,7"/>
+    </Style>
+    <Style x:Key="SearchTextBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+      <Setter Property="MinWidth" Value="180"/>
+      <Setter Property="Padding" Value="12,9"/>
+      <Setter Property="MinHeight" Value="39"/>
+      <Setter Property="BorderBrush" Value="#B9D5F2"/>
+    </Style>
+    <Style x:Key="SearchComboBox" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+      <Setter Property="MinWidth" Value="125"/>
+      <Setter Property="MinHeight" Value="39"/>
+      <Setter Property="Padding" Value="9,6"/>
+    </Style>
+    <Style x:Key="FilterChip" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+      <Setter Property="MinHeight" Value="30"/>
+      <Setter Property="Padding" Value="11,4"/>
+      <Setter Property="Background" Value="{DynamicResource BadgeBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="FontSize" Value="11.5"/>
+    </Style>
+    <Style x:Key="QuietButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource SoftDividerBrush}"/>
     </Style>
     <Style x:Key="Heading" TargetType="TextBlock">
       <Setter Property="FontSize" Value="22"/>
@@ -156,15 +200,16 @@
       <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushTheme}"/>
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="Padding" Value="11,8"/>
-      <Setter Property="MinHeight" Value="37"/>
+      <Setter Property="MinHeight" Value="38"/>
       <Setter Property="Margin" Value="0,0,8,8"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="ToolTipService.ShowDuration" Value="12000"/>
     </Style>
     <Style TargetType="ComboBox">
       <Setter Property="Background" Value="{DynamicResource PanelBrush}"/>
       <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushTheme}"/>
-      <Setter Property="MinHeight" Value="36"/>
+      <Setter Property="MinHeight" Value="38"/>
       <Setter Property="Padding" Value="8,5"/>
       <Setter Property="Margin" Value="0,0,8,8"/>
     </Style>
@@ -385,20 +430,32 @@
       </Border>
     </DataTemplate>
     <DataTemplate x:Key="VersionItemTemplate">
-      <Border Padding="14,11" BorderBrush="{DynamicResource BorderBrushTheme}"
-              BorderThickness="0,0,0,1">
+      <Border Padding="13,12" BorderBrush="{DynamicResource SoftDividerBrush}"
+              BorderThickness="0,0,0,1" MinHeight="74">
         <Grid>
           <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/><ColumnDefinition Width="100"/>
+            <ColumnDefinition Width="54"/><ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="130"/>
           </Grid.ColumnDefinitions>
-          <StackPanel>
-            <TextBlock Text="{Binding Id}" FontSize="14" FontWeight="SemiBold"/>
+          <Border Width="42" Height="42" CornerRadius="8"
+                  Background="{DynamicResource BadgeBrush}" VerticalAlignment="Center">
+            <TextBlock Text="&#xE896;" FontFamily="Segoe MDL2 Assets"
+                       FontSize="22" Foreground="{DynamicResource AccentBrush}"
+                       VerticalAlignment="Center" HorizontalAlignment="Center"/>
+          </Border>
+          <StackPanel Grid.Column="1" VerticalAlignment="Center">
+            <TextBlock Text="{Binding Id}" FontSize="15" FontWeight="SemiBold"/>
             <TextBlock Text="{Binding Category}" FontSize="11"
-                       Foreground="{DynamicResource MutedBrush}" Margin="0,3,0,0"/>
+                       Foreground="{DynamicResource MutedBrush}" Margin="0,4,0,0"/>
           </StackPanel>
-          <TextBlock Grid.Column="1" Text="{Binding Released, StringFormat={}{0:yyyy-MM-dd}}"
-                     HorizontalAlignment="Right" VerticalAlignment="Center"
-                     Foreground="{DynamicResource MutedBrush}" FontSize="12"/>
+          <StackPanel Grid.Column="2" VerticalAlignment="Center"
+                      HorizontalAlignment="Right">
+            <TextBlock Text="官方版本" FontSize="10"
+                       Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Right"/>
+            <TextBlock Text="{Binding Released, StringFormat={}{0:yyyy-MM-dd}}"
+                       Foreground="{DynamicResource MutedBrush}" FontSize="11.5"
+                       HorizontalAlignment="Right" Margin="0,5,0,0"/>
+          </StackPanel>
         </Grid>
       </Border>
     </DataTemplate>
