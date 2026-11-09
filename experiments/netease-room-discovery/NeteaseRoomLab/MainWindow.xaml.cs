@@ -274,6 +274,10 @@ namespace BlockCraft.NeteaseRoomLab
                 Stage127CodecButton.IsEnabled = Stage127CodecReference.IsAvailable
                     && !stage12OfflineRunning && !joinProbeRunning && !livePreflightRunning
                     && !authHelperRunning && !g79CheckRunning;
+            if (Stage128BuildButton != null)
+                Stage128BuildButton.IsEnabled = Stage128ClientBuildReference.IsAvailable
+                    && !stage12OfflineRunning && !joinProbeRunning && !livePreflightRunning
+                    && !authHelperRunning && !g79CheckRunning;
             if (LivePreflightButton != null)
                 LivePreflightButton.IsEnabled = !joinProbeRunning && !livePreflightRunning && !authHelperRunning
                     && !g79CheckRunning && AuthConsentBox.IsChecked == true
@@ -519,6 +523,53 @@ namespace BlockCraft.NeteaseRoomLab
             {
                 Stage127CodecStatusText.Text =
                     "STAGE12_7_PROTOCOL_CHECK_FAILED_GAME_NOT_JOINED：本地查询未通过。";
+            }
+            finally
+            {
+                stage12OfflineRunning = false;
+                if (activeStage12Cancellation != null)
+                {
+                    activeStage12Cancellation.Dispose();
+                    activeStage12Cancellation = null;
+                }
+                UpdateAuthButtons();
+            }
+        }
+
+        private async void Stage128Build_Click(object sender, RoutedEventArgs e)
+        {
+            if (stage12OfflineRunning || joinProbeRunning || livePreflightRunning
+                || authHelperRunning || g79CheckRunning) return;
+            string gameVersion = Stage128GameBuildBox.Text;
+            string patchVersion = Stage128PatchBuildBox.Text;
+            string normalizedGame, normalizedPatch;
+            if (!Stage128ClientBuildReference.TryNormalizeBuild(gameVersion,out normalizedGame)
+                || !Stage128ClientBuildReference.TryNormalizeBuild(patchVersion,out normalizedPatch))
+            {
+                Stage128BuildStatusText.Text =
+                    Stage128ClientBuildReference.Classify(gameVersion,patchVersion,-1,"");
+                return;
+            }
+            if (!Stage128ClientBuildReference.IsAvailable)
+            {
+                Stage128BuildStatusText.Text =
+                    "STAGE12_8_BUILD_REFERENCE_UNAVAILABLE：此启动器没有离线版本参考组件。";
+                return;
+            }
+            stage12OfflineRunning = true;
+            activeStage12Cancellation = new CancellationTokenSource();
+            UpdateAuthButtons();
+            Stage128BuildStatusText.Text =
+                "STAGE12_8_BUILD_REFERENCE_RUNNING：正在本机对照公开版本表，不连接网易服务器。";
+            try
+            {
+                Stage128BuildStatusText.Text = await Stage128ClientBuildReference.RunAsync(
+                    normalizedGame,normalizedPatch,activeStage12Cancellation.Token);
+            }
+            catch (Exception)
+            {
+                Stage128BuildStatusText.Text =
+                    "STAGE12_8_BUILD_REFERENCE_FAILED_GAME_NOT_JOINED：本机参考查询发生错误。";
             }
             finally
             {
