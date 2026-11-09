@@ -284,10 +284,13 @@ namespace BlockCraftLauncher.Updater
             foreach (var file in files)
             {
                 string relative = SafeRelative(file.Substring(stage.TrimEnd('\\').Length + 1));
-                if ((file.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
-                    file.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) &&
+                // The original ZIP SHA256 verifies all nested files; the
+                // packaging manifest explicitly covers top-level EXE/DLL.
+                if (relative.IndexOf(Path.DirectorySeparatorChar) < 0 &&
+                    (file.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
+                     file.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) &&
                     !known.Contains(relative))
-                    throw new InvalidDataException("发现未校验的可执行文件：" + relative);
+                    throw new InvalidDataException("发现未校验的顶层可执行文件：" + relative);
             }
         }
 
