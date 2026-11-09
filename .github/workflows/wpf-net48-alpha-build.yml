@@ -42,6 +42,21 @@ jobs:
         shell: cmd
         working-directory: wpf-net48
         run: call build\build-windows.bat
+      - name: Standalone updater safe file replacement / rollback selftest
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Updater.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--selftest' -PassThru
+          if (-not $process.WaitForExit(35000)) {
+            $process.Kill()
+            throw 'Updater rollback selftest timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            throw "Updater rollback selftest failed: $($process.ExitCode)"
+          }
       - name: Smoke test WPF startup and dependency resolution
         shell: pwsh
         working-directory: wpf-net48
