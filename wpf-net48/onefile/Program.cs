@@ -31,8 +31,10 @@ namespace BlockCraftLauncher.OneFile
                 "--modrinth-deps-selftest", "--saves-restore-selftest",
                 "--instance-detection-selftest", "--auth-selftest"
             }.Any(flag => string.Equals(flag, args[0], StringComparison.OrdinalIgnoreCase))) ||
-                (args.Length == 3 && args[0] == "--after-update" &&
-                 args[2] == "--window-relaunch-selftest");
+                (args.Length >= 3 && args.Length <= 4 &&
+                 args[0] == "--after-update" &&
+                 args.Contains("--window-relaunch-selftest") &&
+                 (args.Length == 3 || args.Contains("--direct-open")));
             try
             {
                 var package = ReadPackage();
