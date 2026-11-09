@@ -49,6 +49,9 @@ namespace BlockCraftLauncher.Wpf.Services
                 "下载速率字节单位");
             Require(DownloadJob.Format(5L * 1024 * 1024).Contains("MiB"),
                 "下载大小单位");
+            // This runs a simulated HTTP transport (no DNS or credentials)
+            // through the SAME CmlLib game routing handler as production.
+            MinecraftRouteSanityChecks.RunAsync().GetAwaiter().GetResult();
         }
     }
 }
