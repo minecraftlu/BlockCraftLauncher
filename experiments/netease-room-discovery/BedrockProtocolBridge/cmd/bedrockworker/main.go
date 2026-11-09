@@ -60,13 +60,26 @@ func run(r io.Reader,w io.Writer) error {
 }
 
 func main() {
-    if len(os.Args)!=2 || os.Args[1]!="-offline-ipc-selftest" {
+    if len(os.Args)!=2 {
         fmt.Fprintln(os.Stderr,"OFFLINE_BRIDGE_ONLY")
         os.Exit(2)
     }
-    // The output stream contains ONLY framed binary records, never logs.
-    if err:=run(os.Stdin,os.Stdout);err!=nil {
-        _=err // Do not print raw payloads or user-provided bytes.
+    // Each accepted mode is exclusively local, uses no account sessions,
+    // and receives binary payloads only through parent-controlled STDIO.
+    var err error
+    switch os.Args[1] {
+    case "-offline-ipc-selftest":
+        err=run(os.Stdin,os.Stdout)
+    case "-offline-game-host-selftest":
+        err=runOfflineGameProcess(true)
+    case "-offline-game-client-selftest":
+        err=runOfflineGameProcess(false)
+    default:
+        fmt.Fprintln(os.Stderr,"OFFLINE_BRIDGE_ONLY")
+        os.Exit(2)
+    }
+    if err!=nil {
+        // Do not print error strings or binary payload contents.
         fmt.Fprintln(os.Stderr,"OFFLINE_BRIDGE_FAILED")
         os.Exit(1)
     }
