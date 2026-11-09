@@ -65,6 +65,7 @@ Get-ChildItem -LiteralPath $folder -Force | Where-Object { $_.Name -ne 'obj' } |
 # Verify the actual shipped files, not merely the successful MSBuild output.
 $required = @(
   'BlockCraftLauncher.Wpf.exe',
+  'BlockCraftLauncher.Updater.exe',
   'CmlLib.Core.Commons.dll',
   'CmlLib.Core.dll',
   'CmlLib.Core.Auth.Microsoft.dll',
