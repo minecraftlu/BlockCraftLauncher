@@ -16,7 +16,7 @@ namespace BlockCraftLauncher.OneFile
     {
         private const string ResourceName = "BlockCraftLauncher.Payload.zip";
         private const string GameExe = "BlockCraftLauncher.Wpf.exe";
-        private const string Release = "v0.9.30";
+        private const string Release = "v0.9.31";
         private const string Ready = ".blockcraft-ready";
 
         [STAThread]
@@ -46,7 +46,7 @@ namespace BlockCraftLauncher.OneFile
                 Directory.CreateDirectory(home);
 
                 bool acquired = false;
-                using (var mutex = new Mutex(false, @"Local\BlockCraftLauncher_OneFile_v0930"))
+                using (var mutex = new Mutex(false, @"Local\BlockCraftLauncher_OneFile_v0931"))
                 {
                     try
                     {
