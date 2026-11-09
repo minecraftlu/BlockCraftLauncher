@@ -21,6 +21,11 @@ namespace BlockCraftLauncher.Wpf.Models
         public string JavaPath { get; set; } = "";
         public string Proxy { get; set; } = "";
         public bool McimEnabled { get; set; } = false;
+        // Update metadata checks are enabled; downloads need explicit opt-in.
+        public bool AutoCheckUpdates { get; set; } = true;
+        public bool AutoDownloadUpdates { get; set; } = false;
+        public string UpdateChannel { get; set; } = "stable";
+        public DateTime LastUpdateCheckUtc { get; set; } = DateTime.MinValue;
         public string NetworkMode { get; set; } = "auto";
         public string Theme { get; set; } = "深色";
         public string Accent { get; set; } = "#1875CE";
