@@ -59,6 +59,29 @@ jobs:
           if ($process.ExitCode -ne 0) {
             throw "Updater rollback selftest failed: $($process.ExitCode)"
           }
+      - name: Minecraft skin DIY pixel editor and PNG safety (WPF and OneFile)
+        working-directory: wpf-net48
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $launchers = @(
+            'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe',
+            'dist/BlockCraftLauncher-v0.9.31-WPF-OneFile-Windows-x64.exe'
+          )
+          foreach ($launcher in $launchers) {
+            $exe = (Resolve-Path $launcher).Path
+            $process = Start-Process -FilePath $exe -ArgumentList '--skin-selftest' -PassThru
+            if (-not $process.WaitForExit(60000)) {
+              $process.Kill()
+              throw "Skin DIY PNG selftest timeout: $launcher"
+            }
+            $process.Refresh()
+            if ($process.ExitCode -ne 0) {
+              throw "Skin DIY PNG selftest failed: $launcher (exit $($process.ExitCode))"
+            }
+          }
+
       - name: Confirm updated WPF window really renders and reopens (normal and OneFile)
         working-directory: wpf-net48
         shell: pwsh
