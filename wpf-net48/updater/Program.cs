@@ -31,7 +31,6 @@ namespace BlockCraftLauncher.Updater
         {
             if (args.Length == 1 && args[0] == "--selftest")
                 return SelfTest();
-            string restart = null;
             try
             {
                 var opt = ParseArguments(args);
@@ -46,7 +45,6 @@ namespace BlockCraftLauncher.Updater
                 string digest = Require(opt, "sha256");
                 if (digest.Length != 64 || digest.Any(c => !Uri.IsHexDigit(c)))
                     throw new InvalidDataException("更新包 SHA-256 无效");
-                restart = mode == "zip" ? Path.Combine(target, WpfExe) : target;
                 if (!WaitForPreviousProcess(pid, WaitSeconds))
                     throw new IOException("原启动器仍在运行；没有覆盖任何文件。请关闭后重试。");
                 if (mode == "onefile")
@@ -161,15 +159,103 @@ namespace BlockCraftLauncher.Updater
             }
         }
 
+        static string RelaunchFile(string token)
+        {
+            if (string.IsNullOrEmpty(token) || token.Length != 32 ||
+                token.Any(c => !Uri.IsHexDigit(c)))
+                throw new ArgumentException("启动确认令牌格式无效");
+            return Path.Combine(Environment.GetFolderPath(
+                Environment.SpecialFolder.LocalApplicationData),
+                "BlockCraftLauncher", "updates", "relaunch-" +
+                token.ToLowerInvariant() + ".ok");
+        }
+
+        static bool TryReadWindowReady(string path, Func<int, bool> liveWpfProcess)
+        {
+            try
+            {
+                if (!File.Exists(path)) return false;
+                string[] lines = File.ReadAllLines(path);
+                if (lines.Length < 2 ||
+                    !int.TryParse(lines[0], out var pid) || pid <= 0 ||
+                    !DateTime.TryParse(lines[1], out _))
+                    return false;
+                return liveWpfProcess(pid);
+            }
+            catch (Exception error) when (error is IOException ||
+                error is UnauthorizedAccessException)
+            {
+                return false; // The WPF process may still be writing the marker.
+            }
+        }
+
+        static bool IsVisibleWpfProcess(int pid)
+        {
+            try
+            {
+                using (var candidate = Process.GetProcessById(pid))
+                    return !candidate.HasExited &&
+                        string.Equals(candidate.ProcessName, "BlockCraftLauncher.Wpf",
+                            StringComparison.OrdinalIgnoreCase);
+            }
+            catch (ArgumentException) { return false; }
+            catch (InvalidOperationException) { return false; }
+        }
+
+        static bool AwaitWindow(string marker, int timeoutMs,
+            Func<int, bool> liveWpfProcess)
+        {
+            var watch = Stopwatch.StartNew();
+            while (watch.ElapsedMilliseconds < timeoutMs)
+            {
+                if (TryReadWindowReady(marker, liveWpfProcess)) return true;
+                Thread.Sleep(150);
+            }
+            return TryReadWindowReady(marker, liveWpfProcess);
+        }
+
+        /// <summary>
+        /// Starts the ORIGINAL installed EXE, not the old onefile payload cache.
+        /// On success a new WPF main window must have rendered and acknowledged
+        /// itself, including when an outer OneFile bootstrap has already exited.
+        /// </summary>
         static void Restart(string executable)
         {
-            var process = Process.Start(new ProcessStartInfo(executable)
+            string token = Guid.NewGuid().ToString("N");
+            string marker = RelaunchFile(token);
+            Directory.CreateDirectory(Path.GetDirectoryName(marker));
+            if (File.Exists(marker)) File.Delete(marker);
+
+            Process launched = Process.Start(new ProcessStartInfo(executable,
+                "--after-update " + token)
             {
                 UseShellExecute = true,
-                WorkingDirectory = Path.GetDirectoryName(executable)
+                WorkingDirectory = Path.GetDirectoryName(executable),
+                WindowStyle = ProcessWindowStyle.Normal
             });
-            if (process == null) throw new IOException("无法重新打开更新后的启动器");
-            process.Dispose();
+            if (launched == null) throw new IOException("无法重新打开更新后的启动器");
+            launched.Dispose();
+            try
+            {
+                if (!AwaitWindow(marker, 70000, IsVisibleWpfProcess))
+                {
+                    // Do NOT roll back or overwrite a possibly still-running
+                    // new WPF process. The ZIP and original EXE were verified,
+                    // but the GUI may be delayed or blocked by Windows.
+                    string text = "新版本文件已完成安装并通过启动自检，" +
+                        "但未能确认新版窗口已显示。\\n\\n" +
+                        "可手动打开：\\n" + executable +
+                        "\\n\\n如果被杀毒软件拦截，请查看其安全提示。";
+                    WriteLog(new IOException(text));
+                    MessageBox.Show(text, "BlockCraft Launcher · 启动确认",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+            finally
+            {
+                try { if (File.Exists(marker)) File.Delete(marker); }
+                catch (IOException) { }
+            }
         }
 
         static void ApplySingleExe(string target, string staged, string digest,
@@ -463,6 +549,30 @@ namespace BlockCraftLauncher.Updater
                     File.Exists(Path.Combine(install, "one.dll")) ||
                     File.ReadAllText(Path.Combine(install, "world.txt")) != "world-data")
                     throw new Exception("ZIP 更新失败后未自动恢复文件");
+
+                // The real app writes a one-time acknowledgement only once its
+                // MainWindow has rendered. Exercise that marker protocol with
+                // a simulated WPF PID and a delayed asynchronous writer.
+                string token = Guid.NewGuid().ToString("N");
+                string marker = RelaunchFile(token);
+                if (TryReadWindowReady(marker, pid => true))
+                    throw new Exception("未启动时不得错误报告窗口已打开");
+                var emitter = new Thread(() =>
+                {
+                    Thread.Sleep(170);
+                    Directory.CreateDirectory(Path.GetDirectoryName(marker));
+                    File.WriteAllText(marker, Process.GetCurrentProcess().Id +
+                        "\\n" + DateTime.UtcNow.ToString("o"));
+                });
+                emitter.Start();
+                bool visible = AwaitWindow(marker, 3000,
+                    pid => pid == Process.GetCurrentProcess().Id);
+                emitter.Join();
+                if (!visible || !File.Exists(marker))
+                    throw new Exception("更新后窗口显示确认协议失效");
+                File.Delete(marker);
+                if (AwaitWindow(marker, 250, pid => true))
+                    throw new Exception("缺少确认文件时仍然报告启动成功");
                 return 0;
             }
             catch (Exception error) { WriteLog(error); return 40; }
