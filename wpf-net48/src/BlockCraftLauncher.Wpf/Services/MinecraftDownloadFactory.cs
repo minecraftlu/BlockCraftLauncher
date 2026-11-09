@@ -49,6 +49,10 @@ namespace BlockCraftLauncher.Wpf.Services
             readonly LauncherConfig settings;
             static readonly ConcurrentDictionary<string, Preference> History =
                 new ConcurrentDictionary<string, Preference>(StringComparer.OrdinalIgnoreCase);
+            // A large asset batch must not launch 12–32 duplicate latency
+            // probes on the first request for the same official host.
+            static readonly ConcurrentDictionary<string, SemaphoreSlim> ProbeLocks =
+                new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
 
             sealed class Preference
             {
@@ -116,22 +120,40 @@ namespace BlockCraftLauncher.Wpf.Services
                 string host = new Uri(official).Host;
                 if (History.TryGetValue(host, out var cached) && cached.Expires > DateTime.UtcNow)
                     return cached.PreferMirror;
-
-                // HEAD probes do not download the entire game asset. They run
-                // concurrently and have a 1400ms deadline each.
-                var officialProbe = ProbeAsync(official, ct);
-                var mirrorProbe = ProbeAsync(mirror, ct);
-                await Task.WhenAll(officialProbe, mirrorProbe);
-                long officialMs = officialProbe.Result;
-                long mirrorMs = mirrorProbe.Result;
-                bool prefer = mirrorMs != long.MaxValue &&
-                    (officialMs == long.MaxValue || mirrorMs + 60 < officialMs);
-                History[host] = new Preference
+                var gate = ProbeLocks.GetOrAdd(host, _ => new SemaphoreSlim(1, 1));
+                await gate.WaitAsync(ct);
+                try
                 {
-                    PreferMirror = prefer,
-                    Expires = DateTime.UtcNow.AddMinutes(10)
+                    // Another download may have measured the route while this
+                    // request waited. Reuse the answer instead of probing again.
+                    if (History.TryGetValue(host, out cached) && cached.Expires > DateTime.UtcNow)
+                        return cached.PreferMirror;
+                    var officialProbe = ProbeAsync(official, ct);
+                    var mirrorProbe = ProbeAsync(mirror, ct);
+                    await Task.WhenAll(officialProbe, mirrorProbe);
+                    long officialMs = officialProbe.Result;
+                    long mirrorMs = mirrorProbe.Result;
+                    bool prefer = mirrorMs != long.MaxValue &&
+                        (officialMs == long.MaxValue || mirrorMs + 60 < officialMs);
+                    History[host] = new Preference
+                    {
+                        PreferMirror = prefer,
+                        Expires = DateTime.UtcNow.AddMinutes(10)
+                    };
+                    return prefer;
+                }
+                finally { gate.Release(); }
+            }
+
+            void MarkMirrorTemporarilySlow(string official)
+            {
+                // Only server failures and connection timeouts affect host
+                // health; missing snapshots (404) are resource-specific.
+                History[new Uri(official).Host] = new Preference
+                {
+                    PreferMirror = false,
+                    Expires = DateTime.UtcNow.AddMinutes(3)
                 };
-                return prefer;
             }
 
             // Some mirrors do not contain every snapshot, installer or
@@ -162,7 +184,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 if (mirror == null || settings.NetworkMode == "official")
                     return await base.SendAsync(request, ct);
 
-                bool mirrorFirst = settings.NetworkMode == "mirror";
+                bool mirrorFirst = settings.NetworkMode == "mirror" || settings.NetworkMode == "china";
                 if (settings.NetworkMode == "auto")
                     mirrorFirst = await PreferMirrorAsync(original.AbsoluteUri, mirror, ct);
 
@@ -176,11 +198,20 @@ namespace BlockCraftLauncher.Wpf.Services
                         if (response.IsSuccessStatusCode ||
                             !NeedsFallback(response.StatusCode, mirrorFirst))
                             return response;
+                        if (mirrorFirst && ((int)response.StatusCode == 429 ||
+                            (int)response.StatusCode >= 500))
+                            MarkMirrorTemporarilySlow(original.AbsoluteUri);
                         response.Dispose();
                     }
                 }
-                catch (HttpRequestException) when (!ct.IsCancellationRequested) { }
-                catch (TaskCanceledException) when (!ct.IsCancellationRequested) { }
+                catch (HttpRequestException) when (!ct.IsCancellationRequested)
+                {
+                    if (mirrorFirst) MarkMirrorTemporarilySlow(original.AbsoluteUri);
+                }
+                catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    if (mirrorFirst) MarkMirrorTemporarilySlow(original.AbsoluteUri);
+                }
                 using (var fallback = CloneDownloadRequest(request, second))
                     return await base.SendAsync(fallback, ct);
             }
