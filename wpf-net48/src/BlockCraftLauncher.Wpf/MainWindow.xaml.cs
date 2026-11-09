@@ -1907,8 +1907,8 @@ namespace BlockCraftLauncher.Wpf
 
             var decision = MessageBox.Show(this,
                 "已下载并校验 " + preparedUpdate.Offer.Tag +
-                " 的官方更新包。\n\n现在关闭 BlockCraft Launcher，安装新版本并重启？" +
-                "\n若新版启动自检失败，独立更新程序会尝试恢复原有文件。" +
+                " 的官方更新包。\n\n现在关闭旧版、安装并自动打开新版启动器窗口？" +
+                "\n完成后会自动显示新版主界面；若启动自检失败，更新程序会尝试恢复旧文件。" +
                 "\n正在运行的 Minecraft 游戏不会被结束。\n\n" +
                 "提示：请勿在安装期间手动删除安装目录。",
                 "确认安装 BlockCraft Launcher 更新",
