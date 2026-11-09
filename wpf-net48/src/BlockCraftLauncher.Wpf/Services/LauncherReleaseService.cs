@@ -29,7 +29,10 @@ namespace BlockCraftLauncher.Wpf.Services
         {
             var match = Regex.Match(value ?? "", @"^v?(\d+)\.(\d+)\.(\d+)(?:[.-].*)?$", RegexOptions.IgnoreCase);
             if (!match.Success) return null;
-            return new[] { int.Parse(match.Groups[1].Value), int.Parse(match.Groups[2].Value), int.Parse(match.Groups[3].Value) };
+            if (!int.TryParse(match.Groups[1].Value, out var major) ||
+                !int.TryParse(match.Groups[2].Value, out var minor) ||
+                !int.TryParse(match.Groups[3].Value, out var patch)) return null;
+            return new[] { major, minor, patch };
         }
         public static bool IsNewer(string remote, string current)
         {
@@ -41,6 +44,15 @@ namespace BlockCraftLauncher.Wpf.Services
             }
             return false;
         }
+        public static bool IsCompatibleWpfAssetName(string name)
+        {
+            return !string.IsNullOrWhiteSpace(name) &&
+                name.StartsWith("BlockCraftLauncher-v", StringComparison.OrdinalIgnoreCase) &&
+                name.IndexOf("-WPF-", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
+                 name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+        }
+
         public async Task<ReleaseNotice> CheckAsync(LauncherConfig config, CancellationToken ct)
         {
             using (var network = new NetworkDownloader(config))
@@ -65,12 +77,7 @@ namespace BlockCraftLauncher.Wpf.Services
                     {
                         if (!(asset is Dictionary<string, object> file)) continue;
                         string name = file.TryGetValue("name", out var n) ? Convert.ToString(n) : "";
-                        if (name != null &&
-                            name.IndexOf("BlockCraftLauncher", StringComparison.OrdinalIgnoreCase) >= 0 &&
-                            (name.IndexOf("-WPF-", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                             name.IndexOf("-WPF-OneFile-", StringComparison.OrdinalIgnoreCase) >= 0) &&
-                            (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
-                             name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)))
+                        if (IsCompatibleWpfAssetName(name))
                         {
                             wpfAsset = true;
                             break;
