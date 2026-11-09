@@ -107,13 +107,16 @@ namespace BlockCraftLauncher.Wpf.Services
                     request.Headers.Authorization?.Scheme == "Bearer" &&
                     request.Headers.Authorization?.Parameter == "dummy-selftest-token",
                     "只使用官方 HTTPS 皮肤接口及 Minecraft 访问令牌");
-                var bytes = request.Content.ReadAsByteArrayAsync()
-                    .GetAwaiter().GetResult();
-                string message = Encoding.UTF8.GetString(bytes);
-                Require(message.Contains("name=\"variant\"") &&
-                    message.Contains("classic") &&
-                    message.Contains("name=\"file\"") &&
-                    message.Contains("image/png"),
+                // HTTP multipart uses runtime-dependent quoting rules.
+                // Inspect typed headers/parts rather than interpreting PNG
+                // binary data as text and checking raw boundary text.
+                var parts = ((MultipartFormDataContent)request.Content).ToArray();
+                Require(parts.Length == 2 &&
+                    parts[0].Headers.ContentDisposition?.Name?.Trim('"') == "variant" &&
+                    parts[1].Headers.ContentDisposition?.Name?.Trim('"') == "file" &&
+                    parts[1].Headers.ContentType?.MediaType == "image/png" &&
+                    parts[0].ReadAsStringAsync().GetAwaiter().GetResult() == "classic" &&
+                    parts[1].ReadAsByteArrayAsync().GetAwaiter().GetResult().SequenceEqual(png),
                     "只上传指定的经典皮肤 PNG 和模型");
             }
             using (var slim = BuildRequest("dummy-selftest-token", png, true))
