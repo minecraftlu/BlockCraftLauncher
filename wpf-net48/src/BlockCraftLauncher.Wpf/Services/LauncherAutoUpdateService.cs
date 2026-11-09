@@ -447,19 +447,27 @@ namespace BlockCraftLauncher.Wpf.Services
             }))
             {
                 if (probe == null) throw new IOException("无法启动候选更新包");
-                for (int i = 0; i < 90; i++)
+                try
                 {
-                    ct.ThrowIfCancellationRequested();
-                    if (probe.WaitForExit(1000))
+                    for (int i = 0; i < 450; i++)
                     {
-                        if (probe.ExitCode != 0)
-                            throw new IOException("候选更新包自检失败：" + probe.ExitCode);
-                        return;
+                        ct.ThrowIfCancellationRequested();
+                        if (probe.HasExited)
+                        {
+                            if (probe.ExitCode != 0)
+                                throw new IOException("候选更新包自检失败：" + probe.ExitCode);
+                            return;
+                        }
+                        // Do not freeze the WPF UI while preflighting an EXE.
+                        await Task.Delay(200, ct);
                     }
-                    await Task.Yield();
+                    throw new IOException("候选更新包自检超时");
                 }
-                try { probe.Kill(); } catch { }
-                throw new IOException("候选更新包自检超时");
+                finally
+                {
+                    try { if (!probe.HasExited) probe.Kill(); }
+                    catch { }
+                }
             }
         }
 
