@@ -1,4 +1,4 @@
-name: BlockCraft Stage12.3 WPF offline game bridge preview
+name: BlockCraft Stage12.4 WPF offline game bridge preview
 
 on:
   pull_request:
@@ -58,6 +58,10 @@ jobs:
             & $fixture -offline-ipc-selftest -worker $worker
             if ($LASTEXITCODE -ne 0) { throw "IPC roundtrip failed" }
           }
+          for ($attempt=1; $attempt -le 2; $attempt++) {
+            & $fixture -offline-game-ipc-selftest -worker $worker
+            if ($LASTEXITCODE -ne 0) { throw "offline two-process Bedrock login/spawn failed" }
+          }
 
       - name: Compile and run .NET Framework 4.8 local safety tests
         shell: pwsh
@@ -84,15 +88,15 @@ jobs:
           foreach ($required in @("BlockCraft.JoinProbe.exe", "BlockCraft.Stage12.BedrockWorker.exe", "BlockCraft.Stage12.IPCFixture.exe")) {
             if (-not ($names -contains $required)) { throw "Missing embedded resource: $required" }
           }
-          New-Item -ItemType Directory -Force "stage12-3-wpf-offline" | Out-Null
-          $output = "stage12-3-wpf-offline/BlockCraftRoomStage12_3_OfflinePreview.exe"
+          New-Item -ItemType Directory -Force "stage12-4-wpf-offline" | Out-Null
+          $output = "stage12-4-wpf-offline/BlockCraftRoomStage12_4_OfflineGamePreview.exe"
           Copy-Item $exe $output
           $hash = (Get-FileHash $output -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  BlockCraftRoomStage12_3_OfflinePreview.exe" | Set-Content "stage12-3-wpf-offline/SHA256SUMS.txt" -Encoding ascii
+          "$hash  BlockCraftRoomStage12_4_OfflineGamePreview.exe" | Set-Content "stage12-4-wpf-offline/SHA256SUMS.txt" -Encoding ascii
 
       - uses: actions/upload-artifact@v4
         with:
-          name: BlockCraft-RoomLab-Stage12_3-OfflinePreview-unsigned
-          path: stage12-3-wpf-offline/
+          name: BlockCraft-RoomLab-Stage12_4-OfflineGamePreview-unsigned
+          path: stage12-4-wpf-offline/
           if-no-files-found: error
           retention-days: 14
