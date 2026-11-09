@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
 using System.Linq;
@@ -18,6 +19,15 @@ namespace BlockCraftLauncher.Wpf.Services
         public string Name { get; set; }
         public string Description { get; set; }
         public string Kind { get; set; }
+        public string Author { get; set; }
+        public string IconUrl { get; set; }
+        public long DownloadCount { get; set; }
+        public string DownloadsLabel { get; set; }
+        public string UpdatedLabel { get; set; }
+        public string CategoryLabel { get; set; }
+        public string LoaderLabel { get; set; }
+        public string VersionsLabel { get; set; }
+        public string SourceLabel => "Modrinth";
         public string KindLabel
         {
             get
@@ -35,6 +45,53 @@ namespace BlockCraftLauncher.Wpf.Services
         public override string ToString() => Name + " — " + Description;
     }
 
+    public sealed class ModrinthSearchPage
+    {
+        public IReadOnlyList<ResourceHit> Hits { get; set; }
+        public int TotalHits { get; set; }
+    }
+
+    public static class ModrinthSearchMetadata
+    {
+        public static string DownloadCountLabel(long count)
+        {
+            if (count < 0) return "下载量未知";
+            if (count >= 100000000) return (count / 100000000.0).ToString("0.##", CultureInfo.InvariantCulture) + " 亿次下载";
+            if (count >= 10000) return (count / 10000.0).ToString("0.##", CultureInfo.InvariantCulture) + " 万次下载";
+            return count.ToString("N0", CultureInfo.InvariantCulture) + " 次下载";
+        }
+
+        public static string TrustedIconUrl(string value)
+        {
+            if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) ||
+                uri.Scheme != Uri.UriSchemeHttps ||
+                !string.Equals(uri.Host, "cdn.modrinth.com", StringComparison.OrdinalIgnoreCase) ||
+                !uri.IsDefaultPort || uri.UserInfo.Length > 0 || uri.Fragment.Length > 0)
+                return null;
+            return uri.AbsoluteUri;
+        }
+
+        public static string CategoryName(string category)
+        {
+            switch (category)
+            {
+                case "optimization": return "性能优化";
+                case "adventure": return "冒险";
+                case "technology": return "科技";
+                case "decoration": return "装饰";
+                case "utility": return "实用工具";
+                case "worldgen": return "世界生成";
+                case "mobs": return "生物";
+                case "library": return "支持库";
+                case "management": return "管理";
+                case "equipment": return "装备";
+                case "gameplay": return "玩法";
+                case "storage": return "存储";
+                default: return category ?? "";
+            }
+        }
+    }
+
     public sealed class ModrinthClient : IDisposable
     {
         // Do not interleave commits and registry writes for one game instance.
@@ -47,32 +104,97 @@ namespace BlockCraftLauncher.Wpf.Services
         public async Task<IReadOnlyList<ResourceHit>> SearchAsync(string query, string type, CancellationToken ct,
             string gameVersion = null, string loader = null, string sort = "relevance", int offset = 0)
         {
+            var page = await SearchPageAsync(query, type, ct, gameVersion, loader, sort, offset);
+            return page.Hits;
+        }
+
+        /// <summary>
+        /// Modrinth v2 official facets; search fields are data, not install
+        /// authorization. The returned metadata drives PCL-like result rows.
+        /// </summary>
+        public async Task<ModrinthSearchPage> SearchPageAsync(string query, string type, CancellationToken ct,
+            string gameVersion = null, string loader = null, string sort = "relevance",
+            int offset = 0, string category = null)
+        {
             if (type != "mod" && type != "shader" && type != "resourcepack" && type != "modpack")
                 throw new ArgumentException("不支持的 Modrinth 搜索类别");
             if ((query ?? "").Length > 150 || offset < 0 || offset > 2000)
                 throw new ArgumentException("搜索关键词或分页参数无效");
             if (sort != "relevance" && sort != "downloads" && sort != "updated" && sort != "newest")
                 sort = "relevance";
+            if (!string.IsNullOrEmpty(gameVersion) &&
+                (gameVersion.Length > 50 || gameVersion.Any(char.IsControl)))
+                throw new ArgumentException("Minecraft 版本号不合法");
+            if (!string.IsNullOrEmpty(loader) &&
+                !new[] { "fabric", "forge", "neoforge", "quilt", "liteloader", "rift" }
+                    .Contains(loader, StringComparer.OrdinalIgnoreCase))
+                throw new ArgumentException("加载器筛选条件不合法");
+            if (!string.IsNullOrEmpty(category) &&
+                !new[] { "optimization", "technology", "adventure", "decoration", "utility",
+                    "worldgen", "mobs", "library", "gameplay", "equipment", "storage",
+                    "management" }.Contains(category, StringComparer.Ordinal))
+                throw new ArgumentException("资源分类筛选条件不合法");
             var facets = new List<object> { new[] { "project_type:" + type } };
             if (!string.IsNullOrWhiteSpace(gameVersion))
                 facets.Add(new[] { "versions:" + gameVersion.Trim() });
             if (type == "mod" && !string.IsNullOrWhiteSpace(loader) && loader != "vanilla")
                 facets.Add(new[] { "categories:" + loader.Trim().ToLowerInvariant() });
+            if (type == "mod" && !string.IsNullOrWhiteSpace(category))
+                facets.Add(new[] { "categories:" + category });
             string endpoint = "https://api.modrinth.com/v2/search?limit=20&offset=" + offset +
                 "&index=" + Uri.EscapeDataString(sort) +
                 "&query=" + Uri.EscapeDataString(query ?? "") +
                 "&facets=" + Uri.EscapeDataString(json.Serialize(facets));
             string data = await network.GetStringWithFallbackAsync(endpoint, "official", ct);
             var parsed = json.DeserializeObject(data) as Dictionary<string, object>;
+            if (parsed == null || !(parsed.TryGetValue("hits", out var raw) && raw is object[] rows))
+                throw new InvalidDataException("Modrinth 搜索响应缺少项目列表");
             var hits = new List<ResourceHit>();
-            if (parsed != null && parsed.TryGetValue("hits", out var raw) && raw is object[] rows)
-                foreach (var item in rows)
-                {
-                    if (!(item is Dictionary<string, object> p)) continue;
-                    hits.Add(new ResourceHit { ProjectId = Get(p, "project_id"), Name = Get(p, "title"),
-                        Description = Get(p, "description"), Kind = type });
-                }
-            return hits;
+            foreach (var item in rows.Take(20))
+            {
+                if (!(item is Dictionary<string, object> p)) continue;
+                string projectId = Get(p, "project_id");
+                if (string.IsNullOrWhiteSpace(projectId) || projectId.Length > 128) continue;
+                var cats = p.TryGetValue("categories", out var categories)
+                    ? categories as object[] : null;
+                var loaders = cats == null ? new string[0] :
+                    cats.Select(Convert.ToString)
+                        .Where(v => v == "fabric" || v == "forge" || v == "neoforge" || v == "quilt")
+                        .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                var versions = p.TryGetValue("versions", out var rawVersions)
+                    ? rawVersions as object[] : null;
+                string updatedText = "更新日期未知";
+                if (DateTime.TryParse(Get(p, "date_modified"), CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var updated))
+                    updatedText = "更新 " + updated.ToLocalTime().ToString("yyyy-MM-dd");
+                long downloads = -1;
+                if (p.TryGetValue("downloads", out var rawDownloads))
+                    long.TryParse(Convert.ToString(rawDownloads, CultureInfo.InvariantCulture), out downloads);
+                hits.Add(new ResourceHit {
+                    ProjectId = projectId,
+                    Name = Get(p, "title"), Description = Get(p, "description"),
+                    Kind = type, Author = Get(p, "author"),
+                    IconUrl = ModrinthSearchMetadata.TrustedIconUrl(Get(p, "icon_url")),
+                    DownloadCount = downloads,
+                    DownloadsLabel = ModrinthSearchMetadata.DownloadCountLabel(downloads),
+                    UpdatedLabel = updatedText,
+                    CategoryLabel = cats == null ? "" :
+                        string.Join(" · ", cats.Select(Convert.ToString)
+                            .Where(x => x != "fabric" && x != "forge" &&
+                                x != "neoforge" && x != "quilt")
+                            .Take(2).Select(ModrinthSearchMetadata.CategoryName)),
+                    LoaderLabel = loaders.Length > 0 ? string.Join(" / ", loaders) : "加载器未指定",
+                    VersionsLabel = versions != null && versions.Length > 0
+                        ? string.Join(" / ", versions.Skip(Math.Max(0, versions.Length - 3))
+                            .Select(Convert.ToString)) : "版本未指定"
+                });
+            }
+            int total = hits.Count;
+            if (parsed.TryGetValue("total_hits", out var totalObject) &&
+                int.TryParse(Convert.ToString(totalObject, CultureInfo.InvariantCulture),
+                    out var totalParsed) && totalParsed >= 0)
+                total = totalParsed;
+            return new ModrinthSearchPage { Hits = hits, TotalHits = total };
         }
         static string Get(Dictionary<string, object> d, string k) => d.TryGetValue(k, out var x) && x != null ? Convert.ToString(x) : "";
         public async Task<string> DownloadLatestAsync(ResourceHit hit, GameProfile profile, CancellationToken ct, IProgress<DownloadBytes> progress = null)
