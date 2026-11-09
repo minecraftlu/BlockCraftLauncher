@@ -1126,8 +1126,29 @@ namespace BlockCraftLauncher.Wpf
                     + " 安装时仍会检查版本、依赖、下载权限和 SHA-1。", 12, false, true));
             if (!settings.McimEnabled)
                 return Col(
-                    Txt("CurseForge 镜像当前未启用；请在设置中主动启用并阅读服务条款。", 13),
-                    Btn("前往设置", () => Navigate("设置"), true));
+                    Txt("CurseForge 需要主动启用 MCIM 社区镜像。启用后将从该镜像获取项目图片与模组信息，"
+                        + "没有自动使用任何其他启动器的私有 API Key。", 13),
+                    Row(Btn("确认启用 CurseForge 图文搜索", () =>
+                    {
+                        if (MessageBox.Show(this,
+                            "MCIM 是第三方社区镜像，可能会暂时不可用，项目元数据也可能晚于官方。\\n" +
+                            "开启后会从 MCIM 查询模组，并仅下载作者允许分发、具有 SHA-1 校验的文件。\\n\\n" +
+                            "是否主动启用并保存这一设置？",
+                            "启用社区模组镜像",
+                            MessageBoxButton.YesNo, MessageBoxImage.Question)
+                            != MessageBoxResult.Yes) return;
+                        settings.McimEnabled = true;
+                        try { store.Save(settings); }
+                        catch (Exception ex)
+                        {
+                            settings.McimEnabled = false;
+                            ShowError("保存 MCIM 设置失败", ex);
+                            return;
+                        }
+                        Navigate("CurseForge");
+                        Status("已启用 MCIM 图文搜索，可查询 CurseForge 模组封面和截图。");
+                    }, true),
+                    Btn("前往设置", () => Navigate("设置"))));
 
             cfSearchQuery = new TextBox { Width = 325,
                 ToolTip = "输入模组名称（支持中英文），留空可查询热门模组" };
