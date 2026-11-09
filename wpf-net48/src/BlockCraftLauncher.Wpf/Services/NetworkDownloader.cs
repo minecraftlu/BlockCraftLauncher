@@ -292,7 +292,8 @@ namespace BlockCraftLauncher.Wpf.Services
                         if (File.Exists(fullPath)) File.Replace(part, fullPath, null);
                         else File.Move(part, fullPath);
                         string origin = part + ".origin";
-                        if (File.Exists(origin)) File.Delete(origin);
+                        try { if (File.Exists(origin)) File.Delete(origin); }
+                        catch (IOException) { /* Completed payload is already verified and committed. */ }
                         return;
                     }
                     catch (Exception ex) when (ex is IOException || ex is HttpRequestException ||
