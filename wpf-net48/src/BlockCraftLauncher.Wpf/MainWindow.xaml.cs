@@ -1999,6 +1999,40 @@ namespace BlockCraftLauncher.Wpf
                 "MCIM 非官方服务，启用前请确认接入权限并遵守作者许可");
             root.Children.Add(Card(Col(Txt("下载与网络", 18, true), network)));
 
+            var updates = SettingsForm();
+            var channels = new[]
+            {
+                new KeyValuePair<string, string>("stable", "稳定版 · 仅正式 GitHub Releases"),
+                new KeyValuePair<string, string>("preview", "预览版 · BlockCraft WPF RC 测试包")
+            };
+            settingsUpdateChannel = new ComboBox
+            {
+                ItemsSource = channels, DisplayMemberPath = "Value",
+                SelectedItem = channels.FirstOrDefault(x => x.Key == settings.UpdateChannel),
+                MaxWidth = 340
+            };
+            if (settingsUpdateChannel.SelectedIndex < 0)
+                settingsUpdateChannel.SelectedIndex = 0;
+            SettingRow(updates, "更新通道", settingsUpdateChannel,
+                "默认稳定版；预览版可能包含尚未完成实机测试的新功能");
+            settingsAutoCheck = new CheckBox
+            {
+                IsChecked = settings.AutoCheckUpdates,
+                Content = "启动后后台自动检查新版本（最多每 6 小时一次）"
+            };
+            SettingRow(updates, "自动检测", settingsAutoCheck,
+                "仅从官方 GitHub Releases 读取公开版本信息，不上传账号数据");
+            settingsAutoDownload = new CheckBox
+            {
+                IsChecked = settings.AutoDownloadUpdates,
+                Content = "发现新版本时自动下载并校验，等我确认后再安装"
+            };
+            SettingRow(updates, "自动下载", settingsAutoDownload,
+                "关闭为默认设置。即使启用自动下载，也不会自动结束游戏或强制重启。");
+            root.Children.Add(Card(Col(Txt("启动器自动更新", 18, true),
+                updates,
+                Row(Btn("前往更新中心", () => Navigate("启动器更新"))))));
+
             root.Children.Add(Row(
                 Btn("保存设置", SaveSettings, true),
                 Btn("恢复 100% 缩放", () => { settingsZoom.Value = 100; }),
@@ -2016,10 +2050,25 @@ namespace BlockCraftLauncher.Wpf
             if (int.TryParse(settingsDownloadRetries?.Text, out var retries))
                 settings.DownloadRetries = Math.Max(1, Math.Min(6, retries));
             settings.McimEnabled = settingsMcim?.IsChecked == true;
+            settings.AutoCheckUpdates = settingsAutoCheck?.IsChecked == true;
+            settings.AutoDownloadUpdates = settingsAutoDownload?.IsChecked == true;
+            if (settingsUpdateChannel?.SelectedItem is KeyValuePair<string, string> selectedUpdateChannel &&
+                settings.UpdateChannel != selectedUpdateChannel.Key)
+            {
+                settings.UpdateChannel = selectedUpdateChannel.Key;
+                offeredUpdate = null;
+                preparedUpdate = null;
+                settings.LastUpdateCheckUtc = DateTime.MinValue;
+                RefreshLauncherUpdatePanel();
+            }
             settings.JavaPath = settingsJava?.Text ?? settings.JavaPath;
             settings.OfflineName = settingsPlayer?.Text ?? settings.OfflineName;
             if (int.TryParse(settingsMemory?.Text, out var mb)) settings.MemoryMb = Math.Max(512, mb);
-            try { store.Save(settings); Status("WPF 预览版设置已保存"); }
+            try
+            {
+                store.Save(settings);
+                Status("设置已保存；自动检查将按新通道在下次启动时运行。");
+            }
             catch (Exception ex) { ShowError("保存失败", ex); }
         }
         UIElement BuildLogs()
