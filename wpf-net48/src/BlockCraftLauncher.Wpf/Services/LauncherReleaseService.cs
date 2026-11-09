@@ -51,6 +51,9 @@ namespace BlockCraftLauncher.Wpf.Services
             return !string.IsNullOrWhiteSpace(name) &&
                 name.StartsWith("BlockCraftLauncher-v", StringComparison.OrdinalIgnoreCase) &&
                 name.IndexOf("-WPF-", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                name.IndexOf("-Alpha-", StringComparison.OrdinalIgnoreCase) < 0 &&
+                name.IndexOf("-Preview-", StringComparison.OrdinalIgnoreCase) < 0 &&
+                name.IndexOf("-Beta-", StringComparison.OrdinalIgnoreCase) < 0 &&
                 (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
                  name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
         }
