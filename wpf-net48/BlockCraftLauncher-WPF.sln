@@ -16,5 +16,9 @@ Global
         {D25B711D-9568-4F96-A982-301FFFD256E2}.Debug|Any CPU.Build.0 = Debug|Any CPU
         {D25B711D-9568-4F96-A982-301FFFD256E2}.Release|Any CPU.ActiveCfg = Release|Any CPU
         {D25B711D-9568-4F96-A982-301FFFD256E2}.Release|Any CPU.Build.0 = Release|Any CPU
+        {41953CC6-2F2E-4E34-AAC2-9DA9BE5C9DD1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {41953CC6-2F2E-4E34-AAC2-9DA9BE5C9DD1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {41953CC6-2F2E-4E34-AAC2-9DA9BE5C9DD1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {41953CC6-2F2E-4E34-AAC2-9DA9BE5C9DD1}.Release|Any CPU.Build.0 = Release|Any CPU
     EndGlobalSection
 EndGlobal
