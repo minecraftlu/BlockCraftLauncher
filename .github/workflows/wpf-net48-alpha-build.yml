@@ -59,6 +59,14 @@ jobs:
           if ($process.ExitCode -ne 0) {
             throw "Updater rollback selftest failed: $($process.ExitCode)"
           }
+      - name: Confirm updated WPF window really renders and reopens (normal and OneFile)
+        working-directory: wpf-net48
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./tests/check_window_relaunch.ps1
+
       - name: Smoke test WPF startup and dependency resolution
         shell: pwsh
         working-directory: wpf-net48
