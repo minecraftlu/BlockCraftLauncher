@@ -37,7 +37,7 @@ namespace BlockCraftLauncher.OneFile
                 Directory.CreateDirectory(home);
 
                 bool acquired = false;
-                using (var mutex = new Mutex(false, @"Local\BlockCraftLauncher_OneFile_v0927"))
+                using (var mutex = new Mutex(false, @"Local\BlockCraftLauncher_OneFile_v0928"))
                 {
                     try
                     {
