@@ -25,6 +25,7 @@ for style in (
     "HeaderTab", "HeaderTabActive", "SidebarItem", "SidebarItemActive",
     "AccentButton", "Panel", "ResourceItemTemplate", "VersionItemTemplate",
     "DownloadItemTemplate", "ServerItemTemplate", "LocalResourceItemTemplate",
+    "CurseForgeItemTemplate",
 ):
     assert style in styles, style
 
