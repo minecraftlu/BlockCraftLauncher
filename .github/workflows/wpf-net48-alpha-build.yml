@@ -241,6 +241,44 @@ jobs:
           }
           Write-Host 'PASS: OneFile backup/restore with ZIP path hardening and no overwrite'
 
+      - name: Offline Minecraft instance detection matches actual launch root
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--instance-detection-selftest' -PassThru
+          if (-not $process.WaitForExit(35000)) {
+            $process.Kill()
+            throw 'Instance root detection selftest timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 45 }
+            throw "Instance detection test failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: shared root, isolated modpacks and missing metadata report the same root as game launch'
+
+      - name: Offline Minecraft instance detection from single EXE
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.27-WPF-OneFile-Windows-x64.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--instance-detection-selftest' -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            $process.Kill()
+            throw 'Single EXE instance root detection test timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 45 }
+            throw "Single EXE instance detection test failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: OneFile instance detection matches Minecraft launch root without network'
+
       - name: Offline Microsoft refresh-token recovery tests
         shell: pwsh
         working-directory: wpf-net48
