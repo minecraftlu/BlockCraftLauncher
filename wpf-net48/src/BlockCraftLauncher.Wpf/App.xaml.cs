@@ -71,6 +71,12 @@ namespace BlockCraftLauncher.Wpf
 
             base.OnStartup(e);
 
+            // The external updater supplies a one-time random token. Only a
+            // fully rendered, visible main window may acknowledge relaunch.
+            // Normal starts and every offline selftest never write this file.
+            string postUpdateToken = smokeTest ? null :
+                LauncherRelaunchSignal.ReadToken(e.Args);
+
             if (authSelfTest)
             {
                 try
@@ -179,6 +185,31 @@ namespace BlockCraftLauncher.Wpf
                     else
                     {
                         MainWindow = window;
+                        if (postUpdateToken != null)
+                        {
+                            bool acknowledged = false;
+                            window.ContentRendered += (sender, args) =>
+                            {
+                                if (acknowledged || !window.IsVisible) return;
+                                acknowledged = true;
+                                // Restore the new launcher to the foreground
+                                // after update without ending Minecraft.
+                                if (window.WindowState == WindowState.Minimized)
+                                    window.WindowState = WindowState.Normal;
+                                window.Activate();
+                                window.Focus();
+                                try
+                                {
+                                    LauncherRelaunchSignal.AcknowledgeVisibleWindow(postUpdateToken);
+                                }
+                                catch (Exception confirmError)
+                                {
+                                    // Confirmation failure should not crash
+                                    // the newly opened launcher.
+                                    WriteDiagnostic(confirmError);
+                                }
+                            };
+                        }
                         window.Show();
                     }
                 }
