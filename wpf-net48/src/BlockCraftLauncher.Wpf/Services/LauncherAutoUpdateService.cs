@@ -50,7 +50,7 @@ namespace BlockCraftLauncher.Wpf.Services
     /// </summary>
     public sealed class LauncherAutoUpdateService
     {
-        internal const string CurrentTag = "v0.9.28-wpf-rc.1";
+        internal const string CurrentTag = "v0.9.29-wpf-rc.1";
         internal const string ReleasesApi =
             "https://api.github.com/repos/minecraftlu/BlockCraftLauncher/releases?per_page=100";
         internal const string OfficialReleaseRoot =
@@ -288,7 +288,7 @@ namespace BlockCraftLauncher.Wpf.Services
             })
             using (var http = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(12) })
             {
-                http.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher-WPF-Update/0.9.28");
+                http.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher-WPF-Update/0.9.29");
                 Uri current = new Uri(url);
                 if (!TrustedRedirect(current) ||
                     !current.AbsolutePath.StartsWith(
