@@ -137,6 +137,14 @@ jobs:
             }
           }
 
+      - name: Confirm updated WPF window really renders and reopens (normal and OneFile)
+        working-directory: wpf-net48
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./tests/check_window_relaunch.ps1
+
       - name: Generate release asset hashes and notes
         working-directory: wpf-net48
         run: |
