@@ -50,6 +50,8 @@ namespace BlockCraftLauncher.Wpf
         ListBox modUpgradeResults;
         TextBox cfSearchQuery;
         ListBox cfSearchResults;
+        TextBlock cfSearchStatus;
+        CancellationTokenSource cfSearchCancellation;
         CheckBox settingsMcim;
         GameProfile activeProfile;
         string currentPage = "首页";
@@ -259,6 +261,8 @@ namespace BlockCraftLauncher.Wpf
             // response rendering into a different resource page.
             resourceSearchCancellation?.Cancel();
             resourceSearchCancellation = null;
+            cfSearchCancellation?.Cancel();
+            cfSearchCancellation = null;
             currentPage = page;
             gameProcessText = null;
             homeLaunchButton = null;
@@ -1116,33 +1120,165 @@ namespace BlockCraftLauncher.Wpf
         }
         UIElement BuildCurseForge()
         {
-            var root = Col(Txt("CurseForge 模组 · MCIM 镜像", 24, true),
-                Txt("独立可选服务，不使用第三方程序的 API Key；文件下载必须有授权 URL、兼容版本和 SHA-1。", 12, false, true));
+            var root = Col(Txt("CurseForge 模组", 24, true),
+                Txt("通过已授权的 MCIM 镜像查询 Minecraft 模组；列表可显示项目封面、作者、下载量与截图。"
+                    + " 安装时仍会检查版本、依赖、下载权限和 SHA-1。", 12, false, true));
             if (!settings.McimEnabled)
-                return Col(Txt("MCIM 当前未启用。请在设置中启用并确认该镜像的服务与下载条款。"),
+                return Col(
+                    Txt("CurseForge 镜像当前未启用；请在设置中主动启用并阅读服务条款。", 13),
                     Btn("前往设置", () => Navigate("设置"), true));
-            cfSearchQuery = new TextBox { Width = 340, ToolTip = "CurseForge 模组关键词" };
-            root.Children.Add(Card(Row(cfSearchQuery, Btn("搜索 CurseForge", async () => await SearchCurseForgeAsync(), true))));
-            cfSearchResults = new ListBox { Height = 385,
-                ItemTemplate = (DataTemplate)FindResource("CurseForgeItemTemplate") };
-            root.Children.Add(Card(cfSearchResults));
-            root.Children.Add(Card(Col(Txt("选中模组与依赖安装", 18, true),
-                Row(Btn("安装选中模组", async () => await InstallCurseForgeAsync(), true),
-                    Btn("取消下载", () => currentOperation?.Cancel())),
-                Txt("自动选择当前实例兼容版本、检查必要依赖；已存在同名 JAR 时拒绝覆盖。", 12, false, true))));
+
+            cfSearchQuery = new TextBox { Width = 325,
+                ToolTip = "输入模组名称（支持中英文），留空可查询热门模组" };
+            cfSearchQuery.KeyDown += async (sender, args) =>
+            {
+                if (args.Key == System.Windows.Input.Key.Enter)
+                {
+                    args.Handled = true;
+                    await SearchCurseForgeAsync();
+                }
+            };
+            cfSearchStatus = Txt("搜索模组后，点击列表可预览模组封面和相关截图。", 12, false, true);
+            cfSearchStatus.Margin = new Thickness(0, 4, 0, 4);
+            root.Children.Add(Card(Col(
+                Txt("搜索 Minecraft 模组", 18, true),
+                Row(cfSearchQuery, Btn("搜索模组", async () => await SearchCurseForgeAsync(), true),
+                    Btn("清空关键词", () => cfSearchQuery.Text = "")),
+                cfSearchStatus)));
+
+            cfSearchResults = new ListBox
+            {
+                Height = 390,
+                ItemTemplate = (DataTemplate)FindResource("CurseForgeItemTemplate"),
+                ToolTip = "双击模组查看原作者提供的游戏截图"
+            };
+            cfSearchResults.MouseDoubleClick += (sender, args) => ShowCurseForgeDetails();
+            root.Children.Add(Card(Col(Txt("搜索结果 · 图文列表", 18, true), cfSearchResults)));
+
+            root.Children.Add(Card(Col(Txt("模组详情与安装", 18, true),
+                Row(Btn("查看模组封面与截图", ShowCurseForgeDetails),
+                    Btn("安装选中模组", async () => await InstallCurseForgeAsync(), true),
+                    Btn("打开下载任务", () => Navigate("下载管理"))),
+                Txt("截图来自模组原始项目元数据，不会伪造模组实际游戏画面；部分项目未上传图片。"
+                    + " 具体兼容性由安装步骤再次检查。", 12, false, true))));
             return root;
         }
+
+        void ShowCurseForgeDetails()
+        {
+            var hit = cfSearchResults?.SelectedItem as CurseForgeHit;
+            if (hit == null)
+            {
+                Status("请先从 CurseForge 搜索列表中选择一个模组。");
+                return;
+            }
+            var page = Col(Txt(hit.Name, 23, true),
+                Txt(hit.AuthorLabel + "  ·  " + hit.DownloadsLabel + "  ·  " + hit.CategoryLabel, 12, false, true),
+                Txt(hit.Summary, 13),
+                Txt(hit.VersionsLabel, 12, false, true));
+
+            if (hit.IconUrl != null)
+            {
+                var cover = new Image { Width = 90, Height = 90,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Stretch = Stretch.UniformToFill, Margin = new Thickness(0, 0, 0, 12) };
+                cover.SetBinding(Image.SourceProperty, new Binding("IconUrl")
+                { Source = hit, Mode = BindingMode.OneWay });
+                page.Children.Add(cover);
+            }
+            page.Children.Add(Txt("作者提供的模组截图", 17, true));
+            var gallery = new WrapPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 0, 0, 14)
+            };
+            foreach (var shot in hit.Screenshots ?? Array.Empty<CurseForgeScreenshot>())
+            {
+                var tile = Col();
+                tile.Width = 264;
+                tile.Margin = new Thickness(0, 0, 12, 12);
+                var picture = new Image
+                {
+                    Width = 250, Height = 154, Stretch = Stretch.UniformToFill,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    RenderTransformOrigin = new Point(0.5, 0.5),
+                    ToolTip = shot.Title
+                };
+                picture.SetBinding(Image.SourceProperty,
+                    new Binding("ThumbnailUrl") { Source = shot, Mode = BindingMode.OneWay });
+                var frame = new Border { Child = picture,
+                    BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6) };
+                frame.SetResourceReference(Border.BorderBrushProperty, "BorderBrushTheme");
+                tile.Children.Add(frame);
+                if (!string.IsNullOrWhiteSpace(shot.Title))
+                    tile.Children.Add(Txt(shot.Title, 11, false, true));
+                gallery.Children.Add(tile);
+            }
+            if (gallery.Children.Count == 0)
+                page.Children.Add(Txt("项目暂未提供可用的安全截图链接。", 12, false, true));
+            else page.Children.Add(gallery);
+
+            if (!string.IsNullOrEmpty(hit.OfficialUrl))
+                page.Children.Add(Btn("在 CurseForge 官方页面查看完整详情", () =>
+                    Process.Start(new ProcessStartInfo(hit.OfficialUrl) { UseShellExecute = true })));
+            page.Children.Add(Txt("所显示的图标与截图来自项目元数据，不代表兼容性已验证。", 12, false, true));
+            var dialog = new Window
+            {
+                Owner = this, Title = "模组预览 · " + hit.Name,
+                Width = 820, Height = 630, MinWidth = 540, MinHeight = 380,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Content = new ScrollViewer
+                {
+                    Padding = new Thickness(19),
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                    Content = page
+                }
+            };
+            dialog.ShowDialog();
+        }
+
         async Task SearchCurseForgeAsync()
         {
+            var query = (cfSearchQuery?.Text ?? "").Trim();
+            var results = cfSearchResults;
+            var label = cfSearchStatus;
+            if (results == null || !settings.McimEnabled) return;
+
+            cfSearchCancellation?.Cancel();
+            var cancellation = new CancellationTokenSource();
+            cfSearchCancellation = cancellation;
+            if (label != null) label.Text = "正在加载模组封面、作者和截图信息...";
             try
             {
                 Status("正在通过 MCIM 查询 CurseForge...");
+                IReadOnlyList<CurseForgeHit> found;
                 using (var client = new CurseForgeMirrorClient(settings))
-                    cfSearchResults.ItemsSource = await client.SearchAsync(cfSearchQuery.Text, CancellationToken.None);
-                Status("CurseForge 查询已完成");
+                    found = await client.SearchAsync(query, cancellation.Token);
+                if (cancellation.IsCancellationRequested ||
+                    currentPage != "CurseForge" || results != cfSearchResults) return;
+                results.ItemsSource = found;
+                if (label != null)
+                    label.Text = found.Count == 0 ? "未找到符合条件的模组，试试其他关键词。" :
+                        "找到 " + found.Count + " 个模组；点击选择，双击或按详情按钮查看截图。";
+                Status("CurseForge 已加载 " + found.Count + " 个图文项目");
             }
-            catch (Exception ex) { ShowError("CurseForge 查询失败", ex); }
+            catch (OperationCanceledException) { /* Search or page switch cancelled. */ }
+            catch (Exception ex)
+            {
+                if (!cancellation.IsCancellationRequested)
+                {
+                    if (label != null) label.Text = "搜索失败：可以稍后重试或检查 MCIM 设置。";
+                    ShowError("CurseForge 查询失败", ex);
+                }
+            }
+            finally
+            {
+                if (cfSearchCancellation == cancellation) cfSearchCancellation = null;
+                cancellation.Dispose();
+            }
         }
+
         async Task InstallCurseForgeAsync()
         {
             var hit = cfSearchResults?.SelectedItem as CurseForgeHit;
