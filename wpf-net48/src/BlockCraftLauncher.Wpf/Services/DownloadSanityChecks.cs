@@ -53,8 +53,11 @@ namespace BlockCraftLauncher.Wpf.Services
                 "BlockCraftLauncher-v0.9.27-WPF-OneFile-Windows-x64.exe"),
                 "WPF 单文件正式发布资产识别");
             Require(LauncherReleaseService.IsCompatibleWpfAssetName(
+                "BlockCraftLauncher-v0.9.27-WPF-net48-Windows-x64.zip"),
+                "WPF 稳定版完整 ZIP 发布资产识别");
+            Require(!LauncherReleaseService.IsCompatibleWpfAssetName(
                 "BlockCraftLauncher-v0.9.27-WPF-net48-Alpha-Windows-x64.zip"),
-                "WPF 完整 ZIP 发布资产识别");
+                "Alpha 测试包不能冒充稳定版资产");
             Require(!LauncherReleaseService.IsCompatibleWpfAssetName(
                 "BlockCraftLauncher_v0.9.26_x64.exe"),
                 "旧 Python 安装包不能作为 WPF 更新");
@@ -66,6 +69,52 @@ namespace BlockCraftLauncher.Wpf.Services
                 "非 BlockCraft Launcher 规范命名资产不能作为自动更新");
             Require(!LauncherReleaseService.IsNewer("v999999999999999999999.0.0", "v0.9.27"),
                 "无效过大版本号不应导致更新检测崩溃");
+            // The real GitHub repository may have only prerelease room-lab
+            // builds. Its stable-update endpoint must show a useful empty
+            // state instead of failing with /releases/latest HTTP 404.
+            var empty = LauncherReleaseService.SelectStableRelease("[]");
+            Require(!empty.CompatibleWpf && !empty.Newer &&
+                empty.Version == "尚未发布",
+                "没有正式 WPF 发布时正常提示而不是误报");
+            var serializer = new System.Web.Script.Serialization.JavaScriptSerializer();
+            string sample = serializer.Serialize(new object[] {
+                new {
+                    tag_name = "v9.99.0", draft = false, prerelease = true,
+                    html_url = "https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v9.99.0",
+                    assets = new[] { new { name = "BlockCraftLauncher-v9.99.0-WPF-OneFile-Windows-x64.exe" } },
+                    body = "roomlab testing only"
+                },
+                new {
+                    tag_name = "v0.9.30", draft = false, prerelease = false,
+                    html_url = "https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.30",
+                    assets = new[] { new { name = "BlockCraftRoomStage9.exe" } },
+                    body = "Not a Java launcher release"
+                },
+                new {
+                    tag_name = "v0.9.29", draft = false, prerelease = false,
+                    html_url = "https://evil.example/releases/tag/v0.9.29",
+                    assets = new[] { new { name = "BlockCraftLauncher-v0.9.29-WPF-OneFile-Windows-x64.exe" } },
+                    body = "Untrusted link"
+                },
+                new {
+                    tag_name = "v0.9.28", draft = false, prerelease = false,
+                    html_url = "https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.28",
+                    assets = new[] { new { name = "BlockCraftLauncher-v0.9.28-WPF-OneFile-Windows-x64.exe" } },
+                    body = "WPF stable"
+                },
+                new {
+                    tag_name = "v0.9.27", draft = false, prerelease = false,
+                    html_url = "https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.27",
+                    assets = new[] { new { name = "BlockCraftLauncher-v0.9.27-WPF-net48-Windows-x64.zip" } },
+                    body = "Older WPF stable"
+                }
+            });
+            var newest = LauncherReleaseService.SelectStableRelease(sample);
+            Require(newest.Version == "v0.9.28" && newest.CompatibleWpf &&
+                newest.Newer && newest.Url.EndsWith("/v0.9.28"),
+                "选择兼容的最新正式 WPF Release");
+            Require(!LauncherReleaseService.SelectStableRelease("[{\\\"tag_name\\\":\\\"room-lab\\\",\\\"prerelease\\\":true}]").CompatibleWpf,
+                "房间实验发布不能成为正式 WPF 更新");
             // This runs a simulated HTTP transport (no DNS or credentials)
             // through the SAME CmlLib game routing handler as production.
             MinecraftRouteSanityChecks.RunAsync().GetAwaiter().GetResult();
