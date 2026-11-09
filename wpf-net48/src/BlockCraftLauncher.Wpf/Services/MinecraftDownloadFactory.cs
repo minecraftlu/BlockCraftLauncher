@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Threading;
@@ -18,6 +19,8 @@ namespace BlockCraftLauncher.Wpf.Services
     /// </summary>
     internal static class MinecraftDownloadFactory
     {
+        internal static readonly TimeSpan GameDownloadTimeout = TimeSpan.FromMinutes(15);
+
         public static MinecraftLauncher Create(MinecraftPath path, LauncherConfig settings)
         {
             var handler = new MinecraftRouteHandler(settings)
@@ -30,7 +33,9 @@ namespace BlockCraftLauncher.Wpf.Services
                     UseProxy = !string.IsNullOrWhiteSpace(settings.Proxy)
                 }
             };
-            var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(45) };
+            // Large game jars/assets may legitimately take several minutes on a slow
+            // link. Cancellation stays controlled by the install operation.
+            var http = new HttpClient(handler) { Timeout = GameDownloadTimeout };
             http.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher-WPF/0.9.27");
             var p = MinecraftLauncherParameters.CreateDefault(path, http);
             int parallel = Math.Max(2, Math.Min(32, settings.DownloadThreads));
@@ -39,7 +44,7 @@ namespace BlockCraftLauncher.Wpf.Services
             return new MinecraftLauncher(p);
         }
 
-        sealed class MinecraftRouteHandler : DelegatingHandler
+        internal sealed class MinecraftRouteHandler : DelegatingHandler
         {
             readonly LauncherConfig settings;
             static readonly ConcurrentDictionary<string, Preference> History =
@@ -52,6 +57,39 @@ namespace BlockCraftLauncher.Wpf.Services
             }
 
             public MinecraftRouteHandler(LauncherConfig settings) { this.settings = settings; }
+
+            // Requests may contain Range/If-Range or an Authorization header.
+            // On a different host we forward ONLY public download headers:
+            // entity validators and credentials belong to the original origin.
+            static readonly HashSet<string> PublicMirrorHeaders =
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    "Range", "Accept", "Accept-Encoding", "Accept-Language",
+                    "User-Agent", "Cache-Control", "Pragma"
+                };
+
+            internal static HttpRequestMessage CloneDownloadRequest(
+                HttpRequestMessage original, string destination)
+            {
+                if (original == null) throw new ArgumentNullException(nameof(original));
+                var destinationUri = new Uri(destination, UriKind.Absolute);
+                bool sameOrigin = original.RequestUri != null &&
+                    Uri.Compare(original.RequestUri, destinationUri,
+                        UriComponents.SchemeAndServer, UriFormat.Unescaped,
+                        StringComparison.OrdinalIgnoreCase) == 0;
+                var copy = new HttpRequestMessage(original.Method, destinationUri)
+                {
+                    Version = original.Version
+                };
+                foreach (var header in original.Headers)
+                {
+                    if (sameOrigin || PublicMirrorHeaders.Contains(header.Key))
+                        copy.Headers.TryAddWithoutValidation(header.Key, header.Value);
+                }
+                // Deliberately don't forward request.Properties, body, cookies,
+                // authorization or host-specific ETags to a third-party mirror.
+                return copy;
+            }
 
             async Task<long> ProbeAsync(string url, CancellationToken ct)
             {
@@ -100,7 +138,10 @@ namespace BlockCraftLauncher.Wpf.Services
                 HttpRequestMessage request, CancellationToken ct)
             {
                 var original = request.RequestUri;
-                string mirror = original != null && request.Method == HttpMethod.Get
+                // Only copy body-free GET requests. Never transform a request
+                // containing content into an incomplete GET.
+                string mirror = original != null && request.Method == HttpMethod.Get &&
+                    request.Content == null
                     ? NetworkDownloader.MirrorMojangUri(original.AbsoluteUri) : null;
                 if (mirror == null || settings.NetworkMode == "official")
                     return await base.SendAsync(request, ct);
@@ -113,7 +154,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 string second = mirrorFirst ? original.AbsoluteUri : mirror;
                 try
                 {
-                    using (var attempt = new HttpRequestMessage(HttpMethod.Get, first))
+                    using (var attempt = CloneDownloadRequest(request, first))
                     {
                         var response = await base.SendAsync(attempt, ct);
                         if (response.IsSuccessStatusCode || (int)response.StatusCode < 500 &&
@@ -123,7 +164,8 @@ namespace BlockCraftLauncher.Wpf.Services
                     }
                 }
                 catch (HttpRequestException) when (!ct.IsCancellationRequested) { }
-                using (var fallback = new HttpRequestMessage(HttpMethod.Get, second))
+                catch (TaskCanceledException) when (!ct.IsCancellationRequested) { }
+                using (var fallback = CloneDownloadRequest(request, second))
                     return await base.SendAsync(fallback, ct);
             }
         }
