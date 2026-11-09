@@ -172,7 +172,8 @@ namespace BlockCraftLauncher.Updater
             process.Dispose();
         }
 
-        static void ApplySingleExe(string target, string staged, string digest)
+        static void ApplySingleExe(string target, string staged, string digest,
+            bool simulateLaunchFailure = false)
         {
             if (!target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
                 !staged.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
@@ -195,6 +196,10 @@ namespace BlockCraftLauncher.Updater
                 File.Replace(next, target, backup);
                 replaced = true;
                 ExpectHash(target, digest);
+                // Offline selftest never executes dummy EXE bytes or triggers
+                // Windows Error Reporting dialogs on headless CI machines.
+                if (simulateLaunchFailure)
+                    throw new IOException("CI 模拟新版启动自检失败");
                 SmokeTest(target);
                 Restart(target);
                 // Keep previous EXE for manual rollback if later needed.
@@ -354,7 +359,8 @@ namespace BlockCraftLauncher.Updater
             }
         }
 
-        static void ApplyDirectory(string target, string stage, string digest)
+        static void ApplyDirectory(string target, string stage, string digest,
+            bool simulateLaunchFailure = false)
         {
             string main = Path.Combine(target, WpfExe);
             CheckLauncherExe(main);
@@ -377,6 +383,8 @@ namespace BlockCraftLauncher.Updater
             try
             {
                 changed = CopyIntoTarget(stage, target, files, backup);
+                if (simulateLaunchFailure)
+                    throw new IOException("CI 模拟新版 WPF 启动自检失败");
                 SmokeTest(main);
                 Restart(main);
                 // Retain backup rather than touching user-managed game files.
@@ -427,7 +435,7 @@ namespace BlockCraftLauncher.Updater
                 File.WriteAllText(originalExe, "old-single-exe", Encoding.ASCII);
                 File.WriteAllText(incomingExe, "new-single-exe", Encoding.ASCII);
                 bool onefileRollback = false;
-                try { ApplySingleExe(originalExe, incomingExe, Hash(incomingExe)); }
+                try { ApplySingleExe(originalExe, incomingExe, Hash(incomingExe), true); }
                 catch { onefileRollback = true; }
                 if (!onefileRollback || File.ReadAllText(originalExe) != "old-single-exe")
                     throw new Exception("单文件启动失败后未自动回滚");
@@ -448,7 +456,7 @@ namespace BlockCraftLauncher.Updater
                     foreach (string part in parts)
                         writer.WriteLine(Hash(Path.Combine(fullStage, part)) + "  " + part);
                 bool zipRollback = false;
-                try { ApplyDirectory(install, fullStage, new string('a', 64)); }
+                try { ApplyDirectory(install, fullStage, new string('a', 64), true); }
                 catch { zipRollback = true; }
                 if (!zipRollback ||
                     File.ReadAllText(Path.Combine(install, WpfExe)) != "old-wpf" ||
