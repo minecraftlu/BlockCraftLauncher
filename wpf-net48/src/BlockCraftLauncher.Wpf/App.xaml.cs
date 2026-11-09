@@ -37,6 +37,8 @@ namespace BlockCraftLauncher.Wpf
                 string.Equals(arg, "--download-ui-selftest", StringComparison.OrdinalIgnoreCase));
             bool layoutSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--ui-layout-selftest", StringComparison.OrdinalIgnoreCase));
+            bool relaunchWindowSelfTest = e.Args.Any(arg =>
+                string.Equals(arg, "--window-relaunch-selftest", StringComparison.OrdinalIgnoreCase));
             smokeTest = authSelfTest || downloadSelfTest || dependencySelfTest ||
                 saveRestoreSelfTest || instanceDetectionSelfTest || modrinthSearchSelfTest ||
                 downloadPageSelfTest || layoutSelfTest || e.Args.Any(arg =>
