@@ -531,17 +531,26 @@ namespace BlockCraftLauncher.Wpf
 
             Navigate("资源中心");
             if (resourceList == null || resourceList.ItemTemplate == null ||
-                resourceQuery == null || resourceSort == null)
-                throw new InvalidOperationException("Modrinth 搜索与换行卡片未加载");
+                resourceQuery == null || resourceSort == null ||
+                resourceVersion == null || resourceSource == null ||
+                resourceCategory == null || resourceLoader == null ||
+                resourceSearchButton == null || resourceCounter == null ||
+                resourceCategory.SelectedIndex != 0)
+                throw new InvalidOperationException("PCL 模组搜索字段、分类或结果卡片未加载");
             resourceResults.Add(new ResourceHit {
                 ProjectId = "offline-test-only", Kind = "mod", Name = "中文资源标题排布自检",
-                Description = new string('测', 210)
+                Description = new string('测', 210), Author = "测试作者",
+                DownloadsLabel = "3.1 万次下载",
+                UpdatedLabel = "更新 2026-11-10", VersionsLabel = "1.21.1",
+                LoaderLabel = "fabric", CategoryLabel = "性能优化"
             });
             PageHost.Measure(new Size(900, 2200));
             PageHost.Arrange(new Rect(0, 0, 900, 1100));
             PageHost.UpdateLayout();
-            if (resourceList.Items.Count != 1)
-                throw new InvalidOperationException("Modrinth 资源卡片不能展示长描述");
+            if (resourceList.Items.Count != 1 ||
+                resourceSource.SelectedIndex != 0 ||
+                resourceMatchVersion == null)
+                throw new InvalidOperationException("Modrinth 图片和多项筛选控件回归");
 
             Navigate("光影引擎");
             Navigate("资源包");
