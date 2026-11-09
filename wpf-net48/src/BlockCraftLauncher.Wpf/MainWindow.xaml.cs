@@ -1538,6 +1538,8 @@ namespace BlockCraftLauncher.Wpf
                 Status("正在查询 GitHub Releases...");
                 var release = await new LauncherReleaseService().CheckAsync(settings, CancellationToken.None);
                 string message = (release.Newer ? "发现兼容的 WPF 正式更新：" : "已查询最新正式发布：") + release.Version +
+                    (release.CompatibleWpf ? "\n包含 WPF Windows 资产。" :
+                        "\n此发布未包含可识别的 WPF Windows 资产，不会把 Python 或实验构建当作本版更新。") +
                     "\n\n不同架构不可直接覆盖安装，请查看发布说明和资产文件名后手动下载。\n\n" + release.Description;
                 Status("GitHub 最新版本：" + release.Version);
                 if (MessageBox.Show(message + "\n\n打开官方发布页？", "启动器更新",
