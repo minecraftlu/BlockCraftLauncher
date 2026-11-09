@@ -37,11 +37,14 @@ namespace BlockCraftLauncher.Wpf
                 string.Equals(arg, "--download-ui-selftest", StringComparison.OrdinalIgnoreCase));
             bool layoutSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--ui-layout-selftest", StringComparison.OrdinalIgnoreCase));
+            bool skinSelfTest = e.Args.Any(arg =>
+                string.Equals(arg, "--skin-selftest", StringComparison.OrdinalIgnoreCase));
             bool relaunchWindowSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--window-relaunch-selftest", StringComparison.OrdinalIgnoreCase));
             smokeTest = authSelfTest || downloadSelfTest || dependencySelfTest ||
                 saveRestoreSelfTest || instanceDetectionSelfTest || modrinthSearchSelfTest ||
-                downloadPageSelfTest || layoutSelfTest || relaunchWindowSelfTest ||
+                downloadPageSelfTest || layoutSelfTest || skinSelfTest ||
+                relaunchWindowSelfTest ||
                 e.Args.Any(arg =>
                 string.Equals(arg, "--smoke-test", StringComparison.OrdinalIgnoreCase));
             // The CI probe must never open a browser, download Minecraft,
@@ -81,6 +84,21 @@ namespace BlockCraftLauncher.Wpf
                 LauncherRelaunchSignal.ReadToken(e.Args);
             bool directPreview = e.Args.Any(arg =>
                 string.Equals(arg, "--direct-open", StringComparison.OrdinalIgnoreCase));
+
+            if (skinSelfTest)
+            {
+                try
+                {
+                    SkinEditorDocument.RunOfflineSelfTest();
+                    Shutdown(0);
+                }
+                catch (Exception error)
+                {
+                    WriteDiagnostic(error);
+                    Shutdown(32);
+                }
+                return;
+            }
 
             if (authSelfTest)
             {
