@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using BlockCraftLauncher.Wpf.Models;
 
@@ -30,6 +31,70 @@ namespace BlockCraftLauncher.Wpf.Services
             try { action(); }
             catch (InvalidDataException) { invalid = true; }
             Require(invalid, purpose);
+        }
+
+
+        static void VerifyProcessTracking()
+        {
+            // No Minecraft, credentials or network access is needed. Only our
+            // own process handle and a short-lived local cmd.exe are examined.
+            using (var tracker = new GameProcessTracker())
+            {
+                var profile = new GameProfile { Id = "local-process-test", Name = "Tracked game" };
+                Require(tracker.GetState(profile).Status == GameProcessStatus.NotTracked,
+                    "unknown process status must not mean Minecraft is absent");
+
+                tracker.Track(profile, Process.GetCurrentProcess());
+                var alive = tracker.GetState(profile);
+                Require(alive.Status == GameProcessStatus.Running &&
+                    alive.ProcessId == Process.GetCurrentProcess().Id,
+                    "launcher-owned live process is reported as running");
+
+                bool duplicateRejected = false;
+                using (var duplicate = Process.GetCurrentProcess())
+                {
+                    try { tracker.Track(profile, duplicate); }
+                    catch (InvalidOperationException) { duplicateRejected = true; }
+                }
+                Require(duplicateRejected, "do not replace a running game process");
+
+                int exitEvents = 0;
+                tracker.ProcessExited += (p, snap) =>
+                {
+                    if (snap.Status == GameProcessStatus.Exited) exitEvents++;
+                };
+                var exitedProfile = new GameProfile { Id = "local-exit-test", Name = "Exited game" };
+                using (var child = Process.Start(new ProcessStartInfo("cmd.exe", "/d /c exit 7")
+                {
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                }))
+                {
+                    Require(child != null, "local test process starts");
+                    tracker.Track(exitedProfile, child);
+                    Require(child.WaitForExit(10000), "local test process exits");
+                    var exited = tracker.GetState(exitedProfile);
+                    Require(exited.Status == GameProcessStatus.Exited &&
+                        exited.ExitCode == 7 && exited.ExitedAtUtc.HasValue,
+                        "process exit code and completion are reported");
+                    tracker.Refresh();
+                    Require(exitEvents == 1, "exit event emitted exactly once");
+                }
+                using (var child = Process.Start(new ProcessStartInfo("cmd.exe", "/d /c exit 0")
+                {
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                }))
+                {
+                    Require(child != null, "local restart process starts");
+                    tracker.Track(exitedProfile, child);
+                    Require(child.WaitForExit(10000), "local restart process exits");
+                    var restarted = tracker.GetState(exitedProfile);
+                    Require(restarted.Status == GameProcessStatus.Exited &&
+                        restarted.ExitCode == 0 && exitEvents == 2,
+                        "ended session may be replaced by new run");
+                }
+            } // Releasing the handle must never terminate Minecraft.
         }
 
         internal static void Run()
@@ -140,6 +205,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 profile.LaunchVersion = "..";
                 Reject(() => MinecraftInstanceLocator.Resolve(profile, config),
                     "dotdot version");
+                VerifyProcessTracking();
             }
             finally
             {
