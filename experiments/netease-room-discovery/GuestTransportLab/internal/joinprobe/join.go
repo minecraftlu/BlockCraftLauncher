@@ -49,6 +49,10 @@ type Request struct {
     AttemptWebRTC bool
     // Explicit, bounded 8/30/60-second post-WebRTC observation.
     ObservationSeconds int
+    // Opt-in: only forward packets received FROM an admitted room to the
+    // pinned local worker. Never permit the worker to send game packets.
+    ReadOnlyIPC bool
+    ReadOnlyWorkerPath string
 }
 
 type Report struct {
@@ -67,6 +71,8 @@ type Report struct {
     ReliableBytes uint64 `json:"reliable_bytes"`
     UnreliableBytes uint64 `json:"unreliable_bytes"`
     ObservationSeconds int `json:"observation_seconds"`
+    ReadOnlyIPCVerified bool `json:"stage12_readonly_ipc_verified"`
+    ReadOnlyIPCMessages uint64 `json:"stage12_readonly_ipc_messages"`
     MinecraftWorldJoined bool `json:"minecraft_world_joined"`
     ModeConfirmed bool `json:"g79_mode_confirmed"`
     Detail string `json:"detail"`
@@ -381,7 +387,7 @@ func receivePacket(ctx context.Context, conn *raknet.Conn, dec *packet.Decoder) 
     }
 }
 
-func probeLobby(ctx context.Context, loginSession login, roomInfo room, node server, attemptWebRTC bool, observationSeconds int) Report {
+func probeLobby(ctx context.Context, loginSession login, roomInfo room, node server, attemptWebRTC bool, observationSeconds int, readOnlyIPC bool, workerPath string) Report {
     address:=net.JoinHostPort(node.host,strconv.Itoa(int(node.port)))
     dialCtx,cancel:=context.WithTimeout(ctx,12*time.Second)
     defer cancel()
@@ -464,7 +470,7 @@ func probeLobby(ctx context.Context, loginSession login, roomInfo room, node ser
             report.Detail="房主连接标识格式无法用于 NetherNet 协商。"
             return report
         }
-        return probeWebRTC(ctx, loginSession, node, clientID, hostNetherID, report, observationSeconds)
+        return probeWebRTC(ctx, loginSession, node, clientID, hostNetherID, report, observationSeconds, readOnlyIPC, workerPath)
     }
     return report
 }
@@ -497,7 +503,7 @@ func deriveSignalingCredential(token []byte) (seed []byte, ticket []byte, err er
 // TanNotifyServerReady. It uses the original local client NetherNetID, never
 // a synthetic room grant. No Minecraft gameplay packets are sent.
 func probeWebRTC(ctx context.Context, session login, node server,
-    clientNetherID uint64, hostNetherID uint64, result Report, observationSeconds int) Report {
+    clientNetherID uint64, hostNetherID uint64, result Report, observationSeconds int, readOnlyIPC bool, workerPath string) Report {
     if node.signalingPort==0 {
         result.Status="SIGNALING_NODE_UNAVAILABLE"
         result.Detail="当前公开大厅节点列表没有可靠的 WebSocket 信令端口。"
@@ -579,7 +585,30 @@ func probeWebRTC(ctx context.Context, session login, node server,
             result.Detail="构建时未包含本地只读数据通道诊断组件。"
             return result
         }
-        observed:=observeDataChannels(signalCtx,source,time.Duration(observationSeconds)*time.Second)
+        // Stage12.6 is an explicitly requested *receive-only* local pipe.
+        // It never competes with the existing channel reader and never
+        // presents an interface capable of writing data to NetherNet.
+        var observed channelObservation
+        var worker *readOnlyWorker
+        if readOnlyIPC {
+            worker,err=startReadOnlyWorker(signalCtx,workerPath)
+            if err!=nil {
+                result.Status="STAGE12_READONLY_WORKER_UNAVAILABLE_GAME_NOT_JOINED"
+                result.Detail="已验证房间准入与传输，但无法启动受限本机只读工作进程。"
+                return result
+            }
+            defer worker.abort()
+            observed=observeDataChannelsWithSink(signalCtx,source,
+                time.Duration(observationSeconds)*time.Second,worker.consume)
+            workerErr:=worker.finish()
+            if observed.forwardError || workerErr!=nil {
+                result.Status="STAGE12_READONLY_IPC_FAILED_GAME_NOT_JOINED"
+                result.Detail="本地只读管道出现错误；没有发送 Minecraft 游戏包。"
+                return result
+            }
+        } else {
+            observed=observeDataChannels(signalCtx,source,time.Duration(observationSeconds)*time.Second)
+        }
         result.ObservationSeconds=observationSeconds
         result.ReliableMessages=observed.reliableMessages
         result.UnreliableMessages=observed.unreliableMessages
@@ -607,6 +636,12 @@ func probeWebRTC(ctx context.Context, session login, node server,
             }
             result.WebRTCTransportConnected=true
             result.TransportStable=true
+            if readOnlyIPC {
+                // A successful local worker handshake/Stop is NOT evidence
+                // of a Bedrock login. Zero forwarded messages is valid.
+                result.ReadOnlyIPCVerified=true
+                result.ReadOnlyIPCMessages=observed.reliableMessages
+            }
             hasPackets:=observed.reliableMessages>0 || observed.unreliableMessages>0
             if observationSeconds==30 {
                 if hasPackets { result.Status="WEBRTC_CHANNELS_OPEN_30S_DATA_OBSERVED_GAME_NOT_JOINED" 
@@ -652,6 +687,11 @@ func Run(ctx context.Context, req Request) Report {
         return makeReport("OBSERVATION_DURATION_INVALID","只允许 8、30 或 60 秒的被动观察。")
     }
     if !req.AuthorizedByHost{return makeReport("HOST_CONSENT_REQUIRED","只允许测试自己开设或获得房主明确允许的联机房间。")}
+    if req.ReadOnlyIPC && (!req.AttemptWebRTC || req.ObservationSeconds==8 ||
+        !validReadOnlyWorkerPath(req.ReadOnlyWorkerPath)) {
+        return makeReport("STAGE12_READONLY_WORKER_INVALID",
+            "只读 IPC 需要明确启用真实 WebRTC、30/60 秒观察及本机已审核组件。")
+    }
     if len(req.RoomID)<4 || len(req.RoomID)>10 {
         return makeReport("ROOM_ID_INVALID","请输入有效的数字房间号。")
     }
@@ -672,5 +712,6 @@ func Run(ctx context.Context, req Request) Report {
     if err!=nil{return makeReport("LOBBY_NODE_LOOKUP_FAILED","无法读取网易公开大厅节点列表。")}
     node,err:=parseServerJSON(data,roomInfo.srv)
     if err!=nil{return makeReport("LOBBY_NODE_MAPPING_FAILED","无法可靠匹配当前房间的 RakNet 大厅节点。")}
-    return probeLobby(ctx,session,roomInfo,node,req.AttemptWebRTC,req.ObservationSeconds)
+    return probeLobby(ctx,session,roomInfo,node,req.AttemptWebRTC,req.ObservationSeconds,
+        req.ReadOnlyIPC,req.ReadOnlyWorkerPath)
 }
