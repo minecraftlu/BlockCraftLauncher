@@ -25,12 +25,14 @@ namespace BlockCraftLauncher.OneFile
             // Every noninteractive WPF CI flag must propagate its real exit
             // code through the outer single EXE. Otherwise a failing child
             // can look successful because its bootstrap exited immediately.
-            bool probe = args.Length == 1 && new[] {
+            bool probe = (args.Length == 1 && new[] {
                 "--smoke-test", "--ui-layout-selftest", "--download-ui-selftest",
                 "--download-selftest", "--modrinth-search-selftest",
                 "--modrinth-deps-selftest", "--saves-restore-selftest",
                 "--instance-detection-selftest", "--auth-selftest"
-            }.Any(flag => string.Equals(flag, args[0], StringComparison.OrdinalIgnoreCase));
+            }.Any(flag => string.Equals(flag, args[0], StringComparison.OrdinalIgnoreCase))) ||
+                (args.Length == 3 && args[0] == "--after-update" &&
+                 args[2] == "--window-relaunch-selftest");
             try
             {
                 var package = ReadPackage();
