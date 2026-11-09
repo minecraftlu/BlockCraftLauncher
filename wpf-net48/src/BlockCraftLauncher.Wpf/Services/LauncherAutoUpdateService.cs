@@ -522,6 +522,42 @@ namespace BlockCraftLauncher.Wpf.Services
             }
         }
 
+        internal static void VerifyUnpackedArchiveMatchesZip(string archive, string unpackedRoot)
+        {
+            // The ZIP hash proves the downloaded archive, not an extracted
+            // file that may have been modified afterward. Recompare EVERY
+            // entry, including nested runtime DLLs, before direct execution.
+            var expected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string parent = Directory.GetParent(unpackedRoot)?.FullName ??
+                throw new InvalidDataException("无法验证更新包解压根目录");
+            string root = Path.GetFullPath(unpackedRoot).TrimEnd('\\') + "\\";
+            using (var zip = ZipFile.OpenRead(archive))
+            using (var sha = SHA256.Create())
+            {
+                foreach (var entry in zip.Entries)
+                {
+                    string relative = SafeEntry(entry.FullName);
+                    if (entry.FullName.EndsWith("/", StringComparison.Ordinal)) continue;
+                    string full = Path.GetFullPath(Path.Combine(parent, relative));
+                    if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidDataException("ZIP 解压内容超出目标目录");
+                    if (!expected.Add(full))
+                        throw new InvalidDataException("ZIP 出现重复条目");
+                    if (!File.Exists(full))
+                        throw new InvalidDataException("新版解压目录缺少文件：" + entry.Name);
+                    using (var input = entry.Open())
+                    using (var actual = File.OpenRead(full))
+                    {
+                        if (!sha.ComputeHash(input).SequenceEqual(sha.ComputeHash(actual)))
+                            throw new InvalidDataException("新版解压文件已被修改：" + entry.Name);
+                    }
+                }
+            }
+            foreach (string actual in Directory.GetFiles(unpackedRoot, "*", SearchOption.AllDirectories))
+                if (!expected.Contains(Path.GetFullPath(actual)))
+                    throw new InvalidDataException("新版解压目录含有非原始 ZIP 文件");
+        }
+
         static bool IsPathInsideUpdateStaging(string path)
         {
             if (string.IsNullOrWhiteSpace(path)) return false;
@@ -562,6 +598,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 prepared.Offer.AssetName);
             VerifyFile(downloaded, prepared.Sha256);
             VerifyZipManifest(stage);
+            VerifyUnpackedArchiveMatchesZip(downloaded, stage);
             string exe = Path.Combine(stage, MainFile);
             if (!File.Exists(exe))
                 throw new FileNotFoundException("已解压的新版 WPF 主程序不存在", exe);
