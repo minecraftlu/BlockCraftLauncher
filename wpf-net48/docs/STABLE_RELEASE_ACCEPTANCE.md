@@ -70,3 +70,10 @@
 - 包含单 EXE、完整 ZIP、单 EXE .sha256 与 RELEASE-SHA256SUMS.txt，公开下载链接不会像 Actions Artifact 那样短期过期。
 - 较早的 [Windows 自动构建 #42682875674](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42682875674) 也通过 28 项检查。
 - **实测边界**：真实联网检测下一新版本、一键替换真实正在使用的 EXE/ZIP、受限权限目录/杀毒软件拦截仍需在 Windows 实机测试。该版本自带更新功能，但 v0.9.28 及更早的版本必须手动安装这一版一次。
+
+## 2026-11-10 · v0.9.30 RC1 已发布与 CI 验证
+
+- [GitHub Release v0.9.30-wpf-rc.1](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.30-wpf-rc.1) 已上传单文件 EXE、完整 ZIP、SHA-256 清单；状态为 **prerelease（候选版）**，不是尚未验收的 Stable。
+- [受控 Windows 发布任务 #42686477605](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42686477605)：**Success**。重新编译、更新助手回滚离线测试、双发行方式的窗口实际渲染确认、主要 Minecraft/登录/下载离线回归、SHA-256 生成及上传均成功。
+- 此版本在更新完成后自动打开新版 WPF 窗口并带到前台，显示非阻塞的「更新完成」状态；一旦无法确认实际窗口渲染，更新助手给出原 EXE 的手动启动路径，避免重复打开。
+- 从已有 [v0.9.29 RC1](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.29-wpf-rc.1) 中将更新通道切为「预览版」，现在应能够检测到 v0.9.30 RC1。它是首次真正适合在实机上验证应用内升级的目标版本；**实机验证结果尚未收到，不得将 RC1 宣称为完全通过 Stable 验收。**
