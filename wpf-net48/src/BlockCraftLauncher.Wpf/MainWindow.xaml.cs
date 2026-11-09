@@ -62,7 +62,12 @@ namespace BlockCraftLauncher.Wpf
         ListBox localResourceList, serverList, lanWorldList;
         TextBox serverName, serverAddress;
         TextBox packSearchQuery;
+        ComboBox packVersionFilter, packSortMode;
         ListBox packSearchResults;
+        TextBlock packSearchStatus;
+        Button packSearchButton, packPrevButton, packNextButton;
+        int packPage;
+        CancellationTokenSource packSearchCancellation;
         ListBox modUpgradeResults;
         TextBox cfSearchQuery, cfVersionFilter;
         ListBox cfSearchResults;
@@ -331,6 +336,8 @@ namespace BlockCraftLauncher.Wpf
             resourceSearchCancellation = null;
             cfSearchCancellation?.Cancel();
             cfSearchCancellation = null;
+            packSearchCancellation?.Cancel();
+            packSearchCancellation = null;
             currentPage = page;
             gameProcessText = null;
             homeLaunchButton = null;
@@ -1527,33 +1534,157 @@ namespace BlockCraftLauncher.Wpf
         UIElement BuildModpacks()
         {
             var root = Col(PageHeading("下载中心 / 整合包", "整合包下载",
-                "搜索 Modrinth 整合包，按游戏版本和热度筛选，支持安全导入 .mrpack。"));
-            packSearchQuery = new TextBox { Width = 320 };
-            root.Children.Add(Card(Col(Txt("在线搜索", 18, true),
-                Row(packSearchQuery, Btn("搜索 Modrinth", async () => await SearchModpacksAsync(), true)))));
-            packSearchResults = new ListBox { Height = 330,
+                "查找适合 Minecraft 的整合包，可根据游戏版本、下载量和更新时间筛选；安装到独立实例。"));
+
+            packPage = 0;
+            packSearchQuery = new TextBox { Width = 305 };
+            ApplySearchInputStyle(packSearchQuery, "整合包名称、玩法或作者；按 Enter 搜索");
+            packSearchQuery.KeyDown += async (sender, args) =>
+            {
+                if (args.Key == System.Windows.Input.Key.Enter)
+                {
+                    args.Handled = true;
+                    packPage = 0;
+                    await SearchModpacksAsync();
+                }
+            };
+            packVersionFilter = new ComboBox
+            {
+                IsEditable = true,
+                ItemsSource = (new[] { "全部版本", activeProfile?.BaseVersion, "1.21.1",
+                    "1.20.1", "1.19.4", "1.18.2" })
+                    .Where(value => !string.IsNullOrWhiteSpace(value)).Distinct().ToArray(),
+                SelectedIndex = 0, Width = 160
+            };
+            ApplySearchInputStyle(packVersionFilter, "按 Minecraft 游戏版本筛选，可手动输入");
+            packSortMode = new ComboBox
+            {
+                ItemsSource = new[] { "相关度", "下载量", "最近更新", "最新发布" },
+                SelectedIndex = 0, Width = 148
+            };
+            ApplySearchInputStyle(packSortMode, "整合包搜索结果排序");
+            packSearchButton = Btn("搜索整合包", async () =>
+            {
+                packPage = 0;
+                await SearchModpacksAsync();
+            }, true);
+            root.Children.Add(SearchCard(Col(
+                Txt("搜索 Modrinth 整合包", 18, true),
+                Txt("关键词与版本将用于在线搜索；下载源为 Modrinth，不混用未经授权的整合包镜像。", 12, false, true),
+                Row(Txt("名称", 12, false, true), packSearchQuery,
+                    Txt("版本", 12, false, true), packVersionFilter),
+                Row(Txt("排序", 12, false, true), packSortMode,
+                    packSearchButton,
+                    Btn("重置筛选", () =>
+                    {
+                        packSearchCancellation?.Cancel();
+                        packSearchQuery.Text = "";
+                        packVersionFilter.SelectedIndex = 0;
+                        packSortMode.SelectedIndex = 0;
+                        packPage = 0;
+                        packSearchResults.ItemsSource = null;
+                        if (packSearchStatus != null)
+                            packSearchStatus.Text = "筛选已重置，点击搜索重新加载整合包。";
+                        packPrevButton.IsEnabled = false;
+                        packNextButton.IsEnabled = false;
+                    })),
+                Row(FilterChipButton("最多下载", () => packSortMode.SelectedIndex = 1),
+                    FilterChipButton("最近更新", () => packSortMode.SelectedIndex = 2),
+                    FilterChipButton("使用当前游戏版本", () =>
+                    {
+                        if (activeProfile != null && !string.IsNullOrWhiteSpace(activeProfile.BaseVersion))
+                            packVersionFilter.Text = activeProfile.BaseVersion;
+                    })))));
+            packSearchResults = new ListBox { Height = 440,
                 ItemTemplate = (DataTemplate)FindResource("ResourceItemTemplate") };
-            root.Children.Add(Card(packSearchResults));
-            root.Children.Add(Card(Col(Txt("整合包安装", 18, true),
+            packSearchStatus = Txt("输入名称或直接点击搜索，浏览可用的 Modrinth 整合包。", 12, false, true);
+            packPrevButton = Btn("上一页", async () =>
+            {
+                if (packPage == 0) return;
+                packPage--;
+                await SearchModpacksAsync();
+            });
+            packPrevButton.IsEnabled = false;
+            packNextButton = Btn("下一页", async () =>
+            {
+                packPage++;
+                await SearchModpacksAsync();
+            });
+            packNextButton.IsEnabled = false;
+            root.Children.Add(ResultsCard(Col(
+                Txt("整合包搜索结果", 18, true),
+                packSearchStatus, packSearchResults,
+                Row(packPrevButton, packNextButton))));
+            root.Children.Add(Card(Col(Txt("安装与导入", 18, true),
                 Row(Btn("安装选中整合包", async () => await InstallSelectedModpackAsync(), true),
                     Btn("导入本地 .mrpack", ImportMrpackFromDisk),
-                    Btn("下载管理", () => Navigate("下载管理")),
+                    Btn("查看下载任务", () => Navigate("下载管理")),
                     Btn("取消本地导入", () => currentOperation?.Cancel())),
-                Txt("安装新实例不会覆盖已存在的存档；如果加载器版本或下载文件不可用，安装会停止并移除未完成的新实例。", 12, false, true),
-                Txt("CurseForge 整合包直装仍未迁移。", 12, false, true))));
+                Txt("整合包安装到新的独立游戏实例。下载失败时会清理未完成的新实例，"
+                    + "不会替换现有存档。CurseForge 整合包直装目前不在支持范围。", 12, false, true))));
             return root;
         }
+
         async Task SearchModpacksAsync()
         {
-            try
+            if (packSearchResults == null) return;
+            packSearchCancellation?.Cancel();
+            using (var request = new CancellationTokenSource(TimeSpan.FromSeconds(35)))
             {
-                Status("搜索 Modrinth 整合包...");
-                using (var client = new ModrinthClient(settings))
-                    packSearchResults.ItemsSource = await client.SearchAsync(packSearchQuery.Text, "modpack", CancellationToken.None);
-                Status("已获取整合包搜索结果");
+                packSearchCancellation = request;
+                if (packSearchButton != null) packSearchButton.IsEnabled = false;
+                if (packSearchStatus != null) packSearchStatus.Text = "正在搜索 Modrinth 整合包...";
+                try
+                {
+                    string version = packVersionFilter?.Text?.Trim();
+                    if (string.IsNullOrWhiteSpace(version) || version == "全部版本")
+                        version = null;
+                    string sort = new[] { "relevance", "downloads", "updated", "newest" }[
+                        Math.Max(0, Math.Min(3, packSortMode?.SelectedIndex ?? 0))];
+                    using (var client = new ModrinthClient(settings))
+                    {
+                        var result = await client.SearchPageAsync(packSearchQuery.Text,
+                            "modpack", request.Token, version, null, sort, packPage * 20, null);
+                        if (request.IsCancellationRequested ||
+                            !ReferenceEquals(packSearchCancellation, request) ||
+                            currentPage != "整合包") return;
+                        packSearchResults.ItemsSource = result.Hits;
+                        int total = Math.Min(2000, result.TotalHits);
+                        if (packSearchStatus != null)
+                            packSearchStatus.Text = total == 0 ?
+                                "没有找到符合条件的整合包。请减少筛选条件后重试。" :
+                                "第 " + (packPage + 1) + " 页 · 显示 " +
+                                result.Hits.Count + " 项 · 共 " + result.TotalHits + " 项";
+                        packPrevButton.IsEnabled = packPage > 0;
+                        packNextButton.IsEnabled = result.Hits.Count == 20 &&
+                            (packPage + 1) * 20 < total;
+                        Status("已加载第 " + (packPage + 1) + " 页整合包结果。");
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    if (ReferenceEquals(packSearchCancellation, request) &&
+                        packSearchStatus != null)
+                        packSearchStatus.Text = "搜索已取消或超时。可以重新搜索。";
+                }
+                catch (Exception ex)
+                {
+                    if (!ReferenceEquals(packSearchCancellation, request)) return;
+                    if (packSearchStatus != null)
+                        packSearchStatus.Text = "获取整合包失败，请检查网络或调整筛选条件。";
+                    ShowError("Modrinth 整合包搜索失败", ex);
+                }
+                finally
+                {
+                    if (ReferenceEquals(packSearchCancellation, request))
+                    {
+                        packSearchCancellation = null;
+                        if (packSearchButton != null) packSearchButton.IsEnabled = true;
+                    }
+                }
             }
-            catch (Exception ex) { ShowError("整合包搜索失败", ex); }
         }
+
         async Task InstallSelectedModpackAsync()
         {
             var hit = packSearchResults?.SelectedItem as ResourceHit;
