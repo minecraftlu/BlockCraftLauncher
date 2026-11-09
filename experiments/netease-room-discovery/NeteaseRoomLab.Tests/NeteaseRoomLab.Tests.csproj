@@ -36,6 +36,9 @@
     <Compile Include="..\NeteaseRoomLab\Stage127CodecReference.cs">
       <Link>Stage127CodecReference.cs</Link>
     </Compile>
+    <Compile Include="..\NeteaseRoomLab\Stage128ClientBuildReference.cs">
+      <Link>Stage128ClientBuildReference.cs</Link>
+    </Compile>
     <Compile Include="..\NeteaseRoomLab\RoomConnectionMaterial.cs">
       <Link>RoomConnectionMaterial.cs</Link>
     </Compile>
