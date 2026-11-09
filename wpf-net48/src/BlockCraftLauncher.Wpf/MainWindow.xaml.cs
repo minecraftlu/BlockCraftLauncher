@@ -862,8 +862,9 @@ namespace BlockCraftLauncher.Wpf
                 "按名称、游戏版本、加载器、分类和下载来源查找资源；安装时自动核对兼容性与文件完整性。"));
 
             resourceQuery = new TextBox {
-                ToolTip = "输入资源名称；留空时搜索热门项目"
+                ToolTip = "输入 Mod、光影或资源包名称；留空浏览热门项目"
             };
+            ApplySearchInputStyle(resourceQuery, "输入资源名称、关键词或作者；按 Enter 搜索");
             resourceQuery.KeyDown += async (sender, args) =>
             {
                 if (args.Key == System.Windows.Input.Key.Enter)
@@ -910,6 +911,11 @@ namespace BlockCraftLauncher.Wpf
                 ItemsSource = new[] { "相关度", "下载量", "最近更新", "最新发布" },
                 SelectedIndex = 0, Width = 132
             };
+            ApplySearchInputStyle(resourceVersion, "可选择或输入 Minecraft 游戏版本");
+            ApplySearchInputStyle(resourceSource, "Modrinth 或单独的 CurseForge 搜索");
+            ApplySearchInputStyle(resourceCategory, "筛选资源类型");
+            ApplySearchInputStyle(resourceLoader, "选择模组加载器");
+            ApplySearchInputStyle(resourceSort, "设置搜索结果排序");
 
             // 4-column search card: two rows of Name/Source and Version/Type,
             // matching the reference information hierarchy without borrowing
@@ -938,7 +944,7 @@ namespace BlockCraftLauncher.Wpf
             Place(form, labelCategory, 1, 2);
             Place(form, resourceCategory, 1, 3);
 
-            resourceSearchButton = Btn("搜索", async () =>
+            resourceSearchButton = Btn("搜索资源", async () =>
             {
                 resourcePage = 0;
                 await SearchResourcesAsync();
@@ -964,9 +970,14 @@ namespace BlockCraftLauncher.Wpf
             clearButton.MinWidth = 140;
             var filters = Row(resourceMatchVersion, Txt("加载器", 12, false, true),
                 resourceLoader, Txt("排序", 12, false, true), resourceSort);
-            var searchCard = Col(Txt(title, 17, true), form, filters,
-                Row(resourceSearchButton, clearButton));
-            root.Children.Add(Card(searchCard));
+            var quickSort = Row(Txt("快捷排序", 12, false, true),
+                FilterChipButton("最多下载", () => resourceSort.SelectedIndex = 1),
+                FilterChipButton("最近更新", () => resourceSort.SelectedIndex = 2),
+                FilterChipButton("最新发布", () => resourceSort.SelectedIndex = 3));
+            var searchCard = Col(Txt("筛选条件 · " + title, 18, true),
+                Txt("填写关键词、游戏版本和加载器，再点击搜索；条件变化不会自动安装资源。", 12, false, true),
+                form, filters, quickSort, Row(resourceSearchButton, clearButton));
+            root.Children.Add(SearchCard(searchCard));
 
             resourceList = new ListBox {
                 ItemsSource = resourceResults,
@@ -993,9 +1004,11 @@ namespace BlockCraftLauncher.Wpf
                 await SearchResourcesAsync();
             });
             resourceNextButton.IsEnabled = false;
-            var results = Col(resourceCounter, resourceList,
+            var results = Col(
+                Txt("项目搜索结果", 18, true),
+                resourceCounter, resourceList,
                 Row(resourcePrevButton, resourceNextButton));
-            root.Children.Add(Card(results));
+            root.Children.Add(ResultsCard(results));
 
             if (type == "shader")
                 root.Children.Add(Card(Col(Txt("光影运行组件", 17, true),
