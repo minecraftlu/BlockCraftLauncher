@@ -779,7 +779,12 @@ namespace BlockCraftLauncher.Wpf
                 FindResource("DownloadItemTemplate") == null ||
                 FindResource("ServerItemTemplate") == null ||
                 FindResource("LocalResourceItemTemplate") == null ||
-                FindResource("CurseForgeItemTemplate") == null)
+                FindResource("CurseForgeItemTemplate") == null ||
+                FindResource("SearchPanel") == null ||
+                FindResource("ResultsPanel") == null ||
+                FindResource("SearchTextBox") == null ||
+                FindResource("SearchComboBox") == null ||
+                FindResource("FilterChip") == null)
                 throw new InvalidOperationException("资源、游戏版本或下载任务缺少卡片布局模板");
 
             Navigate("首页");
@@ -789,7 +794,8 @@ namespace BlockCraftLauncher.Wpf
 
             Navigate("游戏版本");
             if (versionList == null || versionList.ItemTemplate == null ||
-                SideBar.Visibility != Visibility.Visible)
+                versionQuery == null || versionCounter == null ||
+                versionCategory == null || SideBar.Visibility != Visibility.Visible)
                 throw new InvalidOperationException("游戏版本卡片与侧边导航不完整");
 
             Navigate("资源中心");
@@ -818,13 +824,17 @@ namespace BlockCraftLauncher.Wpf
             Navigate("光影引擎");
             Navigate("资源包");
             Navigate("整合包");
-            if (packSearchResults == null || packSearchResults.ItemTemplate == null)
-                throw new InvalidOperationException("整合包列表未应用统一卡片模板");
+            if (packSearchResults == null || packSearchResults.ItemTemplate == null ||
+                packSearchQuery == null || packSortMode == null ||
+                packVersionFilter == null || packSearchStatus == null ||
+                packPrevButton == null || packNextButton == null)
+                throw new InvalidOperationException("整合包搜索、排序、版本筛选或分页控件未加载");
 
             Navigate("下载管理");
             if (downloadList == null || downloadList.ItemTemplate == null ||
-                downloadProgressBar == null)
-                throw new InvalidOperationException("下载任务布局不完整");
+                downloadProgressBar == null || downloadSearchQuery == null ||
+                downloadStatusFilter == null || downloadCounter == null)
+                throw new InvalidOperationException("下载任务搜索、筛选或进度布局不完整");
 
             Navigate("多人联机");
             if (serverList == null || serverList.ItemTemplate == null ||
@@ -835,9 +845,35 @@ namespace BlockCraftLauncher.Wpf
             if (PageHost.Content == null)
                 throw new InvalidOperationException("本地资源管理页面无法打开");
 
-            Navigate("CurseForge");
-            if (PageHost.Content == null)
-                throw new InvalidOperationException("CurseForge 提示与搜索入口无法打开");
+            // The optional MCIM page is built locally without calling its
+            // service. Verify the complete visual search path and then restore
+            // the user's consent setting before leaving the page.
+            bool previousMcim = settings.McimEnabled;
+            try
+            {
+                settings.McimEnabled = true;
+                Navigate("CurseForge");
+                if (cfSearchResults == null || cfSearchResults.ItemTemplate == null ||
+                    cfSearchQuery == null || cfVersionFilter == null ||
+                    cfCategoryFilter == null || cfSortMode == null ||
+                    cfSearchStatus == null)
+                    throw new InvalidOperationException("CurseForge 图文搜索筛选控件未加载");
+                cfLoadedHits.Clear();
+                cfLoadedHits.Add(new CurseForgeHit
+                {
+                    Id = 123, Name = "离线图文自检", Summary = "UI only",
+                    CategoryLabel = "Technology", VersionsLabel = "近期版本：1.21.1",
+                    DownloadCount = 50000, DownloadsLabel = "5 万次下载"
+                });
+                ApplyCurseForgeFilters();
+                if (cfSearchResults.Items.Count != 1)
+                    throw new InvalidOperationException("CurseForge 本页结果绑定失效");
+                cfVersionFilter.Text = "1.20.1";
+                if (cfSearchResults.Items.Count != 0)
+                    throw new InvalidOperationException("CurseForge 版本筛选未生效");
+                cfVersionFilter.Text = "";
+            }
+            finally { settings.McimEnabled = previousMcim; }
 
             Navigate("启动器更新");
             if (PageHost.Content == null)
