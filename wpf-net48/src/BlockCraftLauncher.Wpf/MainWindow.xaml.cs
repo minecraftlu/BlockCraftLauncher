@@ -285,12 +285,16 @@ namespace BlockCraftLauncher.Wpf
         {
             switch (page)
             {
-                case "游戏版本": return "原版游戏";
-                case "资源中心": return "Mod";
-                case "光影引擎": return "光影包";
-                case "资源包": return "资源包";
-                case "整合包": return "整合包";
+                case "首页": return "启动游戏";
+                case "游戏版本": return "Minecraft 版本";
+                case "下载管理": return "下载任务";
+                case "资源中心": return "Mod 搜索";
+                case "光影引擎": return "光影包下载";
+                case "资源包": return "资源包下载";
+                case "整合包": return "整合包搜索";
                 case "CurseForge": return "CurseForge";
+                case "模组更新": return "本地模组管理";
+                case "设置": return "启动器设置";
                 default: return page;
             }
         }
@@ -318,9 +322,9 @@ namespace BlockCraftLauncher.Wpf
         void BuildSidebar()
         {
             SideMenu.Children.Clear(); sidebarButtons.Clear();
-            AddNavSection(SideMenu, "游戏", new[] { "首页", "游戏版本", "下载管理" }, Navigate, sidebarButtons);
-            AddNavSection(SideMenu, "社区资源", new[] { "资源中心", "整合包", "资源包", "光影引擎", "CurseForge" }, Navigate, sidebarButtons);
-            AddNavSection(SideMenu, "管理与工具", new[] { "模组更新", "多人联机", "启动器更新", "设置", "运行日志" }, Navigate, sidebarButtons);
+            AddNavSection(SideMenu, "游戏 · 版本下载", new[] { "首页", "游戏版本", "下载管理" }, Navigate, sidebarButtons);
+            AddNavSection(SideMenu, "社区 · 在线搜索", new[] { "资源中心", "整合包", "资源包", "光影引擎", "CurseForge" }, Navigate, sidebarButtons);
+            AddNavSection(SideMenu, "管理 · 帮助工具", new[] { "模组更新", "多人联机", "启动器更新", "设置", "运行日志" }, Navigate, sidebarButtons);
             SideMenu.Children.Add(Txt("当前账号", 12, true, true));
             SideMenu.Children.Add(Txt(settings.AccountMode == "offline" ? "离线：" + settings.OfflineName :
                 (settings.AccountMode == "microsoft" ? "微软正版：" + settings.AccountName : "未登录"), 13));
@@ -417,6 +421,10 @@ namespace BlockCraftLauncher.Wpf
             Set("HoverBrush", light ? "#EAF3FF" : "#2E425A");
             Set("SelectedBrush", light ? "#E0EFFF" : "#274968");
             Set("BadgeBrush", light ? "#E8F3FF" : "#314C67");
+            Set("SecondaryAccentBrush", light ? "#4E9BDD" : "#5B9FDE");
+            Set("SoftDividerBrush", light ? "#E6EDF6" : "#344B63");
+            Set("SearchSurfaceBrush", light ? "#F9FCFF" : "#223246");
+            Set("SuccessBrush", light ? "#278A6B" : "#5BD09F");
             Set("AccentBrush", IsHexColor(settings.Accent) ? settings.Accent : "#1977D2");
             Set("AccentTextBrush", "#FFFFFF");
             Set("HeaderBrush", light ? "#176DBF" : "#145C9C");
