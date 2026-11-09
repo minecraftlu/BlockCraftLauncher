@@ -50,6 +50,12 @@ for page in (
 ):
     assert f'Navigate("{page}")' in main, page
 
+updater = (src / "Services" / "LauncherAutoUpdateService.cs").read_text("utf8")
+assert 'RELEASE-SHA256SUMS.txt' in updater
+assert 'StartExternalInstaller' in updater
+assert 'SelectOffer' in updater
+assert 'CheckLauncherUpdatesAsync(false)' in main
+assert 'settingsAutoCheck' in main and 'settingsAutoDownload' in main
 assert "CompatibleWpf" in updates
 assert "Newer = wpfAsset && IsNewer" in updates
 assert (root / "docs" / "STABLE_RELEASE_ACCEPTANCE.md").is_file()
