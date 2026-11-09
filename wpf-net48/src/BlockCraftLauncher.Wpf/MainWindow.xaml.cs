@@ -67,6 +67,10 @@ namespace BlockCraftLauncher.Wpf
             minecraft = new MinecraftBackend(settings);
             modLoaders = new ModLoaderInstaller(settings);
             activeProfile = settings.Profiles.FirstOrDefault();
+            TopLaunchButton.Click += (sender, args) => Navigate("首页");
+            TopDownloadButton.Click += (sender, args) => Navigate("游戏版本");
+            TopSettingsButton.Click += (sender, args) => Navigate("设置");
+            TopMoreButton.Click += (sender, args) => Navigate("资源中心");
             ApplyTheme(); ApplyZoom(); BuildSidebar(); Navigate("首页");
             Log("已读取旧版本配置；WPF 预览设置将单独保存，不覆盖原 Python 启动器配置。");
         }
@@ -74,7 +78,7 @@ namespace BlockCraftLauncher.Wpf
         static TextBlock Txt(string text, double size = 14, bool bold = false, bool muted = false)
         {
             var label = new TextBlock { Text = text, FontSize = size, FontWeight = bold ? FontWeights.Bold : FontWeights.Normal,
-                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 9) };
+                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, size >= 20 ? 7 : 10) };
             if (muted) label.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
             return label;
         }
@@ -95,22 +99,44 @@ namespace BlockCraftLauncher.Wpf
         {
             var p = new StackPanel(); foreach (var c in children) p.Children.Add(c); return p;
         }
-        static StackPanel Row(params UIElement[] children)
+        static WrapPanel Row(params UIElement[] children)
         {
-            var p = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            // Wrap narrow toolbars and translated text instead of pushing
+            // their buttons underneath the right-hand scrollbar.
+            var p = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             foreach (var c in children) p.Children.Add(c); return p;
         }
         static void AddNavSection(Panel sidebar, string heading, IEnumerable<string> names, Action<string> navigate, Dictionary<string, Button> buttonMap)
         {
-            sidebar.Children.Add(Txt(heading, 12, true, true));
+            var title = Txt(heading, 11, true, true);
+            title.Margin = new Thickness(10, 4, 0, 8);
+            sidebar.Children.Add(title);
             foreach (var name in names)
             {
-                var btn = Btn(name, () => navigate(name));
-                btn.HorizontalContentAlignment = HorizontalAlignment.Left;
-                btn.Margin = new Thickness(0, 0, 0, 5);
+                var btn = Btn(NavGlyph(name) + "    " + name, () => navigate(name));
+                btn.SetResourceReference(FrameworkElement.StyleProperty, "SidebarItem");
                 sidebar.Children.Add(btn); buttonMap[name] = btn;
             }
-            sidebar.Children.Add(new Separator { Margin = new Thickness(0, 9, 0, 12) });
+            sidebar.Children.Add(new Separator { Margin = new Thickness(8, 9, 10, 13) });
+        }
+        static string NavGlyph(string page)
+        {
+            switch (page)
+            {
+                case "首页": return "⌂";
+                case "游戏版本": return "▣";
+                case "下载管理": return "⇩";
+                case "资源中心": return "◇";
+                case "光影引擎": return "☼";
+                case "资源包": return "▤";
+                case "整合包": return "⬡";
+                case "CurseForge": return "♧";
+                case "模组更新": return "↻";
+                case "多人联机": return "◎";
+                case "启动器更新": return "⟳";
+                case "设置": return "⚙";
+                default: return "≡";
+            }
         }
         void BuildSidebar()
         {
@@ -127,14 +153,24 @@ namespace BlockCraftLauncher.Wpf
         }
         void Navigate(string page)
         {
-            currentPage = page; SideBar.Visibility = page == "首页" ? Visibility.Collapsed : Visibility.Visible;
-            SideColumn.Width = page == "首页" ? new GridLength(0) : new GridLength(218);
+            currentPage = page;
+            SideBar.Visibility = page == "首页" ? Visibility.Collapsed : Visibility.Visible;
+            SideColumn.Width = page == "首页" ? new GridLength(0) : new GridLength(205);
             foreach (var pair in sidebarButtons)
-            {
-                pair.Value.FontWeight = pair.Key == page ? FontWeights.Bold : FontWeights.Normal;
-                pair.Value.SetResourceReference(Control.BackgroundProperty, pair.Key == page ? "AccentBrush" : "PanelAltBrush");
-                pair.Value.SetResourceReference(Control.ForegroundProperty, pair.Key == page ? "AccentTextBrush" : "TextBrush");
-            }
+                pair.Value.SetResourceReference(FrameworkElement.StyleProperty,
+                    pair.Key == page ? "SidebarItemActive" : "SidebarItem");
+            string primary = page == "首页" ? "启动"
+                : (page == "游戏版本" || page == "下载管理" || page == "资源中心"
+                    || page == "光影引擎" || page == "资源包" || page == "整合包"
+                    || page == "CurseForge" ? "下载" : page == "设置" ? "设置" : "更多");
+            TopLaunchButton.SetResourceReference(FrameworkElement.StyleProperty,
+                primary == "启动" ? "HeaderTabActive" : "HeaderTab");
+            TopDownloadButton.SetResourceReference(FrameworkElement.StyleProperty,
+                primary == "下载" ? "HeaderTabActive" : "HeaderTab");
+            TopSettingsButton.SetResourceReference(FrameworkElement.StyleProperty,
+                primary == "设置" ? "HeaderTabActive" : "HeaderTab");
+            TopMoreButton.SetResourceReference(FrameworkElement.StyleProperty,
+                primary == "更多" ? "HeaderTabActive" : "HeaderTab");
             switch (page)
             {
                 case "首页": PageHost.Content = BuildHome(); break;
@@ -162,14 +198,20 @@ namespace BlockCraftLauncher.Wpf
             // XAML Freezable resources may be frozen after loading. Replace the brush so
             // DynamicResource consumers update without mutating a frozen object.
             void Set(string key, string value) { Application.Current.Resources[key] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(value)); }
-            Set("WindowBrush", light ? "#EFF3F8" : "#141414");
-            Set("PanelBrush", light ? "#FFFFFF" : "#202020");
-            Set("PanelAltBrush", light ? "#F2F7FD" : "#292929");
-            Set("TextBrush", light ? "#203348" : "#F7F8FA");
-            Set("MutedBrush", light ? "#64788C" : "#A8ADB8");
-            Set("BorderBrushTheme", light ? "#D9E4F0" : "#34383E");
-            Set("AccentBrush", IsHexColor(settings.Accent) ? settings.Accent : "#1875CE");
+            Set("WindowBrush", light ? "#F1F5FA" : "#151D2B");
+            Set("PageBrush", light ? "#EAF3FC" : "#111827");
+            Set("PanelBrush", light ? "#FFFFFF" : "#1D2939");
+            Set("PanelAltBrush", light ? "#F5F9FE" : "#26364B");
+            Set("TextBrush", light ? "#22374D" : "#EFF5FF");
+            Set("MutedBrush", light ? "#667E95" : "#ACBCD0");
+            Set("BorderBrushTheme", light ? "#D8E5F3" : "#33475D");
+            Set("HoverBrush", light ? "#EAF3FF" : "#2E425A");
+            Set("SelectedBrush", light ? "#E0EFFF" : "#274968");
+            Set("BadgeBrush", light ? "#E8F3FF" : "#314C67");
+            Set("AccentBrush", IsHexColor(settings.Accent) ? settings.Accent : "#1977D2");
             Set("AccentTextBrush", "#FFFFFF");
+            Set("HeaderBrush", light ? "#176DBF" : "#145C9C");
+            Set("HeaderTextBrush", "#FFFFFF");
         }
         static bool IsHexColor(string s) => s != null && s.Length == 7 && s[0] == '#' && s.Skip(1).All(c => Uri.IsHexDigit(c));
         void ApplyZoom()
@@ -182,8 +224,10 @@ namespace BlockCraftLauncher.Wpf
         {
             if (WindowViewport == null || Shell == null) return;
             var scale = Math.Max(0.8, UiScale.ScaleX);
-            if (WindowViewport.ActualWidth > 0) Shell.Width = Math.Max(960, (WindowViewport.ActualWidth - 22) / scale);
-            if (WindowViewport.ActualHeight > 0) Shell.Height = Math.Max(640, (WindowViewport.ActualHeight - 22) / scale);
+            if (WindowViewport.ActualWidth > 0)
+                Shell.Width = Math.Max(840, (WindowViewport.ActualWidth - 2) / scale);
+            if (WindowViewport.ActualHeight > 0)
+                Shell.Height = Math.Max(580, (WindowViewport.ActualHeight - 2) / scale);
         }
         void WindowViewport_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateShellSize();
 
