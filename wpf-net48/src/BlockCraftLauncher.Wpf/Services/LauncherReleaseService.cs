@@ -124,7 +124,7 @@ namespace BlockCraftLauncher.Wpf.Services
                     Description = description.Length > 1200 ?
                         description.Substring(0, 1200) : description,
                     CompatibleWpf = true,
-                    Newer = wpfAsset && IsNewer(tag, "v0.9.27")
+                    Newer = wpfAsset && IsNewer(tag, "v0.9.28")
                 };
             }
 
