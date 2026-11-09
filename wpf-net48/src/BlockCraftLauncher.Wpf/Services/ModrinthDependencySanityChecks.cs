@@ -152,7 +152,7 @@ namespace BlockCraftLauncher.Wpf.Services
             var conflict = Version("A", "vA", "A.jar",
                 new object[] { Dependency("B", "vB"), Dependency("B", "vB2") });
             await ThrowsAsync(async () => await new ModrinthDependencyPlanner(
-                Fixture(conflict, b, Version("B", "vB2", "B2.jar")))
+                Fixture(conflict, Version("B", "vB", "B.jar"), Version("B", "vB2", "B2.jar")))
                 .PlanAsync("A", "1.21.1", "fabric", CancellationToken.None),
                 "conflicting required fixed versions must fail");
         }
