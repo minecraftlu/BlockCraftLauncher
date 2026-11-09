@@ -27,7 +27,9 @@ namespace BlockCraftLauncher.Wpf
         PreparedLauncherUpdate preparedUpdate;
         bool updateChecking;
         bool updatePreparing;
-        TextBlock updateStatusText, updateNotesText;
+        TextBlock updateStatusText, updateNotesText, homeUpdateText;
+        Border homeUpdateCard;
+        ProgressBar updateProgressBar;
         Button updateInstallButton, updateCheckButton;
         CheckBox settingsAutoCheck, settingsAutoDownload;
         ComboBox settingsUpdateChannel;
@@ -286,6 +288,9 @@ namespace BlockCraftLauncher.Wpf
             updateNotesText = null;
             updateInstallButton = null;
             updateCheckButton = null;
+            updateProgressBar = null;
+            homeUpdateText = null;
+            homeUpdateCard = null;
             SideBar.Visibility = page == "首页" ? Visibility.Collapsed : Visibility.Visible;
             SideColumn.Width = page == "首页" ? new GridLength(0) : new GridLength(188);
             foreach (var pair in sidebarButtons)
@@ -380,6 +385,16 @@ namespace BlockCraftLauncher.Wpf
             // followed by compact download and account management cards.
             var root = Col(Txt("启动 Minecraft", 24, true),
                 Txt("选择已经安装的游戏实例，然后开始你的方块世界。", 13, false, true));
+
+            var updateNotice = Col(Txt("发现启动器新版本", 17, true));
+            homeUpdateText = Txt("", 12, false, true);
+            updateNotice.Children.Add(homeUpdateText);
+            updateNotice.Children.Add(Row(
+                Btn("查看新版本与更新内容", () => Navigate("启动器更新"), true),
+                Btn("查看更新设置", () => Navigate("设置"))));
+            homeUpdateCard = Card(updateNotice);
+            root.Children.Add(homeUpdateCard);
+            RefreshLauncherUpdatePanel();
 
             var hero = new Grid { Margin = new Thickness(0, 12, 0, 4) };
             hero.ColumnDefinitions.Add(new ColumnDefinition {
@@ -1697,6 +1712,13 @@ namespace BlockCraftLauncher.Wpf
                     + " 更新内容和校验清单必须来自同一个官方 GitHub Release。", 12, false, true))));
 
             updateStatusText = Txt("", 14, true);
+            updateProgressBar = new ProgressBar
+            {
+                Height = 9, Minimum = 0, Maximum = 100,
+                Margin = new Thickness(0, 6, 0, 13),
+                Visibility = Visibility.Collapsed
+            };
+            updateProgressBar.SetResourceReference(ProgressBar.ForegroundProperty, "AccentBrush");
             updateNotesText = Txt("", 12, false, true);
             updateNotesText.MaxHeight = 190;
             updateNotesText.TextWrapping = TextWrapping.Wrap;
@@ -1707,6 +1729,7 @@ namespace BlockCraftLauncher.Wpf
             root.Children.Add(Card(Col(
                 Txt("更新状态", 18, true),
                 updateStatusText,
+                updateProgressBar,
                 updateNotesText,
                 Row(updateCheckButton, updateInstallButton,
                     Btn("打开官方发布页", () => LauncherReleaseService.OpenOfficialRelease(
@@ -1724,6 +1747,14 @@ namespace BlockCraftLauncher.Wpf
         void RefreshLauncherUpdatePanel()
         {
             bool available = offeredUpdate != null;
+            if (homeUpdateCard != null)
+            {
+                homeUpdateCard.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
+                if (homeUpdateText != null && available)
+                    homeUpdateText.Text = "可用：" + offeredUpdate.Tag +
+                        " · " + (settings.UpdateChannel == "preview" ? "预览测试渠道" : "稳定渠道") +
+                        "。更新会校验完整性，安装前确认退出启动器。";
+            }
             if (currentPage == "启动器更新" && updateStatusText != null)
             {
                 updateStatusText.Text = updatePreparing ?
@@ -1813,6 +1844,12 @@ namespace BlockCraftLauncher.Wpf
             if (updatePreparing || offeredUpdate == null ||
                 updateCancellation.IsCancellationRequested) return;
             updatePreparing = true;
+            if (updateProgressBar != null)
+            {
+                updateProgressBar.Visibility = Visibility.Visible;
+                updateProgressBar.IsIndeterminate = true;
+                updateProgressBar.Value = 0;
+            }
             RefreshLauncherUpdatePanel();
             try
             {
@@ -1825,6 +1862,13 @@ namespace BlockCraftLauncher.Wpf
                         status += " · " + (item.Completed * 100.0 / item.Total).ToString("0") + "%";
                     if (updateStatusText != null && currentPage == "启动器更新")
                         updateStatusText.Text = status;
+                    if (updateProgressBar != null && currentPage == "启动器更新")
+                    {
+                        updateProgressBar.IsIndeterminate = item.Total <= 0;
+                        if (item.Total > 0)
+                            updateProgressBar.Value = Math.Min(100d,
+                                item.Completed * 100d / item.Total);
+                    }
                     Status(status);
                 });
                 var stage = await autoUpdater.PrepareAsync(
@@ -1843,6 +1887,8 @@ namespace BlockCraftLauncher.Wpf
             finally
             {
                 updatePreparing = false;
+                if (updateProgressBar != null)
+                    updateProgressBar.Visibility = Visibility.Collapsed;
                 RefreshLauncherUpdatePanel();
             }
         }
