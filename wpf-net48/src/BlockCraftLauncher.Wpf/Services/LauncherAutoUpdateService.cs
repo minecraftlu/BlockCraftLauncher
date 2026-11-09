@@ -522,6 +522,120 @@ namespace BlockCraftLauncher.Wpf.Services
             }
         }
 
+        static bool IsPathInsideUpdateStaging(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+            string root = Path.GetFullPath(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "BlockCraftLauncher", "updates")).TrimEnd('\\') + "\\";
+            string full = Path.GetFullPath(path);
+            if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return false;
+            string remainder = full.Substring(root.Length);
+            string first = remainder.Split(Path.DirectorySeparatorChar)[0];
+            return first.StartsWith("staged-", StringComparison.OrdinalIgnoreCase) &&
+                first.Length == 39 &&
+                first.Substring(7).All(Uri.IsHexDigit);
+        }
+
+        static string DirectPreviewExecutable(PreparedLauncherUpdate prepared)
+        {
+            if (prepared == null || prepared.Offer == null ||
+                !string.Equals(prepared.Offer.Mode, InstallMode, StringComparison.Ordinal))
+                throw new InvalidOperationException("当前下载包不适用于本安装形式");
+            if (!IsPathInsideUpdateStaging(prepared.StagedPath))
+                throw new InvalidDataException("直接打开只能使用安全暂存目录中的已验证版本");
+            if (prepared.Offer.Mode == "onefile")
+            {
+                VerifyFile(prepared.StagedPath, prepared.Sha256);
+                if (!string.Equals(Path.GetFileName(prepared.StagedPath),
+                    prepared.Offer.AssetName, StringComparison.Ordinal))
+                    throw new InvalidDataException("新版单 EXE 文件名与发布资产不匹配");
+                return prepared.StagedPath;
+            }
+            string stage = Path.GetFullPath(prepared.StagedPath);
+            string extracted = Directory.GetParent(stage)?.Parent?.FullName;
+            if (extracted == null ||
+                !string.Equals(Path.GetFileName(extracted), "unpacked",
+                    StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("新版 ZIP 解压目录不符合预期");
+            string downloaded = Path.Combine(Directory.GetParent(extracted).FullName,
+                prepared.Offer.AssetName);
+            VerifyFile(downloaded, prepared.Sha256);
+            VerifyZipManifest(stage);
+            string exe = Path.Combine(stage, MainFile);
+            if (!File.Exists(exe))
+                throw new FileNotFoundException("已解压的新版 WPF 主程序不存在", exe);
+            return exe;
+        }
+
+        static bool IsLiveRenderedWindow(string marker)
+        {
+            try
+            {
+                if (!File.Exists(marker)) return false;
+                var lines = File.ReadAllLines(marker);
+                if (lines.Length < 2 || !int.TryParse(lines[0], out var pid) ||
+                    pid <= 0 || !DateTime.TryParse(lines[1], out _))
+                    return false;
+                using (var p = Process.GetProcessById(pid))
+                    return !p.HasExited &&
+                        string.Equals(p.ProcessName, "BlockCraftLauncher.Wpf",
+                            StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception ex) when (ex is IOException ||
+                ex is UnauthorizedAccessException ||
+                ex is ArgumentException ||
+                ex is InvalidOperationException)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Open an already SHA-256-verified version directly from the download
+        /// staging area WITHOUT replacing the currently installed launcher.
+        /// Only close the current UI after the new WPF window has rendered.
+        /// Future desktop launches still use the previously installed EXE.
+        /// </summary>
+        public async Task<bool> OpenPreparedDirectlyAsync(
+            PreparedLauncherUpdate prepared, CancellationToken ct)
+        {
+            string executable = DirectPreviewExecutable(prepared);
+            string token = Guid.NewGuid().ToString("N");
+            string marker = LauncherRelaunchSignal.FilePath(token);
+            try
+            {
+                var start = new ProcessStartInfo(executable,
+                    "--after-update " + token + " --direct-open")
+                {
+                    UseShellExecute = true,
+                    WorkingDirectory = Path.GetDirectoryName(executable),
+                    WindowStyle = ProcessWindowStyle.Normal
+                };
+                using (var launched = Process.Start(start))
+                {
+                    if (launched == null)
+                        throw new IOException("无法直接运行已校验的新版本");
+                    for (int i = 0; i < 300; i++)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        if (IsLiveRenderedWindow(marker)) return true;
+                        if (launched.HasExited && i > 30 &&
+                            prepared.Offer.Mode == "zip")
+                            break; // ZIP EXE is the actual WPF process.
+                        await Task.Delay(150, ct);
+                    }
+                }
+                throw new IOException("新版已尝试启动，但没有确认主窗口完成显示。" +
+                    "旧版仍保持打开。可选择正常安装或查看 Windows 安全软件记录。");
+            }
+            finally
+            {
+                try { if (File.Exists(marker)) File.Delete(marker); }
+                catch (IOException) { }
+            }
+        }
+
         public void StartExternalInstaller(PreparedLauncherUpdate prepared)
         {
             if (prepared == null || prepared.Offer.Mode != InstallMode)
