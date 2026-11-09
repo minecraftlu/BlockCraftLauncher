@@ -203,6 +203,44 @@ jobs:
           }
           Write-Host 'PASS: OneFile Modrinth dependency planner and atomic registry'
 
+      - name: Offline Minecraft world backup and safe ZIP restore
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--saves-restore-selftest' -PassThru
+          if (-not $process.WaitForExit(40000)) {
+            $process.Kill()
+            throw 'Minecraft saves restore selftest timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 35 }
+            throw "Minecraft save restore selftest failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: safe Minecraft save backup/restore and no-overwrite protection'
+
+      - name: Offline Minecraft save restore from single EXE
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.27-WPF-OneFile-Windows-x64.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--saves-restore-selftest' -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            $process.Kill()
+            throw 'OneFile Minecraft saves restore selftest timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 35 }
+            throw "OneFile Minecraft save restore selftest failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: OneFile backup/restore with ZIP path hardening and no overwrite'
+
       - name: Offline Microsoft refresh-token recovery tests
         shell: pwsh
         working-directory: wpf-net48
