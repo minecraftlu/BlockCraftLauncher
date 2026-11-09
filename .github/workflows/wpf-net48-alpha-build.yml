@@ -51,6 +51,25 @@ jobs:
             throw "WPF startup smoke test failed: exit code $($process.ExitCode)"
           }
           Write-Host 'PASS: WPF MainWindow initialized and CmlLib dependencies loaded'
+      - name: PCL-style UI navigation and text-layout regression (no network)
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--ui-layout-selftest' -PassThru
+          if (-not $process.WaitForExit(40000)) {
+            $process.Kill()
+            throw 'PCL-style WPF layout selftest timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 55 }
+            throw "PCL WPF layout selftest failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: PCL-style tabs, sidebar, pages, ResourceHit wrapping, download/version templates'
+
       - name: Offline downloader self-tests (no game downloads)
         shell: pwsh
         working-directory: wpf-net48
@@ -105,6 +124,27 @@ jobs:
             throw "Single EXE download page binding test failed: $($process.ExitCode)"
           }
           Write-Host 'PASS: single EXE opens download management page without readonly binding error'
+      - name: PCL-style UI navigation regression from single EXE
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.27-WPF-OneFile-Windows-x64.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--ui-layout-selftest' -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            $process.Kill()
+            throw 'Single EXE PCL-style layout test timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/onefile/bootstrap-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 40 }
+            $wpfLog = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $wpfLog) { Get-Content $wpfLog -Tail 40 }
+            throw "Single EXE PCL WPF layout test failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: single EXE PCL UI navigation, resource cards and theme controls'
+
       - name: Single EXE offline mirror fallback and resume header tests
         shell: pwsh
         working-directory: wpf-net48
