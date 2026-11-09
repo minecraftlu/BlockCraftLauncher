@@ -1,4 +1,4 @@
-name: BlockCraft Stage12.7 WPF offline NetEase codec reference preview
+name: BlockCraft Stage12.8 WPF offline China build provenance preview
 
 on:
   pull_request:
@@ -66,7 +66,7 @@ jobs:
             & $fixture -offline-inbound-ipc-selftest -worker $worker
             if ($LASTEXITCODE -ne 0) { throw "receive-only Bedrock IPC worker failed" }
           }
-          # Stage12.7 never launches a game session or accepts lobby versions:
+          # Stage12.8 never launches a game session or accepts lobby versions:
           # it only checks the pinned public NetEase codec reference table.
           $known = & $worker -offline-codec-reference 819
           if ($LASTEXITCODE -ne 0 -or $known.Trim() -ne "NETEASE_CODEC_REFERENCE_FOUND_GAME_NOT_JOINED") {
@@ -75,6 +75,16 @@ jobs:
           $unknown = & $worker -offline-codec-reference 859
           if ($LASTEXITCODE -ne 0 -or $unknown.Trim() -ne "NETEASE_CODEC_UNVERIFIED_GAME_NOT_JOINED") {
             throw "standard Bedrock codec incorrectly accepted as NetEase"
+          }
+          # Stage12.8 verifies screenshot-derived China 3.10 candidate evidence
+          # without asserting 897/898 is the real NetEase gameplay version.
+          $build = & $worker -offline-china-build-reference 3.10.7.301588 3.10.9.301882
+          if ($LASTEXITCODE -ne 0 -or $build.Trim() -ne "STAGE12_8_CHINA_310_REFERENCE_CANDIDATES_UNVERIFIED_GAME_NOT_JOINED") {
+            throw "China 3.10 screenshot build candidate lookup failed"
+          }
+          $other = & $worker -offline-china-build-reference 3.9.50.301056 3.9.42.301055
+          if ($LASTEXITCODE -ne 0 -or $other.Trim() -ne "STAGE12_8_CHINA_BUILD_REFERENCE_UNKNOWN_GAME_NOT_JOINED") {
+            throw "Unsupported client family incorrectly mapped to a game protocol"
           }
           # Invalid CLI arguments are covered by Go unit tests. Running a
           # deliberately failing native process under pwsh ErrorActionPreference
@@ -105,15 +115,15 @@ jobs:
           foreach ($required in @("BlockCraft.JoinProbe.exe", "BlockCraft.Stage12.BedrockWorker.exe", "BlockCraft.Stage12.IPCFixture.exe")) {
             if (-not ($names -contains $required)) { throw "Missing embedded resource: $required" }
           }
-          New-Item -ItemType Directory -Force "stage12-7-wpf-codec" | Out-Null
-          $output = "stage12-7-wpf-codec/BlockCraftRoomStage12_7_CodecReferencePreview.exe"
+          New-Item -ItemType Directory -Force "stage12-8-wpf-builds" | Out-Null
+          $output = "stage12-8-wpf-builds/BlockCraftRoomStage12_8_BuildEvidencePreview.exe"
           Copy-Item $exe $output
           $hash = (Get-FileHash $output -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  BlockCraftRoomStage12_7_CodecReferencePreview.exe" | Set-Content "stage12-7-wpf-codec/SHA256SUMS.txt" -Encoding ascii
+          "$hash  BlockCraftRoomStage12_8_BuildEvidencePreview.exe" | Set-Content "stage12-8-wpf-builds/SHA256SUMS.txt" -Encoding ascii
 
       - uses: actions/upload-artifact@v4
         with:
-          name: BlockCraft-RoomLab-Stage12_7-CodecReferencePreview-unsigned
-          path: stage12-7-wpf-codec/
+          name: BlockCraft-RoomLab-Stage12_8-BuildEvidencePreview-unsigned
+          path: stage12-8-wpf-builds/
           if-no-files-found: error
           retention-days: 14
