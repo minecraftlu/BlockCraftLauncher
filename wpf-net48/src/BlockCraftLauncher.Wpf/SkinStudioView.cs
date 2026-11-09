@@ -21,6 +21,9 @@ namespace BlockCraftLauncher.Wpf
     internal sealed class SkinStudioView : UserControl
     {
         readonly SkinEditorDocument document = new SkinEditorDocument();
+        readonly Func<byte[], bool, System.Threading.Tasks.Task> uploadToMicrosoft;
+        readonly Func<string> accountName;
+        bool uploading;
         readonly Image texture = new Image();
         readonly Image front = new Image();
         readonly Image back = new Image();
@@ -119,8 +122,12 @@ namespace BlockCraftLauncher.Wpf
             };
         }
 
-        public SkinStudioView()
+        public SkinStudioView(
+            Func<byte[], bool, System.Threading.Tasks.Task> uploadToMicrosoft = null,
+            Func<string> accountName = null)
         {
+            this.uploadToMicrosoft = uploadToMicrosoft;
+            this.accountName = accountName;
             document.Changed += RefreshImages;
             Build();
             RefreshLibrary();
@@ -276,12 +283,14 @@ namespace BlockCraftLauncher.Wpf
             manage.Children.Add(Row(
                 ActionButton("打开选中", LoadFromLibrary),
                 ActionButton("刷新列表", RefreshLibrary)));
+            manage.Children.Add(ActionButton("上传到微软正版账号", async () =>
+                await UploadToMicrosoftAsync(), true));
             manage.Children.Add(ActionButton("打开 Minecraft 官方皮肤说明", () =>
                 Process.Start(new ProcessStartInfo(OfficialArticle) {
                     UseShellExecute = true })));
             manage.Children.Add(Label(
-                "正版 Java 账号需在 Minecraft 官方启动器的“皮肤”页面上传导出的 PNG，并选择经典或纤细手臂。"
-                + "本地保存不会自动修改微软账号或服务器展示的皮肤。"));
+                "可选正版上传：仅在确认后向 Minecraft 官方 API 提交 PNG，"
+                + "不会传给第三方。离线皮肤仍可保存或导出；服务器显示可能需要重新进入游戏刷新。"));
             rightPanel.Children.Add(Card(manage));
             rightPanel.Children.Add(Card(Column(Label("编辑状态", 16, true), info)));
             var rightScroll = new ScrollViewer
@@ -681,6 +690,52 @@ namespace BlockCraftLauncher.Wpf
                     "导出失败：" + ex.GetBaseException().Message,
                     "保存皮肤 PNG 失败", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        async System.Threading.Tasks.Task UploadToMicrosoftAsync()
+        {
+            if (uploading) return;
+            if (uploadToMicrosoft == null ||
+                string.IsNullOrWhiteSpace(accountName?.Invoke()))
+            {
+                MessageBox.Show(Window.GetWindow(this),
+                    "请先在启动器的账户区域完成 Minecraft Java 微软正版登录。"
+                    + "离线用户可继续使用皮肤库或导出 PNG，无法向微软账号同步皮肤。",
+                    "上传正版皮肤需要登录", MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+            string username = accountName();
+            bool slim = document.SlimArms;
+            if (MessageBox.Show(Window.GetWindow(this),
+                "确定将当前皮肤上传到 Minecraft Java 正版账号 “" +
+                username + "” 吗？\n\n" +
+                "上传成功后，官方服务会修改此账号正在使用的皮肤（" +
+                (slim ? "Alex 纤细手臂" : "Steve 经典宽臂") + "）。\n" +
+                "仅向 api.minecraftservices.com 上传当前 PNG，"
+                + "不会同步给第三方，也不会保存你的登录令牌。",
+                "确认修改微软正版皮肤", MessageBoxButton.YesNo,
+                MessageBoxImage.Question) != MessageBoxResult.Yes)
+                return;
+            uploading = true;
+            info.Text = "正在向 Minecraft 官方皮肤服务上传，请勿重复点击...";
+            try
+            {
+                byte[] png = document.ExportPngBytes();
+                await uploadToMicrosoft(png, slim);
+                info.Text = "Minecraft 官方服务器已确认上传成功：\n" +
+                    username + " · " + (slim ? "Alex" : "Steve") +
+                    "\n如果游戏中的旧皮肤仍未刷新，可以退出世界后重新进入。";
+            }
+            catch (Exception ex)
+            {
+                info.Text = "正版皮肤上传失败，当前本地 PNG 和编辑内容仍保留。";
+                MessageBox.Show(Window.GetWindow(this),
+                    ex.GetBaseException().Message,
+                    "无法上传 Minecraft 正版皮肤",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally { uploading = false; }
         }
 
         void RefreshLibrary()
