@@ -1567,10 +1567,29 @@ namespace BlockCraftLauncher.Wpf
             if (dialog.ShowDialog(this) != true) return;
             try
             {
-                string version = Path.GetFileNameWithoutExtension(dialog.FileName);
-                var profile = new GameProfile { Id = Guid.NewGuid().ToString("N").Substring(0, 12), Name = version,
-                    BaseVersion = version, LaunchVersion = version, Loader = "vanilla", Directory = settings.Root };
-                settings.Profiles.Add(profile); activeProfile = profile; store.Save(settings); Navigate("首页");
+                // Keep the real root of the selected external installation,
+                // rather than silently registering everything under settings.Root.
+                var profile = MinecraftInstanceLocator.ImportVersionMetadata(dialog.FileName);
+                var existing = settings.Profiles.FirstOrDefault(p =>
+                    string.Equals(string.IsNullOrWhiteSpace(p.LaunchVersion) ? p.BaseVersion : p.LaunchVersion,
+                        profile.LaunchVersion, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals((p.Directory ?? "").TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                        profile.Directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                        StringComparison.OrdinalIgnoreCase));
+                if (existing != null)
+                {
+                    activeProfile = existing;
+                    Navigate("首页");
+                    Status("此版本已在实例列表中，已切换到：" + existing.Name);
+                    return;
+                }
+
+                settings.Profiles.Add(profile);
+                try { store.Save(settings); }
+                catch { settings.Profiles.Remove(profile); throw; }
+                activeProfile = profile;
+                Navigate("首页");
+                Status("已导入本地版本：" + profile.LaunchVersion + "（" + profile.Directory + "）");
             }
             catch (Exception ex) { ShowError("导入实例失败", ex); }
         }
