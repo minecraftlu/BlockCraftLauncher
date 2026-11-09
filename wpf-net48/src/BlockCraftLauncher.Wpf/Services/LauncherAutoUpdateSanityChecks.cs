@@ -216,6 +216,18 @@ namespace BlockCraftLauncher.Wpf.Services
                     Require(directExe.EndsWith("BlockCraftLauncher.Wpf.exe",
                         StringComparison.OrdinalIgnoreCase) && File.Exists(directExe),
                         "完整 ZIP 必须从验证过的新版目录直接打开");
+                    string unexpectedDll = Path.Combine(extractedZip, "unexpected.dll");
+                    File.WriteAllText(unexpectedDll, "fake", Encoding.ASCII);
+                    rejected = false;
+                    try { LauncherAutoUpdateService.DirectPreviewExecutable(preparedZip); }
+                    catch (InvalidDataException) { rejected = true; }
+                    Require(rejected, "解压目录有多余可执行文件时拒绝直接打开");
+                    File.Delete(unexpectedDll);
+                    File.AppendAllText(directExe, "tamper");
+                    rejected = false;
+                    try { LauncherAutoUpdateService.DirectPreviewExecutable(preparedZip); }
+                    catch (InvalidDataException) { rejected = true; }
+                    Require(rejected, "原始 ZIP 未变化也不能执行被篡改的解压 DLL/EXE");
                     File.AppendAllText(copiedZip, "tamper");
                     rejected = false;
                     try { LauncherAutoUpdateService.DirectPreviewExecutable(preparedZip); }
