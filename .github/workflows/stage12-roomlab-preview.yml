@@ -1,4 +1,4 @@
-name: BlockCraft Stage12.8 WPF offline China build provenance preview
+name: BlockCraft Stage12.9 WPF server admission diagnostics preview
 
 on:
   pull_request:
@@ -115,15 +115,15 @@ jobs:
           foreach ($required in @("BlockCraft.JoinProbe.exe", "BlockCraft.Stage12.BedrockWorker.exe", "BlockCraft.Stage12.IPCFixture.exe")) {
             if (-not ($names -contains $required)) { throw "Missing embedded resource: $required" }
           }
-          New-Item -ItemType Directory -Force "stage12-8-wpf-builds" | Out-Null
-          $output = "stage12-8-wpf-builds/BlockCraftRoomStage12_8_BuildEvidencePreview.exe"
+          New-Item -ItemType Directory -Force "stage12-9-wpf-admission" | Out-Null
+          $output = "stage12-9-wpf-admission/BlockCraftRoomStage12_9_AdmissionPreview.exe"
           Copy-Item $exe $output
           $hash = (Get-FileHash $output -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  BlockCraftRoomStage12_8_BuildEvidencePreview.exe" | Set-Content "stage12-8-wpf-builds/SHA256SUMS.txt" -Encoding ascii
+          "$hash  BlockCraftRoomStage12_9_AdmissionPreview.exe" | Set-Content "stage12-9-wpf-admission/SHA256SUMS.txt" -Encoding ascii
 
       - uses: actions/upload-artifact@v4
         with:
-          name: BlockCraft-RoomLab-Stage12_8-BuildEvidencePreview-unsigned
-          path: stage12-8-wpf-builds/
+          name: BlockCraft-RoomLab-Stage12_9-AdmissionPreview-unsigned
+          path: stage12-9-wpf-admission/
           if-no-files-found: error
           retention-days: 14
