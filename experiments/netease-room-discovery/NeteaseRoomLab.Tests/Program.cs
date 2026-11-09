@@ -622,6 +622,39 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 throw new InvalidOperationException("Stage12.5 preflight gate did not fail closed.");
             Console.WriteLine("PASS: Stage12.5 real transport evidence gate and explicit game identity/version unknown");
 
+            // Stage12.6: a confirmed receive-only local worker is not a
+            // Minecraft game login. C# recomputes consistency from true
+            // admission, channel states and per-packet counters.
+            string readonlyPositive = channelFrame.Substring(0,channelFrame.Length-1)
+                + @",""stage12_readonly_ipc_verified"":true,"
+                + @"""stage12_readonly_ipc_messages"":0}";
+            string readonlyOutput=JoinProbeRunner.ParseMachineOutput(prefix+readonlyPositive);
+            if (!readonlyOutput.Contains("STAGE12_READONLY_IPC_VERIFIED_GAME_NOT_JOINED")
+                || !readonlyOutput.Contains("0 条")
+                || readonlyOutput.Contains("JOIN_PROBE_IPC_"))
+                throw new InvalidOperationException("Verified receive-only IPC never surfaced.");
+            string[] fakeReadonly = {
+                readonlyPositive.Replace(@"""room_admission_accepted"":true",
+                    @"""room_admission_accepted"":false"),
+                readonlyPositive.Replace(@"""stage12_readonly_ipc_messages"":0",
+                    @"""stage12_readonly_ipc_messages"":1"),
+                readonlyPositive.Replace(@"""stage12_readonly_ipc_verified"":true",
+                    @"""stage12_readonly_ipc_verified"":false"),
+                readonlyPositive.Replace(@"""observation_seconds"":30",
+                    @"""observation_seconds"":8")
+            };
+            foreach (string falseRecord in fakeReadonly)
+            {
+                if (!JoinProbeRunner.ParseMachineOutput(prefix+falseRecord)
+                    .Contains("JOIN_PROBE_IPC_INCONSISTENT"))
+                    throw new InvalidOperationException("Forged Stage12.6 observation was accepted.");
+            }
+            var badDuration = JoinProbeRunner.RunReadOnlyIPCAsync(
+                "643871","",8,System.Threading.CancellationToken.None).GetAwaiter().GetResult();
+            if (!badDuration.Contains("STAGE12_READONLY_WORKER_INVALID"))
+                throw new InvalidOperationException("Stage12.6 accepted an unsupported observation mode.");
+            Console.WriteLine("PASS: Stage12.6 no-outbound read-only IPC evidence and fail-closed WPF parser");
+
             string durationRejected = JoinProbeRunner.RunAsync("643871", "", true, 17,
                 System.Threading.CancellationToken.None).GetAwaiter().GetResult();
             if (!durationRejected.Contains("OBSERVATION_DURATION_INVALID"))
