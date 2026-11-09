@@ -9,6 +9,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using BlockCraftLauncher.Wpf.Services;
 
@@ -50,6 +51,12 @@ namespace BlockCraftLauncher.Wpf
         Color selected = Color.FromArgb(255, 61, 150, 177);
         bool changingColor;
         bool dragging;
+        bool recoveryChecked;
+        readonly DispatcherTimer draftTimer = new DispatcherTimer {
+            Interval = TimeSpan.FromSeconds(2)
+        };
+        static string RecoveryFile => System.IO.Path.Combine(
+            SkinEditorDocument.LocalLibrary, ".blockcraft-recovery.png");
         const string OfficialArticle = "https://www.minecraft.net/en-us/article/what-is-minecraft-skin";
 
         sealed class SavedSkin
@@ -128,12 +135,34 @@ namespace BlockCraftLauncher.Wpf
         {
             this.uploadToMicrosoft = uploadToMicrosoft;
             this.accountName = accountName;
-            document.Changed += RefreshImages;
+            document.Changed += () =>
+            {
+                RefreshImages();
+                if (document.Dirty)
+                {
+                    draftTimer.Stop();
+                    draftTimer.Start();
+                }
+            };
+            draftTimer.Tick += (sender, args) =>
+            {
+                draftTimer.Stop();
+                SaveRecoveryDraft();
+            };
             Build();
             RefreshLibrary();
             RefreshImages();
             SetColor(selected);
-            Loaded += (sender, args) => Keyboard.Focus(paintingSurface);
+            Loaded += (sender, args) =>
+            {
+                Keyboard.Focus(paintingSurface);
+                OfferRecoveryOnce();
+            };
+            Unloaded += (sender, args) =>
+            {
+                draftTimer.Stop();
+                SaveRecoveryDraft();
+            };
             PreviewKeyDown += OnShortcut;
         }
 
@@ -289,8 +318,8 @@ namespace BlockCraftLauncher.Wpf
                 Process.Start(new ProcessStartInfo(OfficialArticle) {
                     UseShellExecute = true })));
             manage.Children.Add(Label(
-                "可选正版上传：仅在确认后向 Minecraft 官方 API 提交 PNG，"
-                + "不会传给第三方。离线皮肤仍可保存或导出；服务器显示可能需要重新进入游戏刷新。"));
+                "可选正版上传：仅在确认后向 Minecraft 官方 API 提交 PNG。"
+                + "离线皮肤仍可保存或导出。编辑会自动备份为本地恢复草稿，切换页面不会丢失。"));
             rightPanel.Children.Add(Card(manage));
             rightPanel.Children.Add(Card(Column(Label("编辑状态", 16, true), info)));
             var rightScroll = new ScrollViewer
@@ -608,6 +637,7 @@ namespace BlockCraftLauncher.Wpf
             try
             {
                 document.LoadPng(path, armModel.SelectedIndex == 1);
+                ClearRecoveryDraft();
                 skinName.Text = System.IO.Path.GetFileNameWithoutExtension(path);
                 armModel.SelectedIndex = document.SlimArms ? 1 : 0;
                 DrawGuides();
@@ -620,6 +650,69 @@ namespace BlockCraftLauncher.Wpf
                 MessageBox.Show(Window.GetWindow(this),
                     "无法导入皮肤：" + error.GetBaseException().Message,
                     "皮肤文件无效", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        void SaveRecoveryDraft()
+        {
+            if (!document.Dirty) return;
+            string destination = RecoveryFile;
+            string temporary = destination + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                Directory.CreateDirectory(SkinEditorDocument.LocalLibrary);
+                File.WriteAllBytes(temporary, document.ExportPngBytes());
+                if (File.Exists(destination)) File.Replace(temporary, destination, null);
+                else File.Move(temporary, destination);
+            }
+            catch (Exception ex)
+            {
+                info.Text = "恢复草稿写入失败，请手动保存皮肤：" + ex.GetBaseException().Message;
+            }
+            finally
+            {
+                try { if (File.Exists(temporary)) File.Delete(temporary); }
+                catch (IOException) { }
+            }
+        }
+
+        static void ClearRecoveryDraft()
+        {
+            try { if (File.Exists(RecoveryFile)) File.Delete(RecoveryFile); }
+            catch (IOException) { /* Recovery is best-effort. */ }
+        }
+
+        void OfferRecoveryOnce()
+        {
+            if (recoveryChecked) return;
+            recoveryChecked = true;
+            try
+            {
+                if (!File.Exists(RecoveryFile)) return;
+                var age = DateTime.UtcNow - File.GetLastWriteTimeUtc(RecoveryFile);
+                if (age < TimeSpan.Zero || age > TimeSpan.FromDays(14))
+                {
+                    ClearRecoveryDraft();
+                    return;
+                }
+                if (MessageBox.Show(Window.GetWindow(this),
+                    "发现上次未手动保存的 Minecraft 皮肤草稿。"
+                    + "\n是否恢复上次的编辑内容？",
+                    "恢复皮肤 DIY 草稿",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question) == MessageBoxResult.Yes)
+                {
+                    document.LoadPng(RecoveryFile, document.SlimArms);
+                    info.Text = "已恢复上次未保存的皮肤草稿。"
+                        + "请点击“保存到皮肤库”或“导出 PNG”留存。";
+                    // Recovered content is not an explicitly saved skin.
+                    document.MarkUnsaved();
+                }
+                else ClearRecoveryDraft();
+            }
+            catch (Exception ex)
+            {
+                info.Text = "恢复草稿不可用：" + ex.GetBaseException().Message;
             }
         }
 
@@ -642,6 +735,7 @@ namespace BlockCraftLauncher.Wpf
                 try { if (File.Exists(temporary)) File.Delete(temporary); }
                 catch (IOException) { }
             }
+            ClearRecoveryDraft();
             RefreshImages();
         }
 
@@ -745,6 +839,8 @@ namespace BlockCraftLauncher.Wpf
                 Directory.CreateDirectory(SkinEditorDocument.LocalLibrary);
                 var items = Directory.GetFiles(SkinEditorDocument.LocalLibrary, "*.png",
                         SearchOption.TopDirectoryOnly)
+                    .Where(path => !System.IO.Path.GetFileName(path).StartsWith(
+                        ".blockcraft-", StringComparison.OrdinalIgnoreCase))
                     .OrderByDescending(File.GetLastWriteTimeUtc)
                     .Take(250)
                     .Select(path => new SavedSkin {
