@@ -2927,7 +2927,7 @@ namespace BlockCraftLauncher.Wpf
         }
         void ShowReleaseNotes()
         {
-            MessageBox.Show("BlockCraft Launcher v0.9.30 · 自动更新后打开新版窗口\n\n"
+            MessageBox.Show("BlockCraft Launcher v0.9.31 · 自动更新后打开新版窗口\n\n"
                 + "· 继续保留每六小时自动检查、预览/正式版通道及 SHA-256 校验\n"
                 + "· 用户确认安装后，旧启动器自动退出并交给独立更新助手\n"
                 + "· 成功替换并通过启动自检后，自动运行真正的新版本 EXE\n"
