@@ -33,6 +33,9 @@
     <Compile Include="..\NeteaseRoomLab\Stage12OfflineBridge.cs">
       <Link>Stage12OfflineBridge.cs</Link>
     </Compile>
+    <Compile Include="..\NeteaseRoomLab\Stage127CodecReference.cs">
+      <Link>Stage127CodecReference.cs</Link>
+    </Compile>
     <Compile Include="..\NeteaseRoomLab\RoomConnectionMaterial.cs">
       <Link>RoomConnectionMaterial.cs</Link>
     </Compile>
