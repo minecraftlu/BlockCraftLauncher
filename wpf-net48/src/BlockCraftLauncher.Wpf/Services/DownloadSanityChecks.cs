@@ -97,9 +97,9 @@ namespace BlockCraftLauncher.Wpf.Services
                     body = "Untrusted link"
                 },
                 new {
-                    tag_name = "v0.9.29", draft = false, prerelease = false,
-                    html_url = "https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.29",
-                    assets = new[] { new { name = "BlockCraftLauncher-v0.9.29-WPF-OneFile-Windows-x64.exe" } },
+                    tag_name = "v0.9.31", draft = false, prerelease = false,
+                    html_url = "https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.31",
+                    assets = new[] { new { name = "BlockCraftLauncher-v0.9.31-WPF-OneFile-Windows-x64.exe" } },
                     body = "WPF stable"
                 },
                 new {
@@ -110,8 +110,8 @@ namespace BlockCraftLauncher.Wpf.Services
                 }
             });
             var newest = LauncherReleaseService.SelectStableRelease(sample);
-            Require(newest.Version == "v0.9.29" && newest.CompatibleWpf &&
-                newest.Newer && newest.Url.EndsWith("/v0.9.29"),
+            Require(newest.Version == "v0.9.31" && newest.CompatibleWpf &&
+                newest.Newer && newest.Url.EndsWith("/v0.9.31"),
                 "选择兼容的最新正式 WPF Release");
             Require(!LauncherReleaseService.SelectStableRelease(
                 serializer.Serialize(new object[] {
