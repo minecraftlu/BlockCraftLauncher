@@ -65,6 +65,28 @@ assert 'AwaitWindow' in (root / "updater" / "Program.cs").read_text("utf8")
 assert 'SelectOffer' in updater
 assert 'CheckLauncherUpdatesAsync(false)' in main
 assert 'settingsAutoCheck' in main and 'settingsAutoDownload' in main
+# The user click itself authorizes installation: a successful upgrade must
+# never show the old Windows "确认安装 BlockCraft Launcher 更新" Yes/No modal.
+install_body = main.split('async Task InstallLauncherUpdateAsync()', 1)[1].split(
+    '// Shared two-column settings rows', 1)[0]
+assert 'MessageBox.Show' not in install_body
+assert 'StartExternalInstaller(preparedUpdate)' in install_body
+assert 'Application.Current.Shutdown()' in install_body
+assert 'ShowError("无法启动独立更新程序"' in install_body
+
+for search in (
+    'PageHeading(', 'SearchCard(', 'ResultsCard(', 'ApplySearchInputStyle(',
+    'FilterChipButton(', 'versionCounter', 'ApplyDownloadFilter()',
+    'cfVersionFilter', 'cfCategoryFilter', 'cfSortMode',
+    'ApplyCurseForgeFilters()', 'packVersionFilter', 'packSortMode',
+    'packPrevButton', 'packNextButton'
+):
+    assert search in main, f"Missing PCL-style download search UI: {search}"
+for design in ('SearchPanel', 'ResultsPanel', 'SearchTextBox', 'SearchComboBox',
+               'FilterChip', 'SearchSurfaceBrush', 'SoftDividerBrush'):
+    assert design in app, f"Missing shared UI style: {design}"
+assert 'Set("SearchSurfaceBrush"' in main
+
 assert "CompatibleWpf" in updates
 assert "Newer = wpfAsset && IsNewer" in updates
 assert (root / "docs" / "STABLE_RELEASE_ACCEPTANCE.md").is_file()
