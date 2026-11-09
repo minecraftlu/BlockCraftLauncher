@@ -4,6 +4,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlockCraftLauncher.Wpf", "src\BlockCraftLauncher.Wpf\BlockCraftLauncher.Wpf.csproj", "{D25B711D-9568-4F96-A982-301FFFD256E2}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlockCraftLauncher.Updater", "updater\BlockCraftLauncher.Updater.csproj", "{41953CC6-2F2E-4E34-AAC2-9DA9BE5C9DD1}"
+EndProject
 Global
     GlobalSection(SolutionConfigurationPlatforms) = preSolution
         Debug|Any CPU = Debug|Any CPU
