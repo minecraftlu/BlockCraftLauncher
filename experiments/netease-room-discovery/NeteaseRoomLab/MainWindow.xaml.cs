@@ -267,6 +267,9 @@ namespace BlockCraft.NeteaseRoomLab
                     && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
                     && File.Exists(selectedAuthHelper)
                     && GuestEmailAuth.CredentialFileExists();
+            if (Stage126ReadOnlyButton != null)
+                Stage126ReadOnlyButton.IsEnabled = RealWebRTCButton != null
+                    && RealWebRTCButton.IsEnabled && Stage12OfflineBridge.IsEmbedded;
             if (LivePreflightButton != null)
                 LivePreflightButton.IsEnabled = !joinProbeRunning && !livePreflightRunning && !authHelperRunning
                     && !g79CheckRunning && AuthConsentBox.IsChecked == true
@@ -471,6 +474,17 @@ namespace BlockCraft.NeteaseRoomLab
 
         private async void RealWebRTC_Click(object sender, RoutedEventArgs e)
         {
+            await RunRealWebRTCAsync(false);
+        }
+
+        private async void Stage126ReadOnly_Click(object sender, RoutedEventArgs e)
+        {
+            await RunRealWebRTCAsync(true);
+        }
+
+        private async Task RunRealWebRTCAsync(bool inboundOnly)
+        {
+            var output = inboundOnly ? Stage126ReadOnlyStatusText : RealWebRTCStatusText;
             if (joinProbeRunning || livePreflightRunning || authHelperRunning
                 || g79CheckRunning || AuthConsentBox.IsChecked != true
                 || !JoinProbeRunner.IsEmbedded
@@ -478,19 +492,29 @@ namespace BlockCraft.NeteaseRoomLab
                 || !File.Exists(selectedAuthHelper)
                 || !GuestEmailAuth.CredentialFileExists())
             {
-                RealWebRTCStatusText.Text = "WEBRTC_PROBE_NOT_READY："
+                output.Text = "WEBRTC_PROBE_NOT_READY："
                     + "请使用 Stage 10 单 EXE 并选择原认证助手；请勿发送 Cookie 或 token。";
                 return;
             }
             string roomNumber = (RoomIdBox.Text ?? "").Trim();
             if (!System.Text.RegularExpressions.Regex.IsMatch(roomNumber, @"^[0-9]{4,10}$"))
             {
-                RealWebRTCStatusText.Text = "WEBRTC_PROBE_INPUT_INVALID：请输入有效数字房间号。";
+                output.Text = "WEBRTC_PROBE_INPUT_INVALID：请输入有效数字房间号。";
                 return;
             }
 
             int observationSeconds = ObservationSecondsBox.SelectedIndex == 2 ? 60
                 : ObservationSecondsBox.SelectedIndex == 0 ? 8 : 30;
+            if (inboundOnly && observationSeconds==8)
+            {
+                output.Text = "STAGE12_READONLY_WORKER_INVALID：只读接收请先选择 30 或 60 秒。";
+                return;
+            }
+            if (inboundOnly && !Stage12OfflineBridge.IsEmbedded)
+            {
+                output.Text = "STAGE12_READONLY_WORKER_UNAVAILABLE_GAME_NOT_JOINED：缺少内置工作进程。";
+                return;
+            }
 
             var confirmation = MessageBox.Show(
                 "此测试会使用第二账号和当前房间号，向真实网易服务器执行一次"
@@ -500,6 +524,7 @@ namespace BlockCraft.NeteaseRoomLab
                 + "请确认这是你本人手机创建的房间或已获房主明确许可。"
                 + " 该实验使用非官方客户端协议，存在服务条款及账号限制风险。"
                 + Environment.NewLine + Environment.NewLine
+                + (inboundOnly ? "Stage 12.6 还会把手机方向的可靠消息单向送入内嵌本机工作进程，只在内存中接收并清空；不会向手机写入任何游戏数据。" + Environment.NewLine : "")
                 + "探针只被动观察 " + observationSeconds + " 秒内两条数据通道是否 OPEN、"
                 + "收到消息数量和字节数，不发送 Minecraft 游戏数据包，不加载世界。"
                 + "测试结束后关闭本地连接；这不保证服务器立即清除离线玩家。"
@@ -508,24 +533,26 @@ namespace BlockCraft.NeteaseRoomLab
                 + "ICE 密码、网络 ID 或其他认证凭据。"
                 + Environment.NewLine + Environment.NewLine
                 + "确认开始一次真实手机房主 WebRTC 连接测试？",
-                "第十阶段 · 真实 NetherNet / WebRTC 连接确认",
+                inboundOnly ? "Stage 12.6 · 真实房间只读接收验证" : "第十阶段 · 真实 NetherNet / WebRTC 连接确认",
                 MessageBoxButton.YesNo, MessageBoxImage.Warning);
             if (confirmation != MessageBoxResult.Yes) return;
 
             joinProbeRunning = true;
             activeProbeCancellation = new CancellationTokenSource();
             UpdateAuthButtons();
-            RealWebRTCStatusText.Text = "WEBRTC_PROBE_RUNNING："
+            output.Text = "WEBRTC_PROBE_RUNNING："
                 + "正在申请真实大厅准入并尝试建立房主游戏传输连接。";
             try
             {
-                RealWebRTCStatusText.Text =
-                    await JoinProbeRunner.RunAsync(roomNumber, selectedAuthHelper, true,
+                output.Text = inboundOnly
+                    ? await JoinProbeRunner.RunReadOnlyIPCAsync(roomNumber, selectedAuthHelper,
+                        observationSeconds, activeProbeCancellation.Token)
+                    : await JoinProbeRunner.RunAsync(roomNumber, selectedAuthHelper, true,
                         observationSeconds, activeProbeCancellation.Token);
             }
             catch (Exception)
             {
-                RealWebRTCStatusText.Text = "WEBRTC_PROBE_FAILED："
+                output.Text = "WEBRTC_PROBE_FAILED："
                     + "本机连接测试异常，未输出任何原始账号或信令信息。";
             }
             finally
