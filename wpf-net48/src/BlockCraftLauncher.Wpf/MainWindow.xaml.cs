@@ -364,7 +364,10 @@ namespace BlockCraftLauncher.Wpf
                 Width = new GridLength(37, GridUnitType.Star) });
 
             var launchPanel = Col(Txt("启动游戏", 19, true),
-                Txt("当前游戏实例", 12, false, true));
+                Txt("选择实例", 12, false, true));
+            var selectionCaption = Txt(activeProfile == null
+                ? "未选择游戏版本，请先前往下载页面。"
+                : "当前：" + activeProfile.Name + " · " + activeProfile.BaseVersion, 12, false, true);
             homeProfile = new ComboBox
             {
                 ItemsSource = settings.Profiles,
@@ -376,12 +379,13 @@ namespace BlockCraftLauncher.Wpf
             homeProfile.SelectionChanged += (sender, args) =>
             {
                 activeProfile = homeProfile.SelectedItem as GameProfile;
+                selectionCaption.Text = activeProfile == null
+                    ? "未选择游戏版本，请先前往下载页面。"
+                    : "当前：" + activeProfile.Name + " · " + activeProfile.BaseVersion;
                 RefreshGameProcessStatus();
             };
             launchPanel.Children.Add(homeProfile);
-            launchPanel.Children.Add(Txt(activeProfile == null ?
-                "尚未安装游戏版本，请先打开下载页。" :
-                "已选择：" + activeProfile, 12, false, true));
+            launchPanel.Children.Add(selectionCaption);
             var launch = Btn("▶   启动游戏", async () => await LaunchAsync(), true);
             launch.Height = 62;
             launch.FontSize = 19;
@@ -615,7 +619,9 @@ namespace BlockCraftLauncher.Wpf
                 throw new InvalidOperationException("内容页出现不允许的横向滚动");
             if (FindResource("ResourceItemTemplate") == null ||
                 FindResource("VersionItemTemplate") == null ||
-                FindResource("DownloadItemTemplate") == null)
+                FindResource("DownloadItemTemplate") == null ||
+                FindResource("ServerItemTemplate") == null ||
+                FindResource("LocalResourceItemTemplate") == null)
                 throw new InvalidOperationException("资源、游戏版本或下载任务缺少卡片布局模板");
 
             Navigate("首页");
@@ -662,9 +668,32 @@ namespace BlockCraftLauncher.Wpf
                 downloadProgressBar == null)
                 throw new InvalidOperationException("下载任务布局不完整");
 
+            Navigate("多人联机");
+            if (serverList == null || serverList.ItemTemplate == null ||
+                lanWorldList == null || lanWorldList.ItemTemplate == null)
+                throw new InvalidOperationException("服务器与局域网列表没有统一布局模板");
+
+            Navigate("模组更新");
+            if (PageHost.Content == null)
+                throw new InvalidOperationException("本地资源管理页面无法打开");
+
+            Navigate("CurseForge");
+            if (PageHost.Content == null)
+                throw new InvalidOperationException("CurseForge 提示与搜索入口无法打开");
+
+            Navigate("启动器更新");
+            if (PageHost.Content == null)
+                throw new InvalidOperationException("启动器更新页无法打开");
+
+            Navigate("运行日志");
+            if (PageHost.Content == null)
+                throw new InvalidOperationException("运行日志页无法打开");
+
             Navigate("设置");
-            if (settingsTheme == null || settingsZoom == null)
-                throw new InvalidOperationException("设置页面未加载");
+            if (settingsTheme == null || settingsZoom == null ||
+                settingsRoot == null || settingsNetworkMode == null ||
+                settingsDownloadThreads == null || settingsMemory == null)
+                throw new InvalidOperationException("设置页面缺少字段或布局");
 
             Navigate("首页");
             if (currentPage != "首页" || PageHost.Content == null)
@@ -1248,7 +1277,8 @@ namespace BlockCraftLauncher.Wpf
                 Width = 200, HorizontalAlignment = HorizontalAlignment.Left };
             localResourceKind.SelectionChanged += (sender, e) => RefreshLocalResourceList();
             root.Children.Add(Row(Txt("类型"), localResourceKind));
-            localResourceList = new ListBox { Height = 370, Margin = new Thickness(0, 8, 0, 14) };
+            localResourceList = new ListBox { Height = 370, Margin = new Thickness(0, 8, 0, 14),
+                ItemTemplate = (DataTemplate)FindResource("LocalResourceItemTemplate") };
             root.Children.Add(Card(localResourceList));
             root.Children.Add(Card(Col(Txt("本地操作", 18, true),
                 Row(Btn("导入文件", ImportLocalResource, true),
@@ -1348,7 +1378,8 @@ namespace BlockCraftLauncher.Wpf
         UIElement BuildMultiplayer()
         {
             var root = Col(Txt("多人联机", 24, true), Txt("服务器收藏 · 可选 TCP 连通性检查 · 复制地址。游戏内仍需选择多人游戏连接。", 12, false, true));
-            serverList = new ListBox { Height = 270, Margin = new Thickness(0, 8, 0, 10) };
+            serverList = new ListBox { Height = 270, Margin = new Thickness(0, 8, 0, 10),
+                ItemTemplate = (DataTemplate)FindResource("ServerItemTemplate") };
             root.Children.Add(Card(serverList));
             serverName = new TextBox { Width = 170, ToolTip = "收藏名称" };
             serverAddress = new TextBox { Width = 310, ToolTip = "域名或 IP:端口" };
@@ -1361,7 +1392,8 @@ namespace BlockCraftLauncher.Wpf
                     Btn("连接服务器", async () => await JoinServerAsync(), true),
                     Btn("启动当前实例", async () => await LaunchAsync())),
                 Txt("连通性仅检查 TCP 端口，不能保证游戏版本/模组/正版要求匹配。", 12, false, true))));
-            lanWorldList = new ListBox { Height = 165 };
+            lanWorldList = new ListBox { Height = 165,
+                ItemTemplate = (DataTemplate)FindResource("ServerItemTemplate") };
             root.Children.Add(Card(Col(Txt("局域网世界", 18, true),
                 Txt("接收本地网络的 Minecraft UDP 多播公告（224.0.2.60:4445），不扫描其他设备端口。", 12, false, true),
                 Row(Btn("扫描局域网", async () => await ScanLanWorldsAsync()),
