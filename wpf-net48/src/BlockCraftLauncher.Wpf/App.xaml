@@ -460,25 +460,45 @@
       </Border>
     </DataTemplate>
     <DataTemplate x:Key="DownloadItemTemplate">
-      <Border Padding="13,12" BorderBrush="{DynamicResource BorderBrushTheme}"
-              BorderThickness="0,0,0,1">
+      <Border Padding="13,13" BorderBrush="{DynamicResource SoftDividerBrush}"
+              BorderThickness="0,0,0,1" MinHeight="92">
         <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
           <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/><ColumnDefinition Width="100"/>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="145"/>
           </Grid.ColumnDefinitions>
-          <StackPanel>
-            <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold"
-                       TextWrapping="Wrap"/>
-            <TextBlock Text="{Binding Detail}" FontSize="12" TextWrapping="Wrap"
-                       Foreground="{DynamicResource MutedBrush}" Margin="0,4,0,0"/>
+          <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,12,0">
+            <WrapPanel Margin="0,0,0,4">
+              <TextBlock Text="{Binding Kind}" FontSize="10.5"
+                         Foreground="{DynamicResource AccentBrush}"
+                         Margin="0,0,11,0" FontWeight="SemiBold"/>
+              <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold"
+                         TextWrapping="Wrap"/>
+            </WrapPanel>
+            <TextBlock Text="{Binding Detail}" FontSize="11.5" TextWrapping="Wrap"
+                       Foreground="{DynamicResource MutedBrush}"
+                       TextTrimming="CharacterEllipsis" MaxHeight="37"/>
           </StackPanel>
-          <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+          <StackPanel Grid.Row="0" Grid.Column="1"
+                      HorizontalAlignment="Right" VerticalAlignment="Center">
             <TextBlock Text="{Binding Status}" FontWeight="SemiBold"
-                       Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Right"/>
+                       Foreground="{DynamicResource AccentBrush}"
+                       HorizontalAlignment="Right"/>
             <TextBlock Text="{Binding PercentLabel}" FontSize="11"
-                       Foreground="{DynamicResource MutedBrush}" HorizontalAlignment="Right"
-                       Margin="0,4,0,0"/>
+                       Foreground="{DynamicResource MutedBrush}"
+                       HorizontalAlignment="Right" Margin="0,4,0,0"/>
+            <TextBlock Text="{Binding Speed}" FontSize="10.5"
+                       Foreground="{DynamicResource MutedBrush}"
+                       HorizontalAlignment="Right" Margin="0,3,0,0"/>
           </StackPanel>
+          <ProgressBar Grid.Row="1" Grid.ColumnSpan="2"
+                       Height="5" Margin="0,9,0,0" Minimum="0" Maximum="100"
+                       Value="{Binding Percent, Mode=OneWay}"
+                       IsIndeterminate="{Binding IsIndeterminate, Mode=OneWay}"/>
         </Grid>
       </Border>
     </DataTemplate>
