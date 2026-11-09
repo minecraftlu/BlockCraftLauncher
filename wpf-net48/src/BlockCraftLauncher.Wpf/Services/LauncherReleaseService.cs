@@ -21,7 +21,9 @@ namespace BlockCraftLauncher.Wpf.Services
     /// <summary>Read-only GitHub Releases update check. Never executes downloaded files.</summary>
     public sealed class LauncherReleaseService
     {
-        const string Api = "https://api.github.com/repos/minecraftlu/BlockCraftLauncher/releases/latest";
+        // /releases/latest returns 404 when only prereleases exist. Use the
+        // list endpoint and filter on channel, asset type and version instead.
+        const string Api = "https://api.github.com/repos/minecraftlu/BlockCraftLauncher/releases?per_page=100";
         const string OfficialReleases = "https://github.com/minecraftlu/BlockCraftLauncher/releases";
         static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
 
@@ -53,45 +55,93 @@ namespace BlockCraftLauncher.Wpf.Services
                  name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
         }
 
-        public async Task<ReleaseNotice> CheckAsync(LauncherConfig config, CancellationToken ct)
+        static bool GetBoolean(Dictionary<string, object> entry, string key)
         {
-            using (var network = new NetworkDownloader(config))
+            return entry.TryGetValue(key, out var value) && value is bool result && result;
+        }
+
+        static string GetString(Dictionary<string, object> entry, string key)
+        {
+            return entry.TryGetValue(key, out var value) ? Convert.ToString(value) ?? "" : "";
+        }
+
+        static bool ValidOfficialReleaseLink(string url)
+        {
+            return Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+                uri.Scheme == Uri.UriSchemeHttps &&
+                string.Equals(uri.Host, "github.com", StringComparison.OrdinalIgnoreCase) &&
+                uri.AbsolutePath.StartsWith("/minecraftlu/BlockCraftLauncher/releases/tag/",
+                    StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Parse official GitHub release metadata without ever selecting draft,
+        /// prerelease, NetEase room-lab or legacy Python assets as WPF updates.
+        /// Does not access the network; intended for offline regression tests.
+        /// </summary>
+        internal static ReleaseNotice SelectStableRelease(string json)
+        {
+            var releases = Json.DeserializeObject(json) as object[]
+                ?? throw new InvalidOperationException("GitHub Releases 返回列表格式无效");
+            ReleaseNotice newest = null;
+            foreach (var item in releases)
             {
-                string data = await network.GetStringWithFallbackAsync(Api, "official", ct);
-                var root = Json.DeserializeObject(data) as Dictionary<string, object>
-                    ?? throw new InvalidOperationException("GitHub Releases 返回数据无效");
-                string tag = root.TryGetValue("tag_name", out var t) ? Convert.ToString(t) : "";
-                string description = root.TryGetValue("body", out var b) ? Convert.ToString(b) : "";
-                string url = root.TryGetValue("html_url", out var h) ? Convert.ToString(h) : "";
-                if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
-                    uri.Scheme != Uri.UriSchemeHttps || uri.Host != "github.com" ||
-                    !uri.AbsolutePath.StartsWith("/minecraftlu/BlockCraftLauncher/releases/", StringComparison.Ordinal))
-                    url = OfficialReleases;
-                // Do not advertise a legacy Python release (or a room-lab
-                // build) as a directly compatible WPF upgrade merely because
-                // its tag contains a larger semantic version.
+                if (!(item is Dictionary<string, object> entry)) continue;
+                if (GetBoolean(entry, "draft") || GetBoolean(entry, "prerelease")) continue;
+
+                string tag = GetString(entry, "tag_name");
+                // Stable versions must have plain three-component numeric
+                // tags. A version suffix is not sufficient proof of stability.
+                if (!Regex.IsMatch(tag, @"^v?\d+\.\d+\.\d+$", RegexOptions.IgnoreCase) ||
+                    VersionParts(tag) == null) continue;
+                string link = GetString(entry, "html_url");
+                if (!ValidOfficialReleaseLink(link)) continue;
+
                 bool wpfAsset = false;
-                if (root.TryGetValue("assets", out var rawAssets) && rawAssets is object[] assets)
+                if (entry.TryGetValue("assets", out var raw) && raw is object[] assets)
                 {
                     foreach (var asset in assets)
                     {
-                        if (!(asset is Dictionary<string, object> file)) continue;
-                        string name = file.TryGetValue("name", out var n) ? Convert.ToString(n) : "";
-                        if (IsCompatibleWpfAssetName(name))
+                        if (asset is Dictionary<string, object> file &&
+                            IsCompatibleWpfAssetName(GetString(file, "name")))
                         {
                             wpfAsset = true;
                             break;
                         }
                     }
                 }
-                return new ReleaseNotice
+                if (!wpfAsset) continue;
+                if (newest != null && !IsNewer(tag, newest.Version)) continue;
+
+                string description = GetString(entry, "body");
+                newest = new ReleaseNotice
                 {
                     Version = tag,
-                    Description = (description ?? "").Length > 1200 ? description.Substring(0, 1200) : description,
-                    Url = url,
-                    CompatibleWpf = wpfAsset,
+                    Url = link,
+                    Description = description.Length > 1200 ?
+                        description.Substring(0, 1200) : description,
+                    CompatibleWpf = true,
                     Newer = wpfAsset && IsNewer(tag, "v0.9.27")
                 };
+            }
+
+            return newest ?? new ReleaseNotice
+            {
+                Version = "尚未发布",
+                Url = OfficialReleases,
+                Description = "目前官方 Releases 尚无可验证为 WPF Windows 的正式稳定版；" +
+                    "请继续使用已经测试过的本地版本，或手动查看预览构建。",
+                CompatibleWpf = false,
+                Newer = false
+            };
+        }
+
+        public async Task<ReleaseNotice> CheckAsync(LauncherConfig config, CancellationToken ct)
+        {
+            using (var network = new NetworkDownloader(config))
+            {
+                string json = await network.GetStringWithFallbackAsync(Api, "official", ct);
+                return SelectStableRelease(json);
             }
         }
         public static void OpenOfficialRelease(string url)
