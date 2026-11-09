@@ -166,6 +166,12 @@ namespace BlockCraftLauncher.Wpf.Services
             Changed?.Invoke();
         }
 
+        public void MarkUnsaved()
+        {
+            Dirty = true;
+            Changed?.Invoke();
+        }
+
         public void SetArmModel(bool slim)
         {
             if (SlimArms == slim) return;
