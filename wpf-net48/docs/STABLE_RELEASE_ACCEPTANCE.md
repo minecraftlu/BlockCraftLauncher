@@ -56,3 +56,9 @@
 - [公开下载页](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.27-wpf-rc.1)：包含单文件 EXE、完整 ZIP、EXE 独立 SHA-256 及完整发布 SHA-256 清单。
 - 额外修复：当仓库只有预览版本、没有 WPF 正式版时，更新中心不应因 `/releases/latest` 返回 404 失败；现在筛选官方 Releases 列表中的可兼容 WPF Stable，并排除网易房间实验版、旧版 Python、Alpha 包、异常 URL 和伪造版本号。
 - 用户已确认 WPF 主要使用功能正常、微软正版交互登录成功；仍未逐项完成游戏版本安装/启动、正版续期、双机局域网与 DPI 全范围实机回归。**正式 Stable Release 继续受验收门槛限制。**
+
+## 2026-11-10 · 中国大陆下载 / CurseForge 图文候选版
+
+- v0.9.28 WPF 新增国内镜像优先回官方、下载断点来源校验、长文件超时及缓存复用、可选 MCIM 加速；CurseForge 项目封面、作者、下载量和截图详情已经由源码及 Windows 离线测试验证。
+- [CI #42678383098](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42678383098) 完成 27 项编译与自检；[受控候选版发布 CI #42678756716](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42678756716) 亦成功，且已发布 [v0.9.28-wpf-rc.1](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.28-wpf-rc.1)（prerelease）。
+- **不能仅凭这些结果宣称已经获得国内实测速度优势、模组在线真实安装和完整 Stable 验收。** 中国大陆 ISP 测试结果与实际图片可用性仍待收集，v0.9.27 RC1 继续保留供回退。
