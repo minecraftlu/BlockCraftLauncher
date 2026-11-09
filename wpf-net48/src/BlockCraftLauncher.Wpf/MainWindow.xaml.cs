@@ -21,6 +21,16 @@ namespace BlockCraftLauncher.Wpf
     {
         readonly SettingsStore store = new SettingsStore();
         readonly LauncherConfig settings;
+        readonly LauncherAutoUpdateService autoUpdater;
+        readonly CancellationTokenSource updateCancellation = new CancellationTokenSource();
+        LauncherUpdateOffer offeredUpdate;
+        PreparedLauncherUpdate preparedUpdate;
+        bool updateChecking;
+        bool updatePreparing;
+        TextBlock updateStatusText, updateNotesText;
+        Button updateInstallButton, updateCheckButton;
+        CheckBox settingsAutoCheck, settingsAutoDownload;
+        ComboBox settingsUpdateChannel;
         readonly MinecraftBackend minecraft;
         MicrosoftAccountService microsoft;
         MicrosoftAccountService GetMicrosoftService() => microsoft ?? (microsoft = new MicrosoftAccountService());
@@ -75,6 +85,7 @@ namespace BlockCraftLauncher.Wpf
         {
             InitializeComponent();
             settings = store.Load();
+            autoUpdater = new LauncherAutoUpdateService(settings);
             minecraft = new MinecraftBackend(settings);
             modLoaders = new ModLoaderInstaller(settings);
             activeProfile = settings.Profiles.FirstOrDefault();
@@ -95,10 +106,15 @@ namespace BlockCraftLauncher.Wpf
             };
             // A smoke-test MainWindow is never shown; avoid starting a timer
             // before WPF has actually opened the user-facing window.
-            Loaded += (sender, args) => gameProcessTimer.Start();
+            Loaded += async (sender, args) =>
+            {
+                gameProcessTimer.Start();
+                await CheckLauncherUpdatesAsync(false);
+            };
             Closed += (sender, args) =>
             {
                 gameProcessTimer.Stop();
+                updateCancellation.Cancel();
                 gameProcesses.Dispose(); // Does not terminate the Minecraft game.
             };
         }
@@ -266,6 +282,10 @@ namespace BlockCraftLauncher.Wpf
             currentPage = page;
             gameProcessText = null;
             homeLaunchButton = null;
+            updateStatusText = null;
+            updateNotesText = null;
+            updateInstallButton = null;
+            updateCheckButton = null;
             SideBar.Visibility = page == "首页" ? Visibility.Collapsed : Visibility.Visible;
             SideColumn.Width = page == "首页" ? new GridLength(0) : new GridLength(188);
             foreach (var pair in sidebarButtons)
@@ -1663,48 +1683,196 @@ namespace BlockCraftLauncher.Wpf
         UIElement BuildLauncherUpdates()
         {
             var root = Col(Txt("启动器更新", 24, true),
-                Txt("版本更新仅通过 BlockCraft 官方 GitHub 发布。预览测试包与正式稳定版分开。", 12, false, true));
+                Txt("PCL 风格：自动检查新版本、下载更新包、验证 SHA-256 后一键重启安装。"
+                    + "稳定版和测试版独立，默认不自动下载或强制安装。", 12, false, true));
+
             root.Children.Add(Card(Col(
-                Txt("当前版本：v0.9.28 WPF 国内下载与 CurseForge 图文预览", 18, true),
-                Txt("目标平台：Windows x64 · .NET Framework 4.8 · 可选单 EXE",
-                    12, false, true),
-                Txt("为了保护已安装游戏和存档，更新不会直接覆盖旧 Python 启动器。"
-                    + "此版本已经通过自动构建，但尚未完成真实账号、下载安装及双机联机验收。",
-                    12, false, true))));
+                Txt("当前版本 · " + LauncherAutoUpdateService.CurrentTag, 18, true),
+                Txt("Windows x64 · C# / WPF · .NET Framework 4.8 · " +
+                    (LauncherAutoUpdateService.InstallMode == "onefile" ?
+                        "单文件 EXE 模式" : "完整 ZIP 文件夹模式"), 12, false, true),
+                Txt("检查来源：github.com/minecraftlu/BlockCraftLauncher。"
+                    + " 更新内容和校验清单必须来自同一个官方 GitHub Release。", 12, false, true))));
+
+            updateStatusText = Txt("", 14, true);
+            updateNotesText = Txt("", 12, false, true);
+            updateNotesText.MaxHeight = 190;
+            updateNotesText.TextWrapping = TextWrapping.Wrap;
+            updateCheckButton = Btn("立即检查新版本", async () =>
+                await CheckLauncherUpdatesAsync(true), true);
+            updateInstallButton = Btn("下载并安装更新", async () =>
+                await InstallLauncherUpdateAsync(), true);
             root.Children.Add(Card(Col(
-                Txt("正式版更新", 18, true),
-                Txt("仅查询 GitHub 正式 Release；必须匹配 WPF 架构后才可提示升级。"
-                    + "自动覆盖安装将在完整性校验与回滚机制通过验收后提供。",
-                    12, false, true),
-                Row(Btn("检查正式版更新", async () => await CheckLauncherUpdateAsync(), true),
+                Txt("更新状态", 18, true),
+                updateStatusText,
+                updateNotesText,
+                Row(updateCheckButton, updateInstallButton,
                     Btn("打开官方发布页", () => LauncherReleaseService.OpenOfficialRelease(
                         "https://github.com/minecraftlu/BlockCraftLauncher/releases"))))));
-            root.Children.Add(Card(Col(
-                Txt("国内下载与模组图文测试构建", 18, true),
-                Txt("v0.9.28 增加国内线路优先、缓存复用、MCIM 可选下载与 CurseForge 模组封面/截图。"
-                    + "这一版本仍需真实中国大陆网络下载测速与兼容性验收，当前属于候选测试渠道。",
-                    12, false, true),
-                Btn("查看预览构建", () => Process.Start(new ProcessStartInfo(
-                    "https://github.com/minecraftlu/BlockCraftLauncher/actions/workflows/wpf-net48-alpha-build.yml")
-                    { UseShellExecute = true })))));
+            root.Children.Add(Card(Col(Txt("自动更新设置", 18, true),
+                Txt("设置 → 自动更新，可切换稳定版/预览版通道，开启后台检查或自动下载。"
+                    + "安装前会要求退出当前启动器，Minecraft 游戏进程不会被强制关闭。", 12, false, true),
+                Row(Btn("修改自动更新设置", () => Navigate("设置")),
+                    Btn("查看构建记录", () => LauncherReleaseService.OpenOfficialRelease(
+                        "https://github.com/minecraftlu/BlockCraftLauncher/releases"))))));
+            RefreshLauncherUpdatePanel();
             return root;
         }
-        async Task CheckLauncherUpdateAsync()
+
+        void RefreshLauncherUpdatePanel()
         {
+            bool available = offeredUpdate != null;
+            if (currentPage == "启动器更新" && updateStatusText != null)
+            {
+                updateStatusText.Text = updatePreparing ?
+                    "正在下载并校验更新..." :
+                    updateChecking ? "正在连接 GitHub 检查更新..." :
+                    preparedUpdate != null ? "更新已下载并通过启动校验，准备安装：" +
+                        preparedUpdate.Offer.Tag :
+                    available ? "发现可用更新：" + offeredUpdate.Tag :
+                        "当前通道没有已确认的更高版本。";
+
+                updateNotesText.Text = available ?
+                    "通道：" + (settings.UpdateChannel == "preview" ? "预览版" : "正式稳定版") +
+                    "  ·  来源：GitHub Releases\n" +
+                    (offeredUpdate.Description ?? "") :
+                    "当前通道：" + (settings.UpdateChannel == "preview" ?
+                        "预览版（只接收 BlockCraft WPF RC 测试包）" :
+                        "稳定版（不自动安装 Alpha、RC 或网易联机实验包）") +
+                    "。\n若只有测试版发布，可以在设置中主动切换更新通道。";
+                updateInstallButton.IsEnabled = available && !updatePreparing && !updateChecking;
+                updateCheckButton.IsEnabled = !updateChecking && !updatePreparing;
+            }
+
+            if (sidebarButtons.TryGetValue("启动器更新", out var nav) &&
+                nav.Content is StackPanel panel && panel.Children.Count >= 2 &&
+                panel.Children[1] is TextBlock label)
+            {
+                label.Text = available ? "启动器更新 · 新" : "启动器更新";
+                nav.ToolTip = available ? "有新版 " + offeredUpdate.Tag + " 可用" : "检查启动器更新";
+            }
+        }
+
+        async Task CheckLauncherUpdatesAsync(bool manual)
+        {
+            if (updateChecking || updatePreparing || updateCancellation.IsCancellationRequested)
+                return;
+            if (!manual)
+            {
+                if (!settings.AutoCheckUpdates) return;
+                if (settings.LastUpdateCheckUtc <= DateTime.UtcNow &&
+                    DateTime.UtcNow - settings.LastUpdateCheckUtc < TimeSpan.FromHours(6))
+                    return;
+            }
+            updateChecking = true;
+            RefreshLauncherUpdatePanel();
             try
             {
-                Status("正在查询 GitHub Releases...");
-                var release = await new LauncherReleaseService().CheckAsync(settings, CancellationToken.None);
-                string message = (release.Newer ? "发现兼容的 WPF 正式更新：" : "已查询最新正式发布：") + release.Version +
-                    (release.CompatibleWpf ? "\n包含 WPF Windows 资产。" :
-                        "\n此发布未包含可识别的 WPF Windows 资产，不会把 Python 或实验构建当作本版更新。") +
-                    "\n\n不同架构不可直接覆盖安装，请查看发布说明和资产文件名后手动下载。\n\n" + release.Description;
-                Status("GitHub 最新版本：" + release.Version);
-                if (MessageBox.Show(message + "\n\n打开官方发布页？", "启动器更新",
-                        MessageBoxButton.YesNo, MessageBoxImage.Information) == MessageBoxResult.Yes)
-                    LauncherReleaseService.OpenOfficialRelease(release.Url);
+                var candidate = await autoUpdater.CheckAsync(updateCancellation.Token);
+                if (updateCancellation.IsCancellationRequested) return;
+                if (offeredUpdate?.Tag != candidate?.Tag ||
+                    offeredUpdate?.Mode != candidate?.Mode)
+                    preparedUpdate = null;
+                offeredUpdate = candidate;
+                settings.LastUpdateCheckUtc = DateTime.UtcNow;
+                try { store.Save(settings); }
+                catch (Exception saveError)
+                { Log("更新检查时间保存失败：" + saveError.GetType().Name); }
+                if (candidate == null)
+                {
+                    if (manual) Status("当前" +
+                        (settings.UpdateChannel == "preview" ? "预览" : "稳定") +
+                        "通道没有可用的更高版本。");
+                }
+                else
+                {
+                    Status("发现 BlockCraft Launcher 新版本：" + candidate.Tag +
+                        "（进入“启动器更新”即可下载安装）");
+                }
             }
-            catch (Exception ex) { ShowError("检查启动器更新失败", ex); }
+            catch (OperationCanceledException) when (updateCancellation.IsCancellationRequested) { }
+            catch (Exception ex)
+            {
+                if (manual) ShowError("检查更新失败", ex);
+                else Log("后台检查更新暂不可用：" + ex.GetType().Name);
+            }
+            finally
+            {
+                updateChecking = false;
+                RefreshLauncherUpdatePanel();
+            }
+            if (offeredUpdate != null && settings.AutoDownloadUpdates &&
+                preparedUpdate == null && !updateCancellation.IsCancellationRequested)
+                await PrepareLauncherUpdateAsync(false);
+        }
+
+        async Task PrepareLauncherUpdateAsync(bool interactive)
+        {
+            if (updatePreparing || offeredUpdate == null ||
+                updateCancellation.IsCancellationRequested) return;
+            updatePreparing = true;
+            RefreshLauncherUpdatePanel();
+            try
+            {
+                var selected = offeredUpdate;
+                var progress = new Progress<LauncherUpdateProgress>(item =>
+                {
+                    if (updateCancellation.IsCancellationRequested) return;
+                    string status = item.Message ?? "正在准备更新";
+                    if (item.Total > 0)
+                        status += " · " + (item.Completed * 100.0 / item.Total).ToString("0") + "%";
+                    if (updateStatusText != null && currentPage == "启动器更新")
+                        updateStatusText.Text = status;
+                    Status(status);
+                });
+                var stage = await autoUpdater.PrepareAsync(
+                    selected, updateCancellation.Token, progress);
+                if (updateCancellation.IsCancellationRequested || offeredUpdate != selected)
+                    return;
+                preparedUpdate = stage;
+                Status("更新 " + selected.Tag + " 已下载并通过完整性与启动自检；等待安装确认。");
+            }
+            catch (OperationCanceledException) when (updateCancellation.IsCancellationRequested) { }
+            catch (Exception ex)
+            {
+                if (interactive) ShowError("下载或校验更新失败", ex);
+                else Log("后台预下载失败：" + ex.GetType().Name);
+            }
+            finally
+            {
+                updatePreparing = false;
+                RefreshLauncherUpdatePanel();
+            }
+        }
+
+        async Task InstallLauncherUpdateAsync()
+        {
+            if (updatePreparing || updateChecking) return;
+            if (offeredUpdate == null)
+            {
+                await CheckLauncherUpdatesAsync(true);
+                if (offeredUpdate == null) return;
+            }
+            if (preparedUpdate == null || preparedUpdate.Offer != offeredUpdate)
+                await PrepareLauncherUpdateAsync(true);
+            if (preparedUpdate == null) return;
+
+            var decision = MessageBox.Show(this,
+                "已下载并校验 " + preparedUpdate.Offer.Tag +
+                " 的官方更新包。\n\n现在关闭 BlockCraft Launcher，安装新版本并重启？" +
+                "\n若新版启动自检失败，独立更新程序会尝试恢复原有文件。" +
+                "\n正在运行的 Minecraft 游戏不会被结束。\n\n" +
+                "提示：请勿在安装期间手动删除安装目录。",
+                "确认安装 BlockCraft Launcher 更新",
+                MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (decision != MessageBoxResult.Yes) return;
+            try
+            {
+                autoUpdater.StartExternalInstaller(preparedUpdate);
+                Status("外部更新助手已启动；关闭本窗口后将校验、安装并尝试重启。");
+                Application.Current.Shutdown();
+            }
+            catch (Exception ex) { ShowError("无法启动独立更新程序", ex); }
         }
 
         // Shared two-column settings rows, matching the PCL2-style label /
