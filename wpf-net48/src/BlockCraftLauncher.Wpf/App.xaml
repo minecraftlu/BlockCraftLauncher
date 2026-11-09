@@ -190,27 +190,57 @@
 
     <!-- The project description belongs on a second, wrapping line.
          This fixes the English text overlap seen in the previous screenshot. -->
+    <!-- PCL-inspired Modrinth row: large project icon, readable project
+         name, two-line description and useful factual metadata. No third-party
+         brand images are bundled; the URL is validated before binding. -->
     <DataTemplate x:Key="ResourceItemTemplate">
-      <Border Padding="13,12" BorderBrush="{DynamicResource BorderBrushTheme}"
-              BorderThickness="0,0,0,1" Background="Transparent">
+      <Border Padding="12,12" BorderBrush="{DynamicResource BorderBrushTheme}"
+              BorderThickness="0,0,0,1" Background="Transparent" MinHeight="104">
         <Grid>
           <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="42"/>
+            <ColumnDefinition Width="76"/>
             <ColumnDefinition Width="*"/>
           </Grid.ColumnDefinitions>
-          <Border Width="32" Height="32" VerticalAlignment="Top"
-                  Background="{DynamicResource BadgeBrush}" CornerRadius="6">
-            <TextBlock Text="◆" FontSize="17" Foreground="{DynamicResource AccentBrush}"
-                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          <Border Width="65" Height="65" VerticalAlignment="Top"
+                  Background="{DynamicResource BadgeBrush}" CornerRadius="8">
+            <Grid>
+              <TextBlock Text="◇" FontSize="31"
+                         Foreground="{DynamicResource AccentBrush}"
+                         HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              <Image Source="{Binding IconUrl}" Width="64" Height="64"
+                     Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/>
+            </Grid>
           </Border>
-          <StackPanel Grid.Column="1">
-            <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
-                       TextWrapping="Wrap" Margin="0,0,0,4"/>
+          <StackPanel Grid.Column="1" VerticalAlignment="Center">
+            <WrapPanel Margin="0,0,0,5">
+              <TextBlock Text="{Binding Name}" FontSize="15"
+                         FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,8,0"/>
+              <TextBlock Text="{Binding Author}" FontSize="12"
+                         Foreground="{DynamicResource MutedBrush}"
+                         VerticalAlignment="Bottom"/>
+            </WrapPanel>
             <TextBlock Text="{Binding Description}" FontSize="12"
                        Foreground="{DynamicResource MutedBrush}"
-                       TextWrapping="Wrap" Margin="0,0,0,5"/>
-            <TextBlock Text="{Binding KindLabel}" FontSize="11"
-                       Foreground="{DynamicResource AccentBrush}"/>
+                       TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
+                       MaxHeight="39" ToolTip="{Binding Description}"
+                       Margin="0,0,0,7"/>
+            <WrapPanel>
+              <TextBlock Text="{Binding CategoryLabel}" FontSize="11"
+                         Foreground="{DynamicResource AccentBrush}"
+                         Margin="0,0,15,3"/>
+              <TextBlock Text="{Binding LoaderLabel}" FontSize="11"
+                         Foreground="{DynamicResource MutedBrush}"
+                         Margin="0,0,15,3"/>
+              <TextBlock Text="{Binding DownloadsLabel}" FontSize="11"
+                         Foreground="{DynamicResource MutedBrush}"
+                         Margin="0,0,15,3"/>
+              <TextBlock Text="{Binding UpdatedLabel}" FontSize="11"
+                         Foreground="{DynamicResource MutedBrush}"
+                         Margin="0,0,15,3"/>
+              <TextBlock Text="{Binding SourceLabel}" FontSize="11"
+                         Foreground="{DynamicResource MutedBrush}"
+                         Margin="0,0,15,3"/>
+            </WrapPanel>
           </StackPanel>
         </Grid>
       </Border>
