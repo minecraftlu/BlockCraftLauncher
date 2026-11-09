@@ -66,8 +66,13 @@ func main() {
     worker:=flag.String("worker","","absolute path to the local offline worker EXE")
     offline:=flag.Bool("offline-ipc-selftest",false,"offline binary pipe test only")
     fullGame:=flag.Bool("offline-game-ipc-selftest",false,"two isolated local Bedrock game processes")
+    inbound:=flag.Bool("offline-inbound-ipc-selftest",false,"synthetic receive-only worker with no host write capability")
     flag.Parse()
-    if *worker=="" || (*offline == *fullGame) {
+    selected:=0
+    if *offline {selected++}
+    if *fullGame {selected++}
+    if *inbound {selected++}
+    if *worker=="" || selected!=1 {
         fmt.Fprintln(os.Stderr,"LOCAL_BRIDGE_OFFLINE_ONLY")
         os.Exit(2)
     }
@@ -81,6 +86,14 @@ func main() {
             os.Exit(1)
         }
         fmt.Println("LOCAL_STAGE12_GAME_IPC_OK_OFFLINE_GAME_NOT_JOINED")
+        return
+    }
+    if *inbound {
+        if err:=runOfflineInbound(ctx,*worker);err!=nil {
+            fmt.Fprintln(os.Stderr,"LOCAL_STAGE12_INBOUND_ONLY_IPC_FAILED")
+            os.Exit(1)
+        }
+        fmt.Println("LOCAL_STAGE12_INBOUND_ONLY_IPC_OK_GAME_NOT_JOINED")
         return
     }
     if err:=runOffline(ctx,*worker);err!=nil {
