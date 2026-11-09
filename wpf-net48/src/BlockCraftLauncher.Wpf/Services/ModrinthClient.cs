@@ -145,7 +145,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 "&index=" + Uri.EscapeDataString(sort) +
                 "&query=" + Uri.EscapeDataString(query ?? "") +
                 "&facets=" + Uri.EscapeDataString(json.Serialize(facets));
-            string data = await network.GetStringWithFallbackAsync(endpoint, "official", ct);
+            string data = await network.GetStringWithFallbackAsync(endpoint, settings.McimEnabled ? settings.NetworkMode : "official", ct);
             return ParseSearchResponse(data, type);
         }
 
@@ -217,7 +217,7 @@ namespace BlockCraftLauncher.Wpf.Services
             if (hit.Kind != "mod" && hit.Kind != "shader" && hit.Kind != "resourcepack")
                 throw new NotSupportedException("整合包安装需要安全解压及依赖处理，本预览版尚未迁移。请使用旧版。");
             string url = "https://api.modrinth.com/v2/project/" + Uri.EscapeDataString(hit.ProjectId) + "/version";
-            var data = await network.GetStringWithFallbackAsync(url, "official", ct);
+            var data = await network.GetStringWithFallbackAsync(url, settings.McimEnabled ? settings.NetworkMode : "official", ct);
             var versions = json.DeserializeObject(data) as object[];
             if (versions == null || versions.Length == 0) throw new IOException("找不到可下载的资源版本");
             var latest = versions.OfType<Dictionary<string, object>>().FirstOrDefault(v =>
@@ -291,7 +291,7 @@ namespace BlockCraftLauncher.Wpf.Services
             {
                 stage?.Report("正在检查必需依赖、循环引用及版本兼容性...");
                 var planner = new ModrinthDependencyPlanner(
-                    (uri, token) => network.GetStringWithFallbackAsync(uri, "official", token));
+                    (uri, token) => network.GetStringWithFallbackAsync(uri, settings.McimEnabled ? settings.NetworkMode : "official", token));
                 var plan = await planner.PlanAsync(hit.ProjectId,
                     profile.BaseVersion, profile.Loader, ct);
                 if (plan.Count == 0)
@@ -384,7 +384,7 @@ namespace BlockCraftLauncher.Wpf.Services
             if (hit == null || hit.Kind != "modpack") throw new ArgumentException("请选择 Modrinth 整合包");
             if (string.IsNullOrWhiteSpace(hit.ProjectId)) throw new ArgumentException("整合包项目 ID 不正确");
             string url = "https://api.modrinth.com/v2/project/" + Uri.EscapeDataString(hit.ProjectId) + "/version";
-            var data = await network.GetStringWithFallbackAsync(url, "official", ct);
+            var data = await network.GetStringWithFallbackAsync(url, settings.McimEnabled ? settings.NetworkMode : "official", ct);
             var versions = json.DeserializeObject(data) as object[];
             if (versions == null || versions.Length == 0) throw new IOException("整合包没有可用版本");
             foreach (var version in versions.OfType<Dictionary<string, object>>())
