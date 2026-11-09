@@ -35,6 +35,9 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 TestLiveRoomPreflightContracts();
                 TestRealJoinProbeResultRedaction();
                 TestMachineTransportParsing();
+                TestStage12OfflineResultContract();
+                TestStage127CodecReference();
+                TestStage128ChinaBuildReference();
                 Console.WriteLine("Room/node parser and local email-helper safety tests passed. No network requests or credentials used.");
                 return 0;
             }
@@ -43,6 +46,115 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 Console.Error.WriteLine(error.Message);
                 return 1;
             }
+        }
+
+        private static void TestStage128ChinaBuildReference()
+        {
+            const string candidate =
+                "STAGE12_8_CHINA_310_REFERENCE_CANDIDATES_UNVERIFIED_GAME_NOT_JOINED";
+            const string unknown =
+                "STAGE12_8_CHINA_BUILD_REFERENCE_UNKNOWN_GAME_NOT_JOINED";
+            string game="3.10.7.301588";
+            string patch="3.10.9.301882";
+            string result=Stage128ClientBuildReference.Classify(game,patch,0,candidate+"\r\n");
+            if (!result.Contains("STAGE12_8_CHINA_310_CANDIDATES_897_898_UNVERIFIED_GAME_NOT_JOINED")
+                || !result.Contains("手机房间") || !result.Contains("未验证")
+                || result.Contains("GAME_JOINED"))
+                throw new InvalidOperationException("China 3.10 research candidate misreported as real phone connection.");
+            string normalized;
+            if (!Stage128ClientBuildReference.TryNormalizeBuild(game,out normalized)
+                || normalized!=game)
+                throw new InvalidOperationException("Valid screenshot build not recognized.");
+            foreach (string untrusted in new[] {
+                "", "819", "898", "3.9.7.301588", "3.10.7.301588;token",
+                "3.10.7.301588\nTOKEN", "3.10.07.301588", "3.10.7.30158"
+            })
+            {
+                if (Stage128ClientBuildReference.TryNormalizeBuild(untrusted,out normalized))
+                    throw new InvalidOperationException("Untrusted or unsupported build was accepted.");
+            }
+            string fake=Stage128ClientBuildReference.Classify(game,patch,0,
+                candidate+"\nSENSITIVE_COOKIE_MUST_NOT_LEAK");
+            if (!fake.Contains("STAGE12_8_BUILD_REFERENCE_FAILED_GAME_NOT_JOINED")
+                || fake.Contains("SENSITIVE_COOKIE"))
+                throw new InvalidOperationException("Unsafe worker output was displayed.");
+            if (!Stage128ClientBuildReference.Classify(game,patch,1,candidate)
+                    .Contains("STAGE12_8_BUILD_REFERENCE_FAILED_GAME_NOT_JOINED"))
+                throw new InvalidOperationException("Nonzero return code falsely marked valid build.");
+            if (!Stage128ClientBuildReference.Classify(game,patch,0,unknown)
+                    .Contains("STAGE12_8_BUILD_REFERENCE_UNKNOWN_GAME_NOT_JOINED"))
+                throw new InvalidOperationException("Unknown mapping must fail closed.");
+            Console.WriteLine("PASS: Stage12.8 China 3.10 candidate evidence remains distinct from phone game protocol.");
+        }
+
+        private static void TestStage127CodecReference()
+        {
+            const string reference = "NETEASE_CODEC_REFERENCE_FOUND_GAME_NOT_JOINED";
+            const string notPublished = "NETEASE_CODEC_UNVERIFIED_GAME_NOT_JOINED";
+            string known = Stage127CodecReference.Classify("819",0,reference+"\r\n");
+            if (!known.Contains("STAGE12_7_NETEASE_CODEC_REFERENCE_ONLY_GAME_NOT_JOINED")
+                || !known.Contains("不证明当前手机房间")
+                || known.Contains("GAME_JOINED"))
+                throw new InvalidOperationException("NetEase codec documentation was mistaken for real game entry.");
+            string unknown = Stage127CodecReference.Classify("859",0,notPublished+"\n");
+            if (!unknown.Contains("STAGE12_7_NETEASE_CODEC_UNVERIFIED_GAME_NOT_JOINED"))
+                throw new InvalidOperationException("Standard Bedrock 859 was incorrectly treated as NetEase codec.");
+            foreach (string invalid in new [] {"","0","000","819abc","819;login",
+                "abcdef","123456","-1","8\n19"})
+            {
+                string normalized;
+                if (Stage127CodecReference.TryNormalizeVersion(invalid,out normalized)
+                    || !Stage127CodecReference.Classify(invalid,0,reference)
+                        .Contains("STAGE12_7_PROTOCOL_INPUT_INVALID"))
+                    throw new InvalidOperationException("Unsafe protocol version input passed the UI gate.");
+            }
+            string forged = Stage127CodecReference.Classify("819",0,
+                reference+"\nPRIVATE_TOKEN_SHOULD_NOT_LEAK");
+            if (!forged.Contains("STAGE12_7_PROTOCOL_CHECK_FAILED_GAME_NOT_JOINED")
+                || forged.Contains("PRIVATE_TOKEN"))
+                throw new InvalidOperationException("Untrusted subprocess output was displayed.");
+            if (!Stage127CodecReference.Classify("819",1,reference)
+                    .Contains("STAGE12_7_PROTOCOL_CHECK_FAILED_GAME_NOT_JOINED"))
+                throw new InvalidOperationException("Failed offline protocol process falsely classified as success.");
+            Console.WriteLine("PASS: Stage12.7 codec lookup has no game admission claim or sensitive output");
+        }
+
+        private static void TestStage12OfflineResultContract()
+        {
+            var expected = Stage12OfflineBridge.ClassifyResult(0,
+                "LOCAL_BRIDGE_IPC_OK_GAME_NOT_JOINED\r\n");
+            if (!expected.Contains("STAGE12_OFFLINE_BRIDGE_OK_GAME_NOT_JOINED")
+                || !expected.Contains("未连接网易服务器")
+                || expected.Contains("GAME_JOINED"))
+                throw new InvalidOperationException("Stage 12 offline result incorrectly claimed gameplay.");
+
+            string sensitive = "LOCAL_BRIDGE_IPC_OK_GAME_NOT_JOINED\n"
+                + "PRIVATE_TOKEN_SHOULD_NOT_LEAK";
+            string failed = Stage12OfflineBridge.ClassifyResult(0, sensitive);
+            if (!failed.Contains("FAILED_GAME_NOT_JOINED")
+                || failed.Contains("PRIVATE_TOKEN"))
+                throw new InvalidOperationException("Stage12 child output not strictly validated.");
+
+            if (!Stage12OfflineBridge.ClassifyResult(1,
+                    "LOCAL_BRIDGE_IPC_OK_GAME_NOT_JOINED")
+                    .Contains("FAILED_GAME_NOT_JOINED"))
+                throw new InvalidOperationException("Nonzero child exit incorrectly marked OK.");
+            string fullGame = Stage12OfflineBridge.ClassifyGameResult(0,
+                "LOCAL_STAGE12_GAME_IPC_OK_OFFLINE_GAME_NOT_JOINED\r\n");
+            if (!fullGame.Contains("STAGE12_LOCAL_GAME_SPAWN_OK_REMOTE_NOT_JOINED")
+                || !fullGame.Contains("未连接网易服务器")
+                || fullGame.Contains("GAME_JOINED"))
+                throw new InvalidOperationException("Stage 12.4 offline spawn implied real game join.");
+            string injected = Stage12OfflineBridge.ClassifyGameResult(0,
+                "LOCAL_STAGE12_GAME_IPC_OK_OFFLINE_GAME_NOT_JOINED\nLEAKED_PRIVATE_TOKEN");
+            if (!injected.Contains("FAILED_REMOTE_NOT_JOINED")
+                || injected.Contains("LEAKED_PRIVATE_TOKEN"))
+                throw new InvalidOperationException("Untrusted Stage12.4 output exposed secrets.");
+            if (!Stage12OfflineBridge.ClassifyGameResult(1,
+                    "LOCAL_STAGE12_GAME_IPC_OK_OFFLINE_GAME_NOT_JOINED")
+                    .Contains("FAILED_REMOTE_NOT_JOINED"))
+                throw new InvalidOperationException("Non-zero game worker falsely marked spawn success.");
+            Console.WriteLine("PASS: Stage12 offline-only IPC output verification and redaction");
         }
 
         private static void TestEmailAuthLaunchContract()
@@ -351,6 +463,115 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 .Contains("SERVER_ROOM_ADMISSION_ACCEPTED"))
                 throw new InvalidOperationException("Verified response was incorrectly rejected.");
 
+            // Stage 12.9: report only server-returned signed int8 codes.
+            // Never infer code 4 from a stale room occupancy snapshot.
+            const string admissionEvidence = @"{""status"":""ENTER_ROOM_REJECTED"","
+                + @"""login_accepted"":true,""room_admission_accepted"":false,"
+                + @"""host_ready_seen"":false,""minecraft_world_joined"":false,"
+                + @"""login_reply_observed"":true,""login_reply_code"":0,"
+                + @"""admission_reply_observed"":true,""admission_reply_code"":4,"
+                + @"""admission_diagnosis"":""ADMISSION_ROOM_FULL""}";
+            string realFull = JoinProbeRunner.ParseMachineOutput(prefix + admissionEvidence);
+            if (!realFull.Contains("STAGE12_9_SERVER_ROOM_REPLY")
+                || !realFull.Contains("回执码 4")
+                || !realFull.Contains("服务器报告房间人数已满")
+                || realFull.Contains("JOIN_PROBE_IPC_"))
+                throw new InvalidOperationException("Server admission code 4 not displayed accurately.");
+
+            string notFound = admissionEvidence.Replace(@"""admission_reply_code"":4",
+                    @"""admission_reply_code"":1")
+                .Replace("ADMISSION_ROOM_FULL","ADMISSION_ROOM_NOT_FOUND");
+            string wrongPassword = admissionEvidence.Replace(@"""admission_reply_code"":4",
+                    @"""admission_reply_code"":14")
+                .Replace("ADMISSION_ROOM_FULL","ADMISSION_WRONG_PASSCODE");
+            string unknownCode = admissionEvidence.Replace(@"""admission_reply_code"":4",
+                    @"""admission_reply_code"":-127")
+                .Replace("ADMISSION_ROOM_FULL","ADMISSION_REJECTED_REASON_UNKNOWN");
+            foreach (var row in new[] {
+                new {Json=notFound,Expected="回执码 1"},
+                new {Json=wrongPassword,Expected="回执码 14"},
+                new {Json=unknownCode,Expected="回执码 -127"}
+            })
+            {
+                string parsed=JoinProbeRunner.ParseMachineOutput(prefix+row.Json);
+                if (!parsed.Contains(row.Expected) || parsed.Contains("JOIN_PROBE_IPC_"))
+                    throw new InvalidOperationException("Genuine server int8 response misclassified.");
+                if (row.Expected=="回执码 -127" && !parsed.Contains("具体原因尚不明确"))
+                    throw new InvalidOperationException("Unknown room rejection got an invented cause.");
+            }
+            string roomMissing = admissionEvidence
+                .Replace("ENTER_ROOM_REJECTED","ENTER_ROOM_RESPONSE_MISSING")
+                .Replace(@"""admission_reply_observed"":true",@"""admission_reply_observed"":false")
+                .Replace(@"""admission_reply_code"":4",@"""admission_reply_code"":0")
+                .Replace("ADMISSION_ROOM_FULL","ADMISSION_REPLY_NOT_OBSERVED");
+            string missingDisplay=JoinProbeRunner.ParseMachineOutput(prefix+roomMissing);
+            if (!missingDisplay.Contains("STAGE12_9_ROOM_REPLY_MISSING")
+                || missingDisplay.Contains("STAGE12_9_SERVER_ROOM_REPLY"))
+                throw new InvalidOperationException("Missing server response was described as a rejection.");
+            string roomAccepted=admissionEvidence.Replace("ENTER_ROOM_REJECTED","SERVER_ROOM_ADMISSION_ACCEPTED")
+                .Replace(@"""room_admission_accepted"":false",@"""room_admission_accepted"":true")
+                .Replace(@"""admission_reply_code"":4",@"""admission_reply_code"":0")
+                .Replace("ADMISSION_ROOM_FULL","ADMISSION_SERVER_ACCEPTED_GAME_NOT_JOINED");
+            if (!JoinProbeRunner.ParseMachineOutput(prefix+roomAccepted)
+                    .Contains("SERVER_ROOM_ADMISSION_ACCEPTED"))
+                throw new InvalidOperationException("Server admission success code 0 was rejected.");
+
+            string loginRejected = admissionEvidence
+                .Replace("ENTER_ROOM_REJECTED","TAN_LOGIN_REJECTED")
+                .Replace(@"""login_accepted"":true",@"""login_accepted"":false")
+                .Replace(@"""login_reply_code"":0",@"""login_reply_code"":-2")
+                .Replace(@"""admission_reply_observed"":true",@"""admission_reply_observed"":false")
+                .Replace(@"""admission_reply_code"":4",@"""admission_reply_code"":0")
+                .Replace("ADMISSION_ROOM_FULL","ADMISSION_REPLY_NOT_OBSERVED");
+            if (!JoinProbeRunner.ParseMachineOutput(prefix+loginRejected)
+                    .Contains("大厅拒绝码 -2"))
+                throw new InvalidOperationException("Lobby login rejected code was not surfaced.");
+            string[] forgedAdmission = {
+                admissionEvidence.Replace("ADMISSION_ROOM_FULL","ADMISSION_WRONG_PASSCODE"),
+                admissionEvidence.Replace(@"""admission_reply_observed"":true",
+                    @"""admission_reply_observed"":false"),
+                admissionEvidence.Replace(@"""room_admission_accepted"":false",
+                    @"""room_admission_accepted"":true"),
+                admissionEvidence.Replace(@"""admission_reply_code"":4",
+                    @"""admission_reply_code"":0"),
+                admissionEvidence.Replace(@"""login_reply_observed"":true",
+                    @"""login_reply_observed"":false"),
+                admissionEvidence.Replace(@"""admission_reply_code"":4",
+                    @"""admission_reply_code"":127"),
+                admissionEvidence.Replace("ENTER_ROOM_REJECTED","ENTER_ROOM_RESPONSE_MISSING"),
+                roomAccepted.Replace(@"""room_admission_accepted"":true",
+                    @"""room_admission_accepted"":false")
+            };
+            foreach (string forged in forgedAdmission)
+            {
+                if (!JoinProbeRunner.ParseMachineOutput(prefix + forged)
+                        .Contains("JOIN_PROBE_IPC_INCONSISTENT"))
+                    throw new InvalidOperationException("Forged admission attestation was accepted.");
+            }
+            string[] badCodeFormats = {
+                admissionEvidence.Replace(@"""admission_reply_code"":4",
+                    @"""admission_reply_code"":999"),
+                admissionEvidence.Replace(@"""admission_reply_code"":4",
+                    @"""admission_reply_code"":""4"""),
+                admissionEvidence.Replace(@"""admission_reply_code"":4",
+                    @"""admission_reply_code"":4.2"),
+                admissionEvidence.Replace(@"""admission_reply_code"":4,",""),
+                admissionEvidence.Replace(@"""login_reply_code"":0",
+                    @"""login_reply_code"":-200")
+            };
+            foreach (string invalid in badCodeFormats)
+            {
+                if (!JoinProbeRunner.ParseMachineOutput(prefix+invalid)
+                        .Contains("JOIN_PROBE_IPC_SCHEMA_ERROR"))
+                    throw new InvalidOperationException("Invalid server admission code was not rejected.");
+            }
+            string secretRoomReply=admissionEvidence.Substring(0,admissionEvidence.Length-1)
+                + @",""raw_server_payload"":""NEVER_LOG_COOKIE_OR_TOKEN""}";
+            if (JoinProbeRunner.ParseMachineOutput(prefix+secretRoomReply)
+                    .Contains("NEVER_LOG_COOKIE_OR_TOKEN"))
+                throw new InvalidOperationException("Untrusted server payload leaked into WPF UI.");
+            Console.WriteLine("PASS: Stage12.9 signed admission codes, missing reply and tamper protection");
+
             if (!JoinProbeRunner.ParseMachineOutput("noise\n" + prefix + failed)
                     .Contains("JOIN_PROBE_IPC_UNEXPECTED_OUTPUT")
                 || !JoinProbeRunner.ParseMachineOutput(prefix + failed + "\n" + prefix + failed)
@@ -540,6 +761,84 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 + active.Replace(@"""reliable_messages"":2", @"""reliable_messages"":-1"))
                     .Contains("JOIN_PROBE_IPC_SCHEMA_ERROR"))
                 throw new InvalidOperationException("Negative received-packet count was accepted.");
+            // Stage12.5: only read-only server/transport prerequisites can
+            // be attested. Full OPEN DataChannels + an auth_mode flag must
+            // still be classified as missing game identity and protocol.
+            const string stage125Extra = @",""g79_mode_confirmed"":true,"
+                + @"""stage12_readiness"":""STAGE12_GAME_IDENTITY_AND_PROTOCOL_UNVERIFIED"","
+                + @"""stage12_game_identity_verified"":false,"
+                + @"""stage12_game_protocol_verified"":false,"
+                + @"""stage12_game_login_attempted"":false";
+            string attested = channelFrame.Substring(0,channelFrame.Length - 1)
+                + stage125Extra + "}";
+            string gateResult = JoinProbeRunner.ParseMachineOutput(prefix + attested);
+            if (!gateResult.Contains("STAGE12_GAME_IDENTITY_AND_PROTOCOL_UNVERIFIED")
+                || !gateResult.Contains("缺少网易认可的游戏身份")
+                || gateResult.Contains("JOIN_PROBE_IPC_"))
+                throw new InvalidOperationException("Stage12.5 missing game authorization not displayed.");
+            string[] forgedEvidence = {
+                attested.Replace("STAGE12_GAME_IDENTITY_AND_PROTOCOL_UNVERIFIED",
+                    "STAGE12_ADMISSION_NOT_VERIFIED"),
+                attested.Replace(@"""stage12_game_identity_verified"":false",
+                    @"""stage12_game_identity_verified"":true"),
+                attested.Replace(@"""stage12_game_protocol_verified"":false",
+                    @"""stage12_game_protocol_verified"":true"),
+                attested.Replace(@"""stage12_game_login_attempted"":false",
+                    @"""stage12_game_login_attempted"":true")
+            };
+            foreach (string forged in forgedEvidence)
+            {
+                if (!JoinProbeRunner.ParseMachineOutput(prefix + forged)
+                    .Contains("JOIN_PROBE_IPC_INCONSISTENT"))
+                    throw new InvalidOperationException("Forged Stage12.5 game readiness was accepted.");
+            }
+            string assumedProtocol = attested.Substring(0,attested.Length - 1)
+                + @",""room_version"":898}";
+            if (!JoinProbeRunner.ParseMachineOutput(prefix + assumedProtocol)
+                    .Contains("STAGE12_GAME_IDENTITY_AND_PROTOCOL_UNVERIFIED"))
+                throw new InvalidOperationException("Lobby metadata was mistaken for Bedrock game version.");
+            if (JoinProbeRunner.ComputeStage12Readiness(true,true,true,true,true,
+                    true,true,true) != "STAGE12_GAME_IDENTITY_AND_PROTOCOL_UNVERIFIED"
+                || JoinProbeRunner.ComputeStage12Readiness(false,true,true,true,true,
+                    true,true,true) != "STAGE12_ADMISSION_NOT_VERIFIED")
+                throw new InvalidOperationException("Stage12.5 preflight gate did not fail closed.");
+            Console.WriteLine("PASS: Stage12.5 real transport evidence gate and explicit game identity/version unknown");
+
+            // Stage12.6: a confirmed receive-only local worker is not a
+            // Minecraft game login. C# recomputes consistency from true
+            // admission, channel states and per-packet counters.
+            string readonlyPositive = channelFrame.Substring(0,channelFrame.Length-1)
+                + @",""stage12_readonly_ipc_verified"":true,"
+                + @"""stage12_readonly_ipc_messages"":0}";
+            string readonlyOutput=JoinProbeRunner.ParseMachineOutput(prefix+readonlyPositive);
+            if (!readonlyOutput.Contains("STAGE12_READONLY_IPC_VERIFIED_GAME_NOT_JOINED")
+                || !readonlyOutput.Contains("0 条")
+                || readonlyOutput.Contains("JOIN_PROBE_IPC_"))
+                throw new InvalidOperationException("Verified receive-only IPC never surfaced.");
+            string[] fakeReadonly = {
+                readonlyPositive.Replace(@"""room_admission_accepted"":true",
+                    @"""room_admission_accepted"":false"),
+                readonlyPositive.Replace(@"""stage12_readonly_ipc_messages"":0",
+                    @"""stage12_readonly_ipc_messages"":1"),
+                readonlyPositive.Replace(@"""stage12_readonly_ipc_verified"":true",
+                    @"""stage12_readonly_ipc_verified"":false")
+                    .Replace(@"""stage12_readonly_ipc_messages"":0",
+                        @"""stage12_readonly_ipc_messages"":2"),
+                readonlyPositive.Replace(@"""observation_seconds"":30",
+                    @"""observation_seconds"":8")
+            };
+            foreach (string falseRecord in fakeReadonly)
+            {
+                if (!JoinProbeRunner.ParseMachineOutput(prefix+falseRecord)
+                    .Contains("JOIN_PROBE_IPC_INCONSISTENT"))
+                    throw new InvalidOperationException("Forged Stage12.6 observation was accepted.");
+            }
+            var badDuration = JoinProbeRunner.RunReadOnlyIPCAsync(
+                "643871","",8,System.Threading.CancellationToken.None).GetAwaiter().GetResult();
+            if (!badDuration.Contains("STAGE12_READONLY_WORKER_INVALID"))
+                throw new InvalidOperationException("Stage12.6 accepted an unsupported observation mode.");
+            Console.WriteLine("PASS: Stage12.6 no-outbound read-only IPC evidence and fail-closed WPF parser");
+
             string durationRejected = JoinProbeRunner.RunAsync("643871", "", true, 17,
                 System.Threading.CancellationToken.None).GetAwaiter().GetResult();
             if (!durationRejected.Contains("OBSERVATION_DURATION_INVALID"))
@@ -583,8 +882,9 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                     throw new InvalidOperationException("Compiled probe IPC selftest failed.");
                 string result = JoinProbeRunner.ParseMachineOutput(output);
                 if (!result.Contains("PE_AUTH_UNAVAILABLE")
+                    || !result.Contains("STAGE12_ADMISSION_NOT_VERIFIED")
                     || result.Contains("JOIN_PROBE_IPC_"))
-                    throw new InvalidOperationException("Actual Go stdout failed C# IPC parser.");
+                    throw new InvalidOperationException("Actual Go stdout failed Stage12.5 C# readiness IPC parser.");
             }
             Console.WriteLine("PASS: actual compiled Go EXE to .NET Framework UTF-8 Stage9.1 IPC");
 

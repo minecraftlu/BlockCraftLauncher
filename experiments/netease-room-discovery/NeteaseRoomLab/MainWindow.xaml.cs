@@ -21,6 +21,8 @@ namespace BlockCraft.NeteaseRoomLab
         private bool g79CheckRunning;
         private bool livePreflightRunning;
         private bool joinProbeRunning;
+        private bool stage12OfflineRunning;
+        private CancellationTokenSource activeStage12Cancellation;
         // All real room tests share this cancellation scope; it is never
         // reused after completion and is cancelled when the window closes.
         private CancellationTokenSource activeProbeCancellation;
@@ -28,6 +30,13 @@ namespace BlockCraft.NeteaseRoomLab
         public MainWindow()
         {
             InitializeComponent();
+            Stage12OfflineButton.IsEnabled = Stage12OfflineBridge.IsEmbedded;
+            Stage12GameButton.IsEnabled = Stage12OfflineBridge.IsEmbedded;
+            if (!Stage12OfflineBridge.IsEmbedded)
+            {
+                Stage12OfflineStatusText.Text = "STAGE12_OFFLINE_BRIDGE_UNAVAILABLE：本 EXE 未嵌入 Stage 12 组件。";
+                Stage12GameStatusText.Text = "STAGE12_LOCAL_GAME_SPAWN_UNAVAILABLE：缺少本机游戏协议组件。";
+            }
         }
 
         protected override void OnClosing(CancelEventArgs e)
@@ -36,7 +45,78 @@ namespace BlockCraft.NeteaseRoomLab
             // WebRTC before the WPF owner disappears; no forced loop.
             if (activeProbeCancellation != null)
                 activeProbeCancellation.Cancel();
+            if (activeStage12Cancellation != null)
+                activeStage12Cancellation.Cancel();
             base.OnClosing(e);
+        }
+
+        private async void Stage12Offline_Click(object sender, RoutedEventArgs e)
+        {
+            if (stage12OfflineRunning || joinProbeRunning || livePreflightRunning
+                || authHelperRunning || g79CheckRunning) return;
+            if (!Stage12OfflineBridge.IsEmbedded)
+            {
+                Stage12OfflineStatusText.Text = "STAGE12_OFFLINE_BRIDGE_UNAVAILABLE：缺少内置测试组件。";
+                return;
+            }
+            stage12OfflineRunning = true;
+            activeStage12Cancellation = new CancellationTokenSource();
+            UpdateAuthButtons();
+            Stage12OfflineStatusText.Text = "STAGE12_OFFLINE_BRIDGE_RUNNING：正在本机测试，不访问网易服务器。";
+            try
+            {
+                Stage12OfflineStatusText.Text = await Stage12OfflineBridge.RunAsync(activeStage12Cancellation.Token);
+            }
+            catch (Exception)
+            {
+                Stage12OfflineStatusText.Text = "STAGE12_OFFLINE_BRIDGE_FAILED_GAME_NOT_JOINED：本机自检异常。";
+            }
+            finally
+            {
+                stage12OfflineRunning = false;
+                if (activeStage12Cancellation != null)
+                {
+                    activeStage12Cancellation.Dispose();
+                    activeStage12Cancellation = null;
+                }
+                UpdateAuthButtons();
+            }
+        }
+
+        private async void Stage12Game_Click(object sender, RoutedEventArgs e)
+        {
+            if (stage12OfflineRunning || joinProbeRunning || livePreflightRunning
+                || authHelperRunning || g79CheckRunning) return;
+            if (!Stage12OfflineBridge.IsEmbedded)
+            {
+                Stage12GameStatusText.Text = "STAGE12_LOCAL_GAME_SPAWN_UNAVAILABLE：缺少内置本机模拟游戏组件。";
+                return;
+            }
+            stage12OfflineRunning = true;
+            activeStage12Cancellation = new CancellationTokenSource();
+            UpdateAuthButtons();
+            Stage12GameStatusText.Text = "STAGE12_LOCAL_GAME_SPAWN_RUNNING："
+                + "两个本地工作进程正在完成模拟游戏登录，不访问网易服务器。";
+            try
+            {
+                Stage12GameStatusText.Text =
+                    await Stage12OfflineBridge.RunGameAsync(activeStage12Cancellation.Token);
+            }
+            catch (Exception)
+            {
+                Stage12GameStatusText.Text =
+                    "STAGE12_LOCAL_GAME_SPAWN_FAILED_REMOTE_NOT_JOINED：本机自检异常。";
+            }
+            finally
+            {
+                stage12OfflineRunning = false;
+                if (activeStage12Cancellation != null)
+                {
+                    activeStage12Cancellation.Dispose();
+                    activeStage12Cancellation = null;
+                }
+                UpdateAuthButtons();
+            }
         }
 
         private void CancelProbe_Click(object sender, RoutedEventArgs e)
@@ -145,6 +225,12 @@ namespace BlockCraft.NeteaseRoomLab
         private void UpdateAuthButtons()
         {
             if (EmailAuthButton == null || AuthConsentBox == null) return;
+            if (Stage12OfflineButton != null)
+                Stage12OfflineButton.IsEnabled = Stage12OfflineBridge.IsEmbedded
+                    && !stage12OfflineRunning && !joinProbeRunning && !livePreflightRunning
+                    && !authHelperRunning && !g79CheckRunning;
+            if (Stage12GameButton != null)
+                Stage12GameButton.IsEnabled = Stage12OfflineButton.IsEnabled;
             // Prevent the visible room number and node query from changing
             // during the one expressly authorized real connection attempt.
             if (RoomIdBox != null) RoomIdBox.IsEnabled = !joinProbeRunning;
@@ -161,7 +247,7 @@ namespace BlockCraft.NeteaseRoomLab
                 && File.Exists(selectedAuthHelper);
             if (DeleteAuthButton != null) DeleteAuthButton.IsEnabled = !joinProbeRunning && !livePreflightRunning && !authHelperRunning && !g79CheckRunning;
             if (RealJoinButton != null)
-                RealJoinButton.IsEnabled = !joinProbeRunning && !livePreflightRunning
+                RealJoinButton.IsEnabled = !stage12OfflineRunning && !joinProbeRunning && !livePreflightRunning
                     && !authHelperRunning && !g79CheckRunning && JoinProbeRunner.IsEmbedded
                     && AuthConsentBox.IsChecked == true
                     && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
@@ -175,12 +261,23 @@ namespace BlockCraft.NeteaseRoomLab
                     && activeProbeCancellation != null
                     && !activeProbeCancellation.IsCancellationRequested;
             if (RealWebRTCButton != null)
-                RealWebRTCButton.IsEnabled = !joinProbeRunning && !livePreflightRunning
+                RealWebRTCButton.IsEnabled = !stage12OfflineRunning && !joinProbeRunning && !livePreflightRunning
                     && !authHelperRunning && !g79CheckRunning && JoinProbeRunner.IsEmbedded
                     && AuthConsentBox.IsChecked == true
                     && GuestEmailAuth.IsAllowedHelperPath(selectedAuthHelper)
                     && File.Exists(selectedAuthHelper)
                     && GuestEmailAuth.CredentialFileExists();
+            if (Stage126ReadOnlyButton != null)
+                Stage126ReadOnlyButton.IsEnabled = RealWebRTCButton != null
+                    && RealWebRTCButton.IsEnabled && Stage12OfflineBridge.IsEmbedded;
+            if (Stage127CodecButton != null)
+                Stage127CodecButton.IsEnabled = Stage127CodecReference.IsAvailable
+                    && !stage12OfflineRunning && !joinProbeRunning && !livePreflightRunning
+                    && !authHelperRunning && !g79CheckRunning;
+            if (Stage128BuildButton != null)
+                Stage128BuildButton.IsEnabled = Stage128ClientBuildReference.IsAvailable
+                    && !stage12OfflineRunning && !joinProbeRunning && !livePreflightRunning
+                    && !authHelperRunning && !g79CheckRunning;
             if (LivePreflightButton != null)
                 LivePreflightButton.IsEnabled = !joinProbeRunning && !livePreflightRunning && !authHelperRunning
                     && !g79CheckRunning && AuthConsentBox.IsChecked == true
@@ -385,6 +482,110 @@ namespace BlockCraft.NeteaseRoomLab
 
         private async void RealWebRTC_Click(object sender, RoutedEventArgs e)
         {
+            await RunRealWebRTCAsync(false);
+        }
+
+        private async void Stage126ReadOnly_Click(object sender, RoutedEventArgs e)
+        {
+            await RunRealWebRTCAsync(true);
+        }
+
+        private async void Stage127Codec_Click(object sender, RoutedEventArgs e)
+        {
+            if (stage12OfflineRunning || joinProbeRunning || livePreflightRunning
+                || authHelperRunning || g79CheckRunning)
+                return;
+            if (!Stage127CodecReference.IsAvailable)
+            {
+                Stage127CodecStatusText.Text =
+                    "STAGE12_7_PROTOCOL_CHECK_UNAVAILABLE：此启动器没有内嵌检查工具。";
+                return;
+            }
+            string enteredVersion = Stage127ProtocolBox.Text;
+            string normalized;
+            if (!Stage127CodecReference.TryNormalizeVersion(enteredVersion, out normalized))
+            {
+                Stage127CodecStatusText.Text =
+                    Stage127CodecReference.Classify(enteredVersion, -1, "");
+                return;
+            }
+            stage12OfflineRunning = true;
+            activeStage12Cancellation = new CancellationTokenSource();
+            UpdateAuthButtons();
+            Stage127CodecStatusText.Text =
+                "STAGE12_7_PROTOCOL_CHECK_RUNNING：正在本机查询固定公开参考表，不连接服务器。";
+            try
+            {
+                Stage127CodecStatusText.Text = await Stage127CodecReference.RunAsync(
+                    normalized, activeStage12Cancellation.Token);
+            }
+            catch (Exception)
+            {
+                Stage127CodecStatusText.Text =
+                    "STAGE12_7_PROTOCOL_CHECK_FAILED_GAME_NOT_JOINED：本地查询未通过。";
+            }
+            finally
+            {
+                stage12OfflineRunning = false;
+                if (activeStage12Cancellation != null)
+                {
+                    activeStage12Cancellation.Dispose();
+                    activeStage12Cancellation = null;
+                }
+                UpdateAuthButtons();
+            }
+        }
+
+        private async void Stage128Build_Click(object sender, RoutedEventArgs e)
+        {
+            if (stage12OfflineRunning || joinProbeRunning || livePreflightRunning
+                || authHelperRunning || g79CheckRunning) return;
+            string gameVersion = Stage128GameBuildBox.Text;
+            string patchVersion = Stage128PatchBuildBox.Text;
+            string normalizedGame, normalizedPatch;
+            if (!Stage128ClientBuildReference.TryNormalizeBuild(gameVersion,out normalizedGame)
+                || !Stage128ClientBuildReference.TryNormalizeBuild(patchVersion,out normalizedPatch))
+            {
+                Stage128BuildStatusText.Text =
+                    Stage128ClientBuildReference.Classify(gameVersion,patchVersion,-1,"");
+                return;
+            }
+            if (!Stage128ClientBuildReference.IsAvailable)
+            {
+                Stage128BuildStatusText.Text =
+                    "STAGE12_8_BUILD_REFERENCE_UNAVAILABLE：此启动器没有离线版本参考组件。";
+                return;
+            }
+            stage12OfflineRunning = true;
+            activeStage12Cancellation = new CancellationTokenSource();
+            UpdateAuthButtons();
+            Stage128BuildStatusText.Text =
+                "STAGE12_8_BUILD_REFERENCE_RUNNING：正在本机对照公开版本表，不连接网易服务器。";
+            try
+            {
+                Stage128BuildStatusText.Text = await Stage128ClientBuildReference.RunAsync(
+                    normalizedGame,normalizedPatch,activeStage12Cancellation.Token);
+            }
+            catch (Exception)
+            {
+                Stage128BuildStatusText.Text =
+                    "STAGE12_8_BUILD_REFERENCE_FAILED_GAME_NOT_JOINED：本机参考查询发生错误。";
+            }
+            finally
+            {
+                stage12OfflineRunning = false;
+                if (activeStage12Cancellation != null)
+                {
+                    activeStage12Cancellation.Dispose();
+                    activeStage12Cancellation = null;
+                }
+                UpdateAuthButtons();
+            }
+        }
+
+        private async Task RunRealWebRTCAsync(bool inboundOnly)
+        {
+            var output = inboundOnly ? Stage126ReadOnlyStatusText : RealWebRTCStatusText;
             if (joinProbeRunning || livePreflightRunning || authHelperRunning
                 || g79CheckRunning || AuthConsentBox.IsChecked != true
                 || !JoinProbeRunner.IsEmbedded
@@ -392,19 +593,29 @@ namespace BlockCraft.NeteaseRoomLab
                 || !File.Exists(selectedAuthHelper)
                 || !GuestEmailAuth.CredentialFileExists())
             {
-                RealWebRTCStatusText.Text = "WEBRTC_PROBE_NOT_READY："
+                output.Text = "WEBRTC_PROBE_NOT_READY："
                     + "请使用 Stage 10 单 EXE 并选择原认证助手；请勿发送 Cookie 或 token。";
                 return;
             }
             string roomNumber = (RoomIdBox.Text ?? "").Trim();
             if (!System.Text.RegularExpressions.Regex.IsMatch(roomNumber, @"^[0-9]{4,10}$"))
             {
-                RealWebRTCStatusText.Text = "WEBRTC_PROBE_INPUT_INVALID：请输入有效数字房间号。";
+                output.Text = "WEBRTC_PROBE_INPUT_INVALID：请输入有效数字房间号。";
                 return;
             }
 
             int observationSeconds = ObservationSecondsBox.SelectedIndex == 2 ? 60
                 : ObservationSecondsBox.SelectedIndex == 0 ? 8 : 30;
+            if (inboundOnly && observationSeconds==8)
+            {
+                output.Text = "STAGE12_READONLY_WORKER_INVALID：只读接收请先选择 30 或 60 秒。";
+                return;
+            }
+            if (inboundOnly && !Stage12OfflineBridge.IsEmbedded)
+            {
+                output.Text = "STAGE12_READONLY_WORKER_UNAVAILABLE_GAME_NOT_JOINED：缺少内置工作进程。";
+                return;
+            }
 
             var confirmation = MessageBox.Show(
                 "此测试会使用第二账号和当前房间号，向真实网易服务器执行一次"
@@ -414,6 +625,7 @@ namespace BlockCraft.NeteaseRoomLab
                 + "请确认这是你本人手机创建的房间或已获房主明确许可。"
                 + " 该实验使用非官方客户端协议，存在服务条款及账号限制风险。"
                 + Environment.NewLine + Environment.NewLine
+                + (inboundOnly ? "Stage 12.6 还会把手机方向的可靠消息单向送入内嵌本机工作进程，只在内存中接收并清空；不会向手机写入任何游戏数据。" + Environment.NewLine : "")
                 + "探针只被动观察 " + observationSeconds + " 秒内两条数据通道是否 OPEN、"
                 + "收到消息数量和字节数，不发送 Minecraft 游戏数据包，不加载世界。"
                 + "测试结束后关闭本地连接；这不保证服务器立即清除离线玩家。"
@@ -422,24 +634,26 @@ namespace BlockCraft.NeteaseRoomLab
                 + "ICE 密码、网络 ID 或其他认证凭据。"
                 + Environment.NewLine + Environment.NewLine
                 + "确认开始一次真实手机房主 WebRTC 连接测试？",
-                "第十阶段 · 真实 NetherNet / WebRTC 连接确认",
+                inboundOnly ? "Stage 12.6 · 真实房间只读接收验证" : "第十阶段 · 真实 NetherNet / WebRTC 连接确认",
                 MessageBoxButton.YesNo, MessageBoxImage.Warning);
             if (confirmation != MessageBoxResult.Yes) return;
 
             joinProbeRunning = true;
             activeProbeCancellation = new CancellationTokenSource();
             UpdateAuthButtons();
-            RealWebRTCStatusText.Text = "WEBRTC_PROBE_RUNNING："
+            output.Text = "WEBRTC_PROBE_RUNNING："
                 + "正在申请真实大厅准入并尝试建立房主游戏传输连接。";
             try
             {
-                RealWebRTCStatusText.Text =
-                    await JoinProbeRunner.RunAsync(roomNumber, selectedAuthHelper, true,
+                output.Text = inboundOnly
+                    ? await JoinProbeRunner.RunReadOnlyIPCAsync(roomNumber, selectedAuthHelper,
+                        observationSeconds, activeProbeCancellation.Token)
+                    : await JoinProbeRunner.RunAsync(roomNumber, selectedAuthHelper, true,
                         observationSeconds, activeProbeCancellation.Token);
             }
             catch (Exception)
             {
-                RealWebRTCStatusText.Text = "WEBRTC_PROBE_FAILED："
+                output.Text = "WEBRTC_PROBE_FAILED："
                     + "本机连接测试异常，未输出任何原始账号或信令信息。";
             }
             finally

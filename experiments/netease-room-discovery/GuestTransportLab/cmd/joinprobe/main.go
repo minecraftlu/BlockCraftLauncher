@@ -11,7 +11,9 @@ import (
     "sync/atomic"
     "time"
 
+    "github.com/minecraftlu/BlockCraftLauncher/experiments/netease-room-discovery/GuestTransportLab/internal/admissiondiag"
     "github.com/minecraftlu/BlockCraftLauncher/experiments/netease-room-discovery/GuestTransportLab/internal/joinprobe"
+    "github.com/minecraftlu/BlockCraftLauncher/experiments/netease-room-discovery/GuestTransportLab/internal/stage12readiness"
 )
 
 func main() {
@@ -22,6 +24,8 @@ func main() {
     attempt := flag.Bool("try-join", false, "allow exactly one real RakNet login and room admission attempt")
     tryWebRTC := flag.Bool("try-webrtc", false, "after real room acceptance attempt WebSocket signaling + ICE/DTLS/SCTP")
     observation := flag.Int("observe-seconds", 8, "read-only connected data-channel observation: 8, 30 or 60 seconds")
+    readOnlyIPC := flag.Bool("try-readonly-ipc",false,"after actual room admission: forward inbound reliable messages to a receive-only local worker, never send gameplay")
+    readOnlyWorker := flag.String("stage12-worker","","absolute path to the reviewed Stage12Worker.exe")
     timeout := flag.Duration("timeout", 60*time.Second, "maximum total duration (10s-120s)")
     machine := flag.Bool("machine-json", false, "emit one versioned ASCII-safe JSON record without secrets")
     ipcSelftest := flag.Bool("ipc-selftest", false, "emit synthetic IPC report without network, account or room access")
@@ -94,6 +98,8 @@ func main() {
         AuthorizedByHost:*authorized,
         AttemptWebRTC:*tryWebRTC,
         ObservationSeconds:*observation,
+        ReadOnlyIPC:*readOnlyIPC,
+        ReadOnlyWorkerPath:*readOnlyWorker,
     })
     if stdinClosed.Load() {
         // Explicit cancellation is a neutral local operation, not a server
@@ -130,7 +136,12 @@ func emitMachine(report joinprobe.Report) {
     record := struct {
         Status string `json:"status"`
         LoginAccepted bool `json:"login_accepted"`
+        LoginReplyObserved bool `json:"login_reply_observed"`
+        LoginReplyCode int8 `json:"login_reply_code"`
         RoomAdmissionAccepted bool `json:"room_admission_accepted"`
+        AdmissionReplyObserved bool `json:"admission_reply_observed"`
+        AdmissionReplyCode int8 `json:"admission_reply_code"`
+        AdmissionDiagnosis string `json:"admission_diagnosis"`
         HostReadySeen bool `json:"host_ready_seen"`
         SignalingAuthenticated bool `json:"signaling_authenticated"`
         WebRTCTransportConnected bool `json:"webrtc_transport_connected"`
@@ -144,10 +155,23 @@ func emitMachine(report joinprobe.Report) {
         ObservationSeconds int `json:"observation_seconds"`
         MinecraftWorldJoined bool `json:"minecraft_world_joined"`
         ModeConfirmed bool `json:"g79_mode_confirmed"`
+        ReadOnlyIPCVerified bool `json:"stage12_readonly_ipc_verified"`
+        ReadOnlyIPCMessages uint64 `json:"stage12_readonly_ipc_messages"`
+        Stage12Readiness string `json:"stage12_readiness"`
+        GameIdentityVerified bool `json:"stage12_game_identity_verified"`
+        GameProtocolVerified bool `json:"stage12_game_protocol_verified"`
+        GameLoginAttempted bool `json:"stage12_game_login_attempted"`
     }{
         Status: report.Status,
         LoginAccepted: report.LoginAccepted,
+        LoginReplyObserved: report.LoginReplyObserved,
+        LoginReplyCode: report.LoginReplyCode,
         RoomAdmissionAccepted: report.RoomAdmissionAccepted,
+        AdmissionReplyObserved: report.AdmissionReplyObserved,
+        AdmissionReplyCode: report.AdmissionReplyCode,
+        // Recompute this for every report, including early cancellation and
+        // IPC selftests constructed without makeReport.
+        AdmissionDiagnosis: admissiondiag.Classify(report.AdmissionReplyObserved,report.AdmissionReplyCode),
         HostReadySeen: report.HostReadySeen,
         SignalingAuthenticated: report.SignalingAuthenticated,
         WebRTCTransportConnected: report.WebRTCTransportConnected,
@@ -161,6 +185,24 @@ func emitMachine(report joinprobe.Report) {
         ObservationSeconds: report.ObservationSeconds,
         MinecraftWorldJoined: false,
         ModeConfirmed: report.ModeConfirmed,
+        ReadOnlyIPCVerified: report.ReadOnlyIPCVerified,
+        ReadOnlyIPCMessages: report.ReadOnlyIPCMessages,
+        Stage12Readiness: stage12readiness.Assess(stage12readiness.Evidence{
+            LobbyLoginAccepted: report.LoginAccepted,
+            RoomAdmissionAccepted: report.RoomAdmissionAccepted,
+            HostReadySeen: report.HostReadySeen,
+            SignalingAuthenticated: report.SignalingAuthenticated,
+            WebRTCTransportConnected: report.WebRTCTransportConnected,
+            TransportStable: report.TransportStable,
+            ReliableChannelOpen: report.ReliableChannelOpen,
+            UnreliableChannelOpen: report.UnreliableChannelOpen,
+            G79ModeConfirmed: report.ModeConfirmed,
+        }),
+        // This probe never invokes Bedrock game login. The successful PE
+        // lobby entry and NetherNet ICE/DTLS/SCTP are not proof of game JWTs.
+        GameIdentityVerified: false,
+        GameProtocolVerified: false,
+        GameLoginAttempted: false,
     }
     payload, err := json.Marshal(record)
     if err != nil {

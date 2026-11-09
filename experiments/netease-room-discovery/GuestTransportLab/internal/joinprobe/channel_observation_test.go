@@ -159,3 +159,51 @@ func TestStage11ObservationSecondsRejectedBeforeAnyNetwork(t *testing.T) {
         t.Fatalf("unexpected observation request left offline safety gate: %+v",result)
     }
 }
+
+func TestStage126ReceiveOnlySinkUsesSameSingleNetworkReader(t *testing.T) {
+    conn:=newTestChannelConn()
+    original:=[]byte("LOCAL_SYNTHETIC_GAME_MESSAGE")
+    conn.packetCh<-original
+    forwarded:=make(chan []byte,1)
+    result:=observeDataChannelsWithSink(context.Background(),conn,45*time.Millisecond,
+        func(p []byte)error{
+            forwarded<-append([]byte(nil),p...)
+            return nil
+        })
+    if result.outcome!=stabilityWindowComplete || result.forwardError ||
+        result.reliableMessages!=1 {
+        t.Fatalf("receive-only sink affected transport result: %+v",result)
+    }
+    select {
+    case actual:=<-forwarded:
+        if string(actual)!="LOCAL_SYNTHETIC_GAME_MESSAGE"{
+            t.Fatal("framing changed synthetic incoming bytes")
+        }
+    default:t.Fatal("receive-only local worker received no packet")
+    }
+    for _,b:=range original{
+        if b!=0{t.Fatal("source packet not cleared after local worker forwarding")}
+    }
+}
+
+func TestStage126LocalWorkerFailureNeverBecomesRemoteSuccess(t *testing.T) {
+    conn:=newTestChannelConn()
+    conn.packetCh<-[]byte{1,2,3}
+    result:=observeDataChannelsWithSink(context.Background(),conn,80*time.Millisecond,
+        func([]byte)error{return errors.New("synthetic local worker died")})
+    if !result.forwardError || result.outcome!=stabilityRemoteClosed {
+        t.Fatalf("failed local worker was reported healthy: %+v",result)
+    }
+}
+
+func TestStage126RequiresReviewedWorkerBeforeMakingAnyNetworkCall(t *testing.T) {
+    r:=Run(context.Background(),Request{
+        RoomID:"123456",AuthorizedByHost:true,AttemptWebRTC:true,
+        ReadOnlyIPC:true,ReadOnlyWorkerPath:"non-absolute-worker.exe",
+        ObservationSeconds:30,
+    })
+    if r.Status!="STAGE12_READONLY_WORKER_INVALID" || r.LoginAccepted ||
+        r.RoomAdmissionAccepted || r.WebRTCTransportConnected {
+        t.Fatalf("bad worker path reached live room probe: %+v",r)
+    }
+}

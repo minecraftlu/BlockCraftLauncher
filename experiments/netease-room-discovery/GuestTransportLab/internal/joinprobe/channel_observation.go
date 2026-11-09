@@ -24,6 +24,8 @@ type channelObservation struct {
     unreliableMessages uint64
     reliableBytes uint64
     unreliableBytes uint64
+    // A failed local IPC sink is NOT a remote game/server rejection.
+    forwardError bool
 }
 
 type passiveChannelCounters struct {
@@ -42,6 +44,14 @@ const maxReportedPassiveBytes = uint64(1000000000)
 // reliable channel handler owns reassembly; the previously unused unreliable
 // callback is length-only. No data is sent to the mobile host.
 func observeDataChannels(ctx context.Context, conn channelObservationSource, duration time.Duration) channelObservation {
+    return observeDataChannelsWithSink(ctx,conn,duration,nil)
+}
+
+// The optional sink consumes reliable messages on the SAME reader used by
+// Stage11.1. Never launch a competing ReadPacket goroutine on the same RTC
+// connection. A receive-only worker has no path to send game packets back.
+func observeDataChannelsWithSink(ctx context.Context, conn channelObservationSource,
+    duration time.Duration, sink func([]byte) error) channelObservation {
     obs := channelObservation{outcome: stabilityCancelled}
     if ctx == nil || conn == nil || duration <= 0 || ctx.Err() != nil {
         return obs
@@ -56,7 +66,10 @@ func observeDataChannels(ctx context.Context, conn channelObservationSource, dur
         counters.unreliableBytes.Add(uint64(length))
     })
     closed := make(chan struct{}, 1)
+    readerExited:=make(chan struct{})
+    var sinkFailed atomic.Bool
     go func() {
+        defer close(readerExited)
         for {
             data, err := conn.ReadPacket()
             if err != nil {
@@ -67,6 +80,15 @@ func observeDataChannels(ctx context.Context, conn channelObservationSource, dur
             if len(data) > 0 {
                 counters.reliableMessages.Add(1)
                 counters.reliableBytes.Add(uint64(len(data)))
+                if sink!=nil {
+                    if err:=sink(data);err!=nil {
+                        sinkFailed.Store(true)
+                        clear(data)
+                        _=conn.Close()
+                        select {case closed<-struct{}{}:default:}
+                        return
+                    }
+                }
             }
             clear(data)
             if ctx.Err() != nil { return }
@@ -130,5 +152,17 @@ func observeDataChannels(ctx context.Context, conn channelObservationSource, dur
     obs.unreliableMessages = min(counters.unreliableMessages.Load(), maxReportedPassiveMessages)
     obs.reliableBytes = min(counters.reliableBytes.Load(), maxReportedPassiveBytes)
     obs.unreliableBytes = min(counters.unreliableBytes.Load(), maxReportedPassiveBytes)
+    // On a worker-backed session, return only after the single network
+    // reader has released its potential STDIN writer. Otherwise Stop/EOF
+    // can race an unfinished DATA frame and falsely fail the worker.
+    _=conn.Close()
+    if sink!=nil {
+        select {
+        case <-readerExited:
+        case <-time.After(2*time.Second):
+            obs.forwardError=true
+        }
+    }
+    obs.forwardError=obs.forwardError || sinkFailed.Load()
     return obs
 }

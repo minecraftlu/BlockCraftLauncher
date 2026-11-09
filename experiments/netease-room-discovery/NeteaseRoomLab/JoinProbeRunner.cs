@@ -93,7 +93,10 @@ namespace BlockCraft.NeteaseRoomLab
             { "WEBRTC_CHANNELS_OPEN_30S_NO_DATA_GAME_NOT_JOINED", "两条数据通道均为 OPEN；30 秒被动观察内没有收到应用消息。尚未进入世界。" },
             { "WEBRTC_CHANNELS_OPEN_30S_DATA_OBSERVED_GAME_NOT_JOINED", "两条数据通道均为 OPEN；30 秒被动观察收到数据通道消息。尚未验证 Minecraft 游戏协议。" },
             { "WEBRTC_CHANNELS_OPEN_60S_NO_DATA_GAME_NOT_JOINED", "两条数据通道均为 OPEN；60 秒被动观察内没有收到应用消息。尚未进入世界。" },
-            { "WEBRTC_CHANNELS_OPEN_60S_DATA_OBSERVED_GAME_NOT_JOINED", "两条数据通道均为 OPEN；60 秒被动观察收到数据通道消息。尚未验证 Minecraft 游戏协议。" }
+            { "WEBRTC_CHANNELS_OPEN_60S_DATA_OBSERVED_GAME_NOT_JOINED", "两条数据通道均为 OPEN；60 秒被动观察收到数据通道消息。尚未验证 Minecraft 游戏协议。" },
+            { "STAGE12_READONLY_WORKER_INVALID", "未启用有效的 Stage 12 本机只读接收组件；没有发起真实入房。" },
+            { "STAGE12_READONLY_WORKER_UNAVAILABLE_GAME_NOT_JOINED", "真实房间传输曾建立，但本机只读工作进程无法启动。未发送游戏包。" },
+            { "STAGE12_READONLY_IPC_FAILED_GAME_NOT_JOINED", "本机只读 IPC 接收发生错误；未发送 Minecraft 游戏包，也未进入世界。" }
         };
 
         public static bool IsEmbedded
@@ -153,6 +156,51 @@ namespace BlockCraft.NeteaseRoomLab
                     || worldJoined || (admitted && !login) || (hostReady && !admitted))
                     return "JOIN_PROBE_IPC_INCONSISTENT：子进程状态标志不一致，未判定成功。";
 
+                // Stage 12.9: preserve the *numeric* signed int8 response
+                // observed from the real server. A missing reply is not a
+                // server rejection. Earlier Go builds lacked these fields;
+                // accept only a wholly absent legacy set, never a partial one.
+                string[] admissionFields = {
+                    "login_reply_observed", "login_reply_code",
+                    "admission_reply_observed", "admission_reply_code",
+                    "admission_diagnosis"
+                };
+                bool anyAdmissionField = false, allAdmissionFields = true;
+                foreach (string field in admissionFields)
+                {
+                    anyAdmissionField |= response.ContainsKey(field);
+                    allAdmissionFields &= response.ContainsKey(field);
+                }
+                bool loginReplyObserved=false, roomReplyObserved=false;
+                int loginReplyCode=0, roomReplyCode=0;
+                string admissionDiagnosis=null;
+                if (anyAdmissionField)
+                {
+                    object rawDiagnosis;
+                    if (!allAdmissionFields
+                        || !ReadBool(response,"login_reply_observed",out loginReplyObserved)
+                        || !ReadSignedByte(response,"login_reply_code",out loginReplyCode)
+                        || !ReadBool(response,"admission_reply_observed",out roomReplyObserved)
+                        || !ReadSignedByte(response,"admission_reply_code",out roomReplyCode)
+                        || !response.TryGetValue("admission_diagnosis",out rawDiagnosis)
+                        || !(rawDiagnosis is string))
+                        return "JOIN_PROBE_IPC_SCHEMA_ERROR：大厅回执数字码或字段结构不合法。";
+                    admissionDiagnosis=(string)rawDiagnosis;
+                    string expected=ComputeAdmissionDiagnosis(roomReplyObserved,roomReplyCode);
+                    if (!String.Equals(expected,admissionDiagnosis,StringComparison.Ordinal)
+                        || (loginReplyObserved && (loginReplyCode == 0)!=login)
+                        || (!loginReplyObserved && (login || loginReplyCode!=0))
+                        || (roomReplyObserved && (!login || ((roomReplyCode==0)!=admitted)))
+                        || (!roomReplyObserved && (admitted || roomReplyCode!=0))
+                        || (statusObject is string && (string)statusObject=="ENTER_ROOM_REJECTED"
+                            && (!roomReplyObserved || roomReplyCode==0))
+                        || (statusObject is string && (string)statusObject=="TAN_LOGIN_REJECTED"
+                            && (!loginReplyObserved || loginReplyCode==0))
+                        || (roomReplyObserved && roomReplyCode!=0
+                            && (string)statusObject!="ENTER_ROOM_REJECTED"))
+                        return "JOIN_PROBE_IPC_INCONSISTENT：入房服务器回执与准入状态不一致。";
+                }
+
                 bool signaling = false, rtc = false;
                 object optional;
                 if (response.TryGetValue("signaling_authenticated", out optional))
@@ -183,6 +231,14 @@ namespace BlockCraft.NeteaseRoomLab
                 if (response.ContainsKey("unreliable_channel_open")
                     && !ReadBool(response, "unreliable_channel_open", out unreliableOpen))
                     return "JOIN_PROBE_IPC_SCHEMA_ERROR：不可靠通道状态格式错误。";
+                bool inboundIPCVerified=false;
+                long inboundIPCMessages=0;
+                if ((response.ContainsKey("stage12_readonly_ipc_verified")
+                     && !ReadBool(response,"stage12_readonly_ipc_verified",out inboundIPCVerified))
+                    || (response.ContainsKey("stage12_readonly_ipc_messages")
+                     && !ReadUIntBounded(response,"stage12_readonly_ipc_messages",
+                        256,out inboundIPCMessages)))
+                    return "JOIN_PROBE_IPC_SCHEMA_ERROR：Stage 12.6 本机接收统计字段非法。";
                 if ((response.ContainsKey("reliable_messages")
                      && !ReadUIntBounded(response, "reliable_messages", 1000000, out reliableMessages))
                     || (response.ContainsKey("unreliable_messages")
@@ -236,7 +292,9 @@ namespace BlockCraft.NeteaseRoomLab
                     || status == "WEBRTC_CHANNEL_OBSERVER_UNAVAILABLE"
                     || status == "WEBRTC_CHANNELS_NOT_OPEN_GAME_NOT_JOINED"
                     || status == "WEBRTC_CHANNELS_EARLY_CLOSED_GAME_NOT_JOINED"
-                    || status == "WEBRTC_CHANNELS_OBSERVATION_INTERRUPTED";
+                    || status == "WEBRTC_CHANNELS_OBSERVATION_INTERRUPTED"
+                    || status == "STAGE12_READONLY_WORKER_UNAVAILABLE_GAME_NOT_JOINED"
+                    || status == "STAGE12_READONLY_IPC_FAILED_GAME_NOT_JOINED";
                 bool rtcComplete = status == "WEBRTC_TRANSPORT_CONNECTED_GAME_NOT_JOINED";
                 bool rtcStable = status == "WEBRTC_TRANSPORT_STABLE_8S_GAME_NOT_JOINED";
                 bool channels30 = status == "WEBRTC_CHANNELS_OPEN_30S_NO_DATA_GAME_NOT_JOINED"
@@ -271,10 +329,61 @@ namespace BlockCraft.NeteaseRoomLab
                     || (stable && !rtcStable && !channelSuccess)
                     || (rtc && !rtcComplete && !rtcStable && !channelSuccess))
                     return "JOIN_PROBE_IPC_INCONSISTENT：服务器准入、信令和 WebRTC 状态不匹配。";
+                if ((inboundIPCVerified && (!channelSuccess || !login || !admitted
+                        || !hostReady || !signaling || !rtc || !stable
+                        || !reliableOpen || !unreliableOpen
+                        || inboundIPCMessages!=reliableMessages
+                        || inboundIPCMessages>256))
+                    || (!inboundIPCVerified && inboundIPCMessages!=0))
+                    return "JOIN_PROBE_IPC_INCONSISTENT：无法核实 Stage 12.6 接收进程与网易传输状态。";
                 if (status == "TAN_LOGIN_ACCEPTED" && !login)
                     return "JOIN_PROBE_IPC_INCONSISTENT：服务器登录标记与状态不匹配。";
 
                 string safeStatus = ReportStatus(frame);
+                if (anyAdmissionField)
+                {
+                    if (roomReplyObserved && roomReplyCode!=0)
+                        safeStatus += Environment.NewLine
+                            + "STAGE12_9_SERVER_ROOM_REPLY：" + ExplainAdmissionDiagnosis(
+                                admissionDiagnosis,roomReplyCode);
+                    else if (!roomReplyObserved && status=="ENTER_ROOM_RESPONSE_MISSING")
+                        safeStatus += Environment.NewLine
+                            + "STAGE12_9_ROOM_REPLY_MISSING：入房请求已发送，但没有可核实的入房回执；"
+                            + "不能称作服务器拒绝。";
+                    if (loginReplyObserved && loginReplyCode!=0)
+                        safeStatus += Environment.NewLine
+                            + "STAGE12_9_LOBBY_LOGIN_REJECTED：大厅拒绝码 "
+                            + loginReplyCode.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                            + "，具体账号原因未验证，未发送入房请求。";
+                }
+                // Stage 12.5 is a read-only prerequisite diagnosis. Recompute
+                // the claimed result from independently parsed server/transport
+                // booleans, rather than trusting an arbitrary child status.
+                object readinessObject;
+                if (response.TryGetValue("stage12_readiness", out readinessObject))
+                {
+                    bool identityVerified, protocolVerified, gameLoginAttempted;
+                    string expected = ComputeStage12Readiness(login, admitted, hostReady,
+                        signaling, rtc, stable, reliableOpen, unreliableOpen);
+                    if (!(readinessObject is string)
+                        || !String.Equals((string)readinessObject, expected,
+                            StringComparison.Ordinal)
+                        || !ReadBool(response, "stage12_game_identity_verified",
+                            out identityVerified)
+                        || !ReadBool(response, "stage12_game_protocol_verified",
+                            out protocolVerified)
+                        || !ReadBool(response, "stage12_game_login_attempted",
+                            out gameLoginAttempted)
+                        || identityVerified || protocolVerified || gameLoginAttempted)
+                        return "JOIN_PROBE_IPC_INCONSISTENT：Stage 12 游戏授权或版本声明缺乏可信证据。";
+                    safeStatus += Environment.NewLine
+                        + expected + "：" + ExplainStage12Readiness(expected);
+                }
+                if (inboundIPCVerified)
+                    safeStatus += Environment.NewLine
+                        + "STAGE12_READONLY_IPC_VERIFIED_GAME_NOT_JOINED：本机只读进程已完成控制握手；"
+                        + "本次从手机方向转交可靠消息 " + inboundIPCMessages
+                        + " 条（可能为 0）。没有向手机发送 Minecraft 游戏包，未登录世界。";
                 if (channelSuccess)
                     safeStatus += Environment.NewLine
                         + "被动观察：" + observedSeconds + " 秒；可靠通道 OPEN、不可靠通道 OPEN。"
@@ -289,6 +398,88 @@ namespace BlockCraft.NeteaseRoomLab
             {
                 return "JOIN_PROBE_IPC_SCHEMA_ERROR：探针机器输出解析失败，原始内容已隐藏。";
             }
+        }
+
+        // These stages establish transport prerequisites only. G79 auth_mode
+        // is not a verified game identity chain or a protocol-version proof.
+        public static string ComputeStage12Readiness(
+            bool login, bool admitted, bool hostReady, bool signaling,
+            bool transport, bool stable, bool reliableOpen, bool unreliableOpen)
+        {
+            if (!login || !admitted) return "STAGE12_ADMISSION_NOT_VERIFIED";
+            if (!hostReady) return "STAGE12_HOST_NOT_READY";
+            if (!signaling) return "STAGE12_SIGNALING_NOT_VERIFIED";
+            if (!transport) return "STAGE12_TRANSPORT_NOT_CONNECTED";
+            if (!stable) return "STAGE12_TRANSPORT_NOT_STABLE";
+            if (!reliableOpen || !unreliableOpen)
+                return "STAGE12_DATA_CHANNELS_NOT_VERIFIED";
+            return "STAGE12_GAME_IDENTITY_AND_PROTOCOL_UNVERIFIED";
+        }
+
+        private static string ExplainStage12Readiness(string status)
+        {
+            switch (status)
+            {
+                case "STAGE12_ADMISSION_NOT_VERIFIED":
+                    return "尚未证明网易大厅允许第二账号进入当前房间。";
+                case "STAGE12_HOST_NOT_READY":
+                    return "尚未获得房主 NetherNet 就绪事件。";
+                case "STAGE12_SIGNALING_NOT_VERIFIED":
+                    return "尚未确认当前房间的信令会话成功。";
+                case "STAGE12_TRANSPORT_NOT_CONNECTED":
+                    return "尚未确认 WebRTC 传输连接已建立。";
+                case "STAGE12_TRANSPORT_NOT_STABLE":
+                    return "尚未完成当前传输的有界稳定性检查。";
+                case "STAGE12_DATA_CHANNELS_NOT_VERIFIED":
+                    return "尚未验证两个数据通道同时 OPEN。";
+                default:
+                    return "网络前置条件已观察到，但缺少网易认可的游戏身份提供者"
+                        + "及当前 Bedrock 游戏协议版本证明；未尝试 Minecraft 登录。";
+            }
+        }
+
+        // These codes originate from the pinned NetEase TanEnterRoomResponse
+        // int8 protocol field, not guessed from cached room occupancy.
+        public static string ComputeAdmissionDiagnosis(bool replyObserved, int code)
+        {
+            if (!replyObserved) return "ADMISSION_REPLY_NOT_OBSERVED";
+            switch (code)
+            {
+                case 0: return "ADMISSION_SERVER_ACCEPTED_GAME_NOT_JOINED";
+                case 1: return "ADMISSION_ROOM_NOT_FOUND";
+                case 4: return "ADMISSION_ROOM_FULL";
+                case 14: return "ADMISSION_WRONG_PASSCODE";
+                default: return "ADMISSION_REJECTED_REASON_UNKNOWN";
+            }
+        }
+
+        private static string ExplainAdmissionDiagnosis(string classification,int code)
+        {
+            string reason;
+            switch (classification)
+            {
+                case "ADMISSION_ROOM_NOT_FOUND":reason="服务器报告房间不存在或已关闭。";break;
+                case "ADMISSION_ROOM_FULL":reason="服务器报告房间人数已满。";break;
+                case "ADMISSION_WRONG_PASSCODE":reason="服务器报告房间密码不匹配。";break;
+                default:reason="服务器拒绝了入房请求，但该错误码的具体原因尚不明确；"
+                    + "不能断言是权限、账号或版本问题。";break;
+            }
+            return "服务器真实入房回执码 "
+                + code.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + "；" + reason + " 未取得房间准入，不代表 Minecraft 游戏已登录。";
+        }
+
+        private static bool ReadSignedByte(Dictionary<string, object> response,
+            string key, out int value)
+        {
+            value=0;
+            object raw;
+            if (!response.TryGetValue(key,out raw)
+                || (!(raw is int) && !(raw is long))) return false;
+            long number=Convert.ToInt64(raw,System.Globalization.CultureInfo.InvariantCulture);
+            if (number < -128 || number > 127) return false;
+            value=(int)number;
+            return true;
         }
 
         private static bool ReadBool(Dictionary<string, object> response, string key, out bool value)
@@ -367,12 +558,31 @@ namespace BlockCraft.NeteaseRoomLab
             return RunAsync(room, helperPath, tryWebRTC, 8, cancellationToken);
         }
 
-        public static async Task<string> RunAsync(
+        public static Task<string> RunAsync(
             string room, string helperPath, bool tryWebRTC,
             int observationSeconds, CancellationToken cancellationToken)
         {
+            return RunCoreAsync(room,helperPath,tryWebRTC,
+                observationSeconds,cancellationToken,false);
+        }
+
+        public static Task<string> RunReadOnlyIPCAsync(
+            string room, string helperPath, int observationSeconds,
+            CancellationToken cancellationToken)
+        {
+            return RunCoreAsync(room,helperPath,true,
+                observationSeconds,cancellationToken,true);
+        }
+
+        private static async Task<string> RunCoreAsync(
+            string room,string helperPath,bool tryWebRTC,
+            int observationSeconds,CancellationToken cancellationToken,
+            bool useReadOnlyIPC)
+        {
             if (observationSeconds != 8 && observationSeconds != 30 && observationSeconds != 60)
                 return "OBSERVATION_DURATION_INVALID：只允许 8、30 或 60 秒被动观察。";
+            if (useReadOnlyIPC && (observationSeconds != 30 && observationSeconds != 60))
+                return "STAGE12_READONLY_WORKER_INVALID：只读接收需要 30 或 60 秒观察。";
             if (cancellationToken.IsCancellationRequested)
                 return "LOCAL_PROBE_CANCELLED：本机用户取消了测试。";
             if (String.IsNullOrWhiteSpace(room) || room.Length > 10)
@@ -391,6 +601,10 @@ namespace BlockCraft.NeteaseRoomLab
             try
             {
                 string localExecutable = ExtractVerifiedExecutable();
+                string inboundWorker = useReadOnlyIPC ? ExtractReadOnlyWorker() : null;
+                if (useReadOnlyIPC && inboundWorker == null)
+                    return "STAGE12_READONLY_WORKER_UNAVAILABLE_GAME_NOT_JOINED："
+                        + "当前 EXE 未内置完整的只读接收工作进程。";
                 if (localExecutable == null)
                     return "JOIN_PROBE_COMPONENT_UNAVAILABLE：当前 EXE 没有嵌入真实 RakNet 探针。"
                         + " 请使用新的稳定版实验构建。";
@@ -410,7 +624,9 @@ namespace BlockCraft.NeteaseRoomLab
                         + " -cancel-on-stdin-close"
                         + (tryWebRTC ? " -try-webrtc -observe-seconds "
                             + observationSeconds.ToString(
-                                System.Globalization.CultureInfo.InvariantCulture) : ""),
+                                System.Globalization.CultureInfo.InvariantCulture) : "")
+                        + (useReadOnlyIPC ? " -try-readonly-ipc -stage12-worker \""
+                            + inboundWorker + "\"" : ""),
                     WorkingDirectory = Path.GetDirectoryName(localExecutable),
                     RedirectStandardInput = true,
                     RedirectStandardOutput = true,
@@ -496,6 +712,46 @@ namespace BlockCraft.NeteaseRoomLab
             }
             try { await exit; return true; }
             catch (Exception) { return false; }
+        }
+
+        // Copy the reviewed embedded Stage12Worker to the private workspace.
+        // A digest-specific directory avoids overwriting a running binary,
+        // while the fixed basename is required by the Go safety gate.
+        private static string ExtractReadOnlyWorker()
+        {
+            using (var stream = Assembly.GetExecutingAssembly()
+                .GetManifestResourceStream(Stage12OfflineBridge.WorkerResource))
+            {
+                if (stream == null) return null;
+                byte[] bytes;
+                using (var memory = new MemoryStream())
+                {
+                    stream.CopyTo(memory);
+                    bytes = memory.ToArray();
+                }
+                byte[] hash;
+                using (var sha = SHA256.Create()) hash = sha.ComputeHash(bytes);
+                string digest = BitConverter.ToString(hash).Replace("-","").ToLowerInvariant();
+                string folder = Path.Combine(GuestEmailAuth.GetWorkspace(),
+                    "stage12-receiver-" + digest.Substring(0,16));
+                Directory.CreateDirectory(folder);
+                string target = Path.Combine(folder,"Stage12Worker.exe");
+                if (File.Exists(target))
+                {
+                    using (var existing = File.OpenRead(target))
+                    using (var sha = SHA256.Create())
+                    {
+                        var got = sha.ComputeHash(existing);
+                        bool same = got.Length == hash.Length;
+                        for (int i=0;same && i<hash.Length;i++)
+                            if (got[i]!=hash[i]) same=false;
+                        if (same) {Array.Clear(bytes,0,bytes.Length);return target;}
+                    }
+                }
+                File.WriteAllBytes(target,bytes);
+                Array.Clear(bytes,0,bytes.Length);
+                return target;
+            }
         }
 
         private static string ExtractVerifiedExecutable()

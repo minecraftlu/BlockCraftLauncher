@@ -62,8 +62,17 @@
     <Compile Include="RoomConnectionMaterial.cs" />
     <Compile Include="RoomSessionPreflight.cs" />
     <Compile Include="JoinProbeRunner.cs" />
+    <Compile Include="Stage12OfflineBridge.cs" />
+    <Compile Include="Stage127CodecReference.cs" />
+    <Compile Include="Stage128ClientBuildReference.cs" />
     <EmbeddedResource Include="..\GuestTransportLab\dist\BlockCraft.JoinProbe.exe" Condition="Exists('..\GuestTransportLab\dist\BlockCraft.JoinProbe.exe')">
       <LogicalName>BlockCraft.JoinProbe.exe</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\BedrockProtocolBridge\dist\Stage12Worker.exe" Condition="Exists('..\BedrockProtocolBridge\dist\Stage12Worker.exe')">
+      <LogicalName>BlockCraft.Stage12.BedrockWorker.exe</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\GuestTransportLab\dist\Stage12IPCFixture.exe" Condition="Exists('..\GuestTransportLab\dist\Stage12IPCFixture.exe')">
+      <LogicalName>BlockCraft.Stage12.IPCFixture.exe</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

@@ -1,0 +1,145 @@
+name: Stage 12 Bedrock bridge - isolated offline compatibility
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/netease-room-discovery/BedrockProtocolBridge/**'
+      - 'experiments/netease-room-discovery/BridgeWire/**'
+      - 'experiments/netease-room-discovery/GuestTransportLab/**'
+      - '.github/workflows/stage12-bedrock-bridge.yml'
+  push:
+    branches:
+      - experiment/netease-room-discovery
+    paths:
+      - 'experiments/netease-room-discovery/BedrockProtocolBridge/**'
+      - 'experiments/netease-room-discovery/BridgeWire/**'
+      - '.github/workflows/stage12-bedrock-bridge.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bedrock-offline:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: experiments/netease-room-discovery/BedrockProtocolBridge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.5'
+          cache-dependency-path: experiments/netease-room-discovery/BedrockProtocolBridge/go.mod
+      - name: Resolve fixed Bedrock dependency
+        shell: pwsh
+        run: |
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify headerless NetherNet framing and local Bedrock handshake
+        shell: pwsh
+        run: |
+          go test -count=5 -timeout=120s ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Real race detection on the isolated mock game protocol session.
+          go test -race -count=1 -timeout=120s ./internal/gamebridge
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+
+  cross-process-offline:
+    runs-on: windows-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Validate binary framing protocol and malformed inputs
+        shell: pwsh
+        working-directory: experiments/netease-room-discovery/BridgeWire
+        run: |
+          go test -count=10 -timeout=90s ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -race -count=1 -timeout=90s ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Validate guest-side full-duplex packet relay with race detector
+        shell: pwsh
+        working-directory: experiments/netease-room-discovery/GuestTransportLab
+        run: |
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -race -count=1 -timeout=120s ./internal/ipcrelay
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build isolated offline worker and guest transport fixture
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:GITHUB_WORKSPACE ".stage12-ci"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          Push-Location "experiments/netease-room-discovery/BedrockProtocolBridge"
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -o (Join-Path $out "Stage12Worker.exe") ./cmd/bedrockworker
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+          Push-Location "experiments/netease-room-discovery/GuestTransportLab"
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -o (Join-Path $out "Stage12IPCFixture.exe") ./cmd/bridgefixture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+      - name: Validate actual Windows STDIO process boundary (no network)
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:GITHUB_WORKSPACE ".stage12-ci"
+          # Repeated real Windows child-process startup/shutdown catches
+          # intermittent pipe deadlocks and resource cleanup regressions.
+          for ($attempt = 1; $attempt -le 10; $attempt++) {
+            & (Join-Path $out "Stage12IPCFixture.exe") -offline-ipc-selftest -worker (Join-Path $out "Stage12Worker.exe")
+            if ($LASTEXITCODE -ne 0) { throw "offline IPC attempt $attempt failed" }
+          }
+          # Stage 12.6: exercise the actual local worker under a
+          # receive-only source interface, so a game write cannot compile.
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            & (Join-Path $out "Stage12IPCFixture.exe") -offline-inbound-ipc-selftest -worker (Join-Path $out "Stage12Worker.exe")
+            if ($LASTEXITCODE -ne 0) { throw "receive-only worker/IPC regression: $attempt" }
+          }
+          # Real gophertunnel Bedrock login between TWO isolated Windows
+          # worker processes, relayed only by the versioned local IPC frames.
+          # This is completely synthetic; no account or room is contacted.
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            & (Join-Path $out "Stage12IPCFixture.exe") -offline-game-ipc-selftest -worker (Join-Path $out "Stage12Worker.exe")
+            if ($LASTEXITCODE -ne 0) { throw "offline game login via two process pipes failed: $attempt" }
+          }
+
+  proven-netease-transport:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: experiments/netease-room-discovery/GuestTransportLab
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.5'
+          cache-dependency-path: experiments/netease-room-discovery/GuestTransportLab/go.mod
+      - name: Restore known-good pinned NetherNet overlay
+        shell: pwsh
+        run: |
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "./tools/create-sctp-crc32c-overlay.ps1" -OutPath ".blockcraft/nethernet-fork"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Regression test previous RakNet and SCTP/WebRTC behavior
+        shell: pwsh
+        run: |
+          go test -count=1 -timeout=90s ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build ./cmd/joinprobe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

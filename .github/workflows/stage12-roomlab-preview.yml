@@ -1,0 +1,129 @@
+name: BlockCraft Stage12.9 WPF server admission diagnostics preview
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/netease-room-discovery/NeteaseRoomLab/**'
+      - 'experiments/netease-room-discovery/NeteaseRoomLab.Tests/**'
+      - 'experiments/netease-room-discovery/BedrockProtocolBridge/**'
+      - 'experiments/netease-room-discovery/GuestTransportLab/**'
+      - '.github/workflows/stage12-roomlab-preview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wpf-stage12-3-offline:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.5'
+          cache: false
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Build pinned NetEase transport probe and offline IPC fixture
+        shell: pwsh
+        working-directory: experiments/netease-room-discovery/GuestTransportLab
+        run: |
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "./tools/create-sctp-crc32c-overlay.ps1" -OutPath ".blockcraft/nethernet-fork"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force "dist" | Out-Null
+          go build -trimpath -ldflags="-s -w" -o "dist/BlockCraft.JoinProbe.exe" ./cmd/joinprobe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -ldflags="-s -w" -o "dist/Stage12IPCFixture.exe" ./cmd/bridgefixture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build isolated Bedrock worker without Pion dependency collision
+        shell: pwsh
+        working-directory: experiments/netease-room-discovery/BedrockProtocolBridge
+        run: |
+          go mod tidy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force "dist" | Out-Null
+          go build -trimpath -ldflags="-s -w" -o "dist/Stage12Worker.exe" ./cmd/bedrockworker
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify actual Windows IPC worker contract (no online login)
+        shell: pwsh
+        run: |
+          $fixture = (Resolve-Path "experiments/netease-room-discovery/GuestTransportLab/dist/Stage12IPCFixture.exe").Path
+          $worker = (Resolve-Path "experiments/netease-room-discovery/BedrockProtocolBridge/dist/Stage12Worker.exe").Path
+          for ($attempt=1; $attempt -le 3; $attempt++) {
+            & $fixture -offline-ipc-selftest -worker $worker
+            if ($LASTEXITCODE -ne 0) { throw "IPC roundtrip failed" }
+          }
+          for ($attempt=1; $attempt -le 2; $attempt++) {
+            & $fixture -offline-game-ipc-selftest -worker $worker
+            if ($LASTEXITCODE -ne 0) { throw "offline two-process Bedrock login/spawn failed" }
+          }
+          for ($attempt=1; $attempt -le 3; $attempt++) {
+            & $fixture -offline-inbound-ipc-selftest -worker $worker
+            if ($LASTEXITCODE -ne 0) { throw "receive-only Bedrock IPC worker failed" }
+          }
+          # Stage12.8 never launches a game session or accepts lobby versions:
+          # it only checks the pinned public NetEase codec reference table.
+          $known = & $worker -offline-codec-reference 819
+          if ($LASTEXITCODE -ne 0 -or $known.Trim() -ne "NETEASE_CODEC_REFERENCE_FOUND_GAME_NOT_JOINED") {
+            throw "published NetEase codec check failed"
+          }
+          $unknown = & $worker -offline-codec-reference 859
+          if ($LASTEXITCODE -ne 0 -or $unknown.Trim() -ne "NETEASE_CODEC_UNVERIFIED_GAME_NOT_JOINED") {
+            throw "standard Bedrock codec incorrectly accepted as NetEase"
+          }
+          # Stage12.8 verifies screenshot-derived China 3.10 candidate evidence
+          # without asserting 897/898 is the real NetEase gameplay version.
+          $build = & $worker -offline-china-build-reference 3.10.7.301588 3.10.9.301882
+          if ($LASTEXITCODE -ne 0 -or $build.Trim() -ne "STAGE12_8_CHINA_310_REFERENCE_CANDIDATES_UNVERIFIED_GAME_NOT_JOINED") {
+            throw "China 3.10 screenshot build candidate lookup failed"
+          }
+          $other = & $worker -offline-china-build-reference 3.9.50.301056 3.9.42.301055
+          if ($LASTEXITCODE -ne 0 -or $other.Trim() -ne "STAGE12_8_CHINA_BUILD_REFERENCE_UNKNOWN_GAME_NOT_JOINED") {
+            throw "Unsupported client family incorrectly mapped to a game protocol"
+          }
+          # Invalid CLI arguments are covered by Go unit tests. Running a
+          # deliberately failing native process under pwsh ErrorActionPreference
+          # Stop would abort the workflow before its exit code is inspected.
+
+      - name: Compile and run .NET Framework 4.8 local safety tests
+        shell: pwsh
+        run: |
+          msbuild "experiments/netease-room-discovery/NeteaseRoomLab.Tests/NeteaseRoomLab.Tests.csproj" /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU /v:minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "experiments/netease-room-discovery/NeteaseRoomLab.Tests/bin/Release/BlockCraft.NeteaseRoomLab.Tests.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "experiments/netease-room-discovery/NeteaseRoomLab.Tests/bin/Release/BlockCraft.NeteaseRoomLab.Tests.exe" --probe-ipc-exe "experiments/netease-room-discovery/GuestTransportLab/dist/BlockCraft.JoinProbe.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Compile combined WPF and three embedded Go executables
+        shell: pwsh
+        run: |
+          msbuild "experiments/netease-room-discovery/NeteaseRoomLab/NeteaseRoomLab.csproj" /t:Rebuild /p:Configuration=Release /p:Platform=AnyCPU /v:minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify resources with .NET Framework and package standalone preview
+        shell: powershell
+        run: |
+          $exe = "experiments/netease-room-discovery/NeteaseRoomLab/bin/Release/BlockCraft.NeteaseRoomLab.exe"
+          $asm = [System.Reflection.Assembly]::LoadFile((Resolve-Path $exe).Path)
+          $names = $asm.GetManifestResourceNames()
+          foreach ($required in @("BlockCraft.JoinProbe.exe", "BlockCraft.Stage12.BedrockWorker.exe", "BlockCraft.Stage12.IPCFixture.exe")) {
+            if (-not ($names -contains $required)) { throw "Missing embedded resource: $required" }
+          }
+          New-Item -ItemType Directory -Force "stage12-9-wpf-admission" | Out-Null
+          $output = "stage12-9-wpf-admission/BlockCraftRoomStage12_9_AdmissionPreview.exe"
+          Copy-Item $exe $output
+          $hash = (Get-FileHash $output -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  BlockCraftRoomStage12_9_AdmissionPreview.exe" | Set-Content "stage12-9-wpf-admission/SHA256SUMS.txt" -Encoding ascii
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BlockCraft-RoomLab-Stage12_9-AdmissionPreview-unsigned
+          path: stage12-9-wpf-admission/
+          if-no-files-found: error
+          retention-days: 14
