@@ -1131,8 +1131,8 @@ namespace BlockCraftLauncher.Wpf
                     Row(Btn("确认启用 CurseForge 图文搜索", () =>
                     {
                         if (MessageBox.Show(this,
-                            "MCIM 是第三方社区镜像，可能会暂时不可用，项目元数据也可能晚于官方。\\n" +
-                            "开启后会从 MCIM 查询模组，并仅下载作者允许分发、具有 SHA-1 校验的文件。\\n\\n" +
+                            "MCIM 是第三方社区镜像，可能暂时不可用，缓存信息也可能晚于官方。\n" +
+                            "启用后从 MCIM 查询模组；安装使用受允许的下载 URL 和 SHA-1 校验，链接不可用时停止。\n\n" +
                             "是否主动启用并保存这一设置？",
                             "启用社区模组镜像",
                             MessageBoxButton.YesNo, MessageBoxImage.Question)
