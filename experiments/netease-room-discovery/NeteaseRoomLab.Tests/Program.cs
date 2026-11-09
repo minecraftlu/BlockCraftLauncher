@@ -579,6 +579,49 @@ namespace BlockCraft.NeteaseRoomLab.Tests
                 + active.Replace(@"""reliable_messages"":2", @"""reliable_messages"":-1"))
                     .Contains("JOIN_PROBE_IPC_SCHEMA_ERROR"))
                 throw new InvalidOperationException("Negative received-packet count was accepted.");
+            // Stage12.5: only read-only server/transport prerequisites can
+            // be attested. Full OPEN DataChannels + an auth_mode flag must
+            // still be classified as missing game identity and protocol.
+            const string stage125Extra = @",""g79_mode_confirmed"":true,"
+                + @"""stage12_readiness"":""STAGE12_GAME_IDENTITY_AND_PROTOCOL_UNVERIFIED"","
+                + @"""stage12_game_identity_verified"":false,"
+                + @"""stage12_game_protocol_verified"":false,"
+                + @"""stage12_game_login_attempted"":false";
+            string attested = channelFrame.Substring(0,channelFrame.Length - 1)
+                + stage125Extra + "}";
+            string gateResult = JoinProbeRunner.ParseMachineOutput(prefix + attested);
+            if (!gateResult.Contains("STAGE12_GAME_IDENTITY_AND_PROTOCOL_UNVERIFIED")
+                || !gateResult.Contains("缺少网易认可的游戏身份")
+                || gateResult.Contains("JOIN_PROBE_IPC_"))
+                throw new InvalidOperationException("Stage12.5 missing game authorization not displayed.");
+            string[] forgedEvidence = {
+                attested.Replace("STAGE12_GAME_IDENTITY_AND_PROTOCOL_UNVERIFIED",
+                    "STAGE12_ADMISSION_NOT_VERIFIED"),
+                attested.Replace(@"""stage12_game_identity_verified"":false",
+                    @"""stage12_game_identity_verified"":true"),
+                attested.Replace(@"""stage12_game_protocol_verified"":false",
+                    @"""stage12_game_protocol_verified"":true"),
+                attested.Replace(@"""stage12_game_login_attempted"":false",
+                    @"""stage12_game_login_attempted"":true")
+            };
+            foreach (string forged in forgedEvidence)
+            {
+                if (!JoinProbeRunner.ParseMachineOutput(prefix + forged)
+                    .Contains("JOIN_PROBE_IPC_INCONSISTENT"))
+                    throw new InvalidOperationException("Forged Stage12.5 game readiness was accepted.");
+            }
+            string assumedProtocol = attested.Substring(0,attested.Length - 1)
+                + @",""room_version"":898}";
+            if (!JoinProbeRunner.ParseMachineOutput(prefix + assumedProtocol)
+                    .Contains("STAGE12_GAME_IDENTITY_AND_PROTOCOL_UNVERIFIED"))
+                throw new InvalidOperationException("Lobby metadata was mistaken for Bedrock game version.");
+            if (JoinProbeRunner.ComputeStage12Readiness(true,true,true,true,true,
+                    true,true,true) != "STAGE12_GAME_IDENTITY_AND_PROTOCOL_UNVERIFIED"
+                || JoinProbeRunner.ComputeStage12Readiness(false,true,true,true,true,
+                    true,true,true) != "STAGE12_ADMISSION_NOT_VERIFIED")
+                throw new InvalidOperationException("Stage12.5 preflight gate did not fail closed.");
+            Console.WriteLine("PASS: Stage12.5 real transport evidence gate and explicit game identity/version unknown");
+
             string durationRejected = JoinProbeRunner.RunAsync("643871", "", true, 17,
                 System.Threading.CancellationToken.None).GetAwaiter().GetResult();
             if (!durationRejected.Contains("OBSERVATION_DURATION_INVALID"))
