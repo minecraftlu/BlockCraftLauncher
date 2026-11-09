@@ -37,3 +37,10 @@
 5. 验证微软正版登录/游戏启动、存档/模组保存位置不变。
 
 本次不涉及网易手机版房间的互通实现。
+
+## 2026-11-10 · v0.9.28 RC1 发布结果
+
+- **GitHub Release Candidate 1**：[v0.9.28-wpf-rc.1](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.28-wpf-rc.1)，属于 prerelease，正式稳定版仍未发布。
+- **受控发布 CI**：[Windows #42678756716](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42678756716) **success**，覆盖版本/发布通道检查、WPF x64 编译、源码回归、普通与单 EXE 的离线测试、发布包 SHA-256 和 GitHub 资产上传。
+- 安装包：单文件 EXE、完整 ZIP、EXE 校验文件与 RELEASE-SHA256SUMS.txt 已上传到固定 GitHub Releases 页面，不依赖短期 Actions Artifact。
+- v0.9.27-wpf-rc.1 和旧 Python 主线没有被覆盖。真实中国大陆网络下载速度、断网续传和 CurseForge 图片/CDN 可用性仍等待 Windows 实测反馈。
