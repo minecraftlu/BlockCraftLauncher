@@ -19,6 +19,10 @@ namespace BlockCraftLauncher.Wpf
 {
     public partial class MainWindow : Window
     {
+        // In a Windows CI relaunch probe we render the main window but must
+        // not send update HTTP requests or touch user authentication.
+        internal bool SuppressAutomaticUpdateCheck { get; set; }
+
         readonly SettingsStore store = new SettingsStore();
         readonly LauncherConfig settings;
         readonly LauncherAutoUpdateService autoUpdater;
