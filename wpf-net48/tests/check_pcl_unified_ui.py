@@ -98,6 +98,20 @@ for method in ("RunOfflineSelfTest", "LoadPng", "SavePng", "MirrorLegacyLimb",
                "AvatarImage", "CanPaint", "Undo()", "Redo()", "SafeLibraryPath"):
     assert method in skin_doc, f"Missing skin safety/model behavior: {method}"
 assert '--skin-selftest' in (src / "App.xaml.cs").read_text("utf8")
+assert 'UploadSkinToMicrosoftAsync' in main
+assert 'GetMicrosoftService().GetSessionAsync()' in main
+assert 'MinecraftSkinUploadService.UploadAsync' in main
+for fragment in ('uploadToMicrosoft', 'UploadToMicrosoftAsync', 'SaveRecoveryDraft',
+                 'OfferRecoveryOnce', 'MarkUnsaved', 'SetArmModel',
+                 'File.Replace', 'PixelAt(', 'OnMouseDown(', 'DrawGuides()'):
+    assert fragment in (skin + skin_doc), f"Skin DIY feature missing: {fragment}"
+uploader = (src / "Services" / "MinecraftSkinUploadService.cs").read_text("utf8")
+assert 'https://api.minecraftservices.com/minecraft/profile/skins' in uploader
+assert 'AllowAutoRedirect = false' in uploader
+assert 'HttpMethod.Post' in uploader
+assert 'MultipartFormDataContent' in uploader
+assert 'ApiKey' not in uploader
+assert 'RunOfflineSelfTest()' in uploader
 assert '--skin-selftest' in (root / "onefile" / "Program.cs").read_text("utf8")
 
 assert "CompatibleWpf" in updates
