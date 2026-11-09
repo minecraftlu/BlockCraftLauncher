@@ -24,6 +24,7 @@ import (
     "strings"
     "time"
 
+    "github.com/minecraftlu/BlockCraftLauncher/experiments/netease-room-discovery/GuestTransportLab/internal/admissiondiag"
     "github.com/Happy2018new/nemc-tan-lobby-solver/core/nethernet"
     rtcwebrtc "github.com/Happy2018new/nemc-tan-lobby-solver/core/webrtc"
     "github.com/Happy2018new/nemc-tan-lobby-solver/core/raknet"
@@ -59,7 +60,12 @@ type Report struct {
     Status string `json:"status"`
     Scope string `json:"scope"`
     LoginAccepted bool `json:"login_accepted"`
+    LoginReplyObserved bool `json:"login_reply_observed"`
+    LoginReplyCode int8 `json:"login_reply_code"`
     RoomAdmissionAccepted bool `json:"room_admission_accepted"`
+    AdmissionReplyObserved bool `json:"admission_reply_observed"`
+    AdmissionReplyCode int8 `json:"admission_reply_code"`
+    AdmissionDiagnosis string `json:"admission_diagnosis"`
     HostReadySeen bool `json:"host_ready_seen"`
     SignalingAuthenticated bool `json:"signaling_authenticated"`
     WebRTCTransportConnected bool `json:"webrtc_transport_connected"`
@@ -83,6 +89,7 @@ func makeReport(status, detail string) Report {
         Status: status,
         Detail: detail,
         Scope: "user_authorized_single_real_room_admission_probe",
+        AdmissionDiagnosis: admissiondiag.ReplyNotObserved,
         MinecraftWorldJoined: false,
     }
 }
@@ -409,10 +416,15 @@ func probeLobby(ctx context.Context, loginSession login, roomInfo room, node ser
     if err!=nil{return makeReport("TAN_LOGIN_RESPONSE_MISSING","大厅登录请求已发送，但没有收到可识别的服务器响应。")}
     loginResponse,ok:=resp.(*packet.TanLoginResponse)
     if !ok{return makeReport("TAN_LOGIN_RESPONSE_UNEXPECTED","收到的服务器数据包不是大厅登录回执。")}
-    if loginResponse.ErrorCode!=packet.TanLoginSuccess{
-        return makeReport("TAN_LOGIN_REJECTED","大厅实际返回登录拒绝码："+strconv.Itoa(int(loginResponse.ErrorCode))+"。没有发送入房请求。")
+    if loginResponse.ErrorCode!=packet.TanLoginSuccess {
+        rejected:=makeReport("TAN_LOGIN_REJECTED","大厅明确拒绝此账号会话；不推断具体原因，也不发送入房请求。")
+        rejected.LoginReplyObserved=true
+        rejected.LoginReplyCode=loginResponse.ErrorCode
+        return rejected
     }
     report:=makeReport("TAN_LOGIN_ACCEPTED","服务器已确认大厅登录；正在申请进入指定房间。")
+    report.LoginReplyObserved=true
+    report.LoginReplyCode=loginResponse.ErrorCode
     report.LoginAccepted=true
     report.ModeConfirmed=loginSession.g79Confirmed
     if err=enc.EnableEncryption(material.encKey,material.decKey);err!=nil{
@@ -440,6 +452,9 @@ func probeLobby(ctx context.Context, loginSession login, roomInfo room, node ser
     if err!=nil{report.Status="ENTER_ROOM_RESPONSE_MISSING";report.Detail="已提交入房请求，但未能得到可识别服务器回执。";return report}
     admission,ok:=resp.(*packet.TanEnterRoomResponse)
     if !ok{report.Status="ENTER_ROOM_RESPONSE_UNEXPECTED";report.Detail="服务器回执不是预期的入房响应。";return report}
+    report.AdmissionReplyObserved=true
+    report.AdmissionReplyCode=admission.ErrorCode
+    report.AdmissionDiagnosis=admissiondiag.Classify(true,admission.ErrorCode)
     if admission.ErrorCode!=packet.TanEnterRoomSuccess{
         report.Status="ENTER_ROOM_REJECTED"
         switch admission.ErrorCode{
