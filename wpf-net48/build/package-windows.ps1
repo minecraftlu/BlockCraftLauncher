@@ -65,7 +65,7 @@ Write-Host 'Verified standalone x64 update helper'
 
 $dist = Join-Path $root 'dist'
 New-Item -Path $dist -ItemType Directory -Force | Out-Null
-$name = 'BlockCraftLauncher-v0.9.29-WPF-net48-Alpha-Windows-x64'
+$name = 'BlockCraftLauncher-v0.9.30-WPF-net48-Alpha-Windows-x64'
 $staging = Join-Path $dist $name
 if (Test-Path $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }
 New-Item -Path $staging -ItemType Directory | Out-Null
@@ -114,7 +114,7 @@ $stagedExe = Join-Path $staging 'BlockCraftLauncher.Wpf.exe'
 $hash = (Get-FileHash -LiteralPath $stagedExe -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  BlockCraftLauncher.Wpf.exe" | Set-Content -LiteralPath "$stagedExe.sha256" -Encoding ASCII
 @'
-BlockCraft Launcher v0.9.29 WPF Alpha - .NET Framework 4.8
+BlockCraft Launcher v0.9.30 WPF Alpha - .NET Framework 4.8
 This is an incomplete migration preview. Do not overwrite the stable v0.9.26 Python/Go launcher.
 Requires Windows 10/11, .NET Framework 4.8 and Microsoft Edge WebView2 Runtime for Microsoft login.
 Some functionality (CurseForge, modpack installation, multiplayer, updater) is not yet migrated.
