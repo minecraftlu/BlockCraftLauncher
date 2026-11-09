@@ -19,9 +19,11 @@ assert 'Console.WriteLine(current.AccessToken)' not in service
 
 for item in ('catch (MicrosoftReauthenticationRequiredException)', 'MessageBoxButton.YesNo',
              'await LoginMicrosoftAsync();', 'if (!GetMicrosoftService().HasSession)', 
-             'await minecraft.LaunchMicrosoftAsync(activeProfile, session, serverAddress)'):
+             'started = await minecraft.LaunchMicrosoftAsync(profile, session, serverAddress)'):
     assert item in ui, item
 
+assert 'gameProcesses.Track(profile, started)' in ui
+assert 'launchingProfiles.Contains(profile)' in ui
 assert '--auth-selftest' in app and '--auth-selftest' in one
 assert 'AuthSanityChecks.Run()' in app
 assert 'Offline Microsoft refresh-token recovery tests' in workflow
