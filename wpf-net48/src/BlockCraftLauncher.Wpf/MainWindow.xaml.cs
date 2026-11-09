@@ -48,6 +48,9 @@ namespace BlockCraftLauncher.Wpf
         ComboBox versionCategory, settingsNetworkMode;
         TextBox settingsDownloadThreads, settingsDownloadRetries;
         ListBox downloadList;
+        TextBox downloadSearchQuery;
+        ComboBox downloadStatusFilter;
+        TextBlock downloadCounter;
         ProgressBar downloadProgressBar;
         readonly ObservableCollection<ResourceHit> resourceResults = new ObservableCollection<ResourceHit>();
         readonly Dictionary<string, Button> sidebarButtons = new Dictionary<string, Button>();
@@ -680,11 +683,31 @@ namespace BlockCraftLauncher.Wpf
         {
             var root = Col(PageHeading("下载中心 / 任务", "下载管理",
                 "集中查看游戏、加载器、模组与整合包的进度、速度和失败重试。"));
-            root.Children.Add(Txt("下载任务", 17, true));
-            downloadList = new ListBox { ItemsSource = downloads.Jobs, Height = 285,
+            downloadSearchQuery = new TextBox { Width = 265 };
+            ApplySearchInputStyle(downloadSearchQuery, "搜索任务名称、资源名称或任务类型");
+            downloadSearchQuery.TextChanged += (sender, args) => ApplyDownloadFilter();
+            downloadStatusFilter = new ComboBox
+            {
+                ItemsSource = new[] { "全部任务", "进行中", "已完成", "失败或取消", "等待中" },
+                SelectedIndex = 0, Width = 160
+            };
+            ApplySearchInputStyle(downloadStatusFilter, "按任务状态筛选");
+            downloadStatusFilter.SelectionChanged += (sender, args) => ApplyDownloadFilter();
+            root.Children.Add(SearchCard(Col(Txt("筛选下载任务", 18, true),
+                Row(Txt("名称", 12, false, true), downloadSearchQuery,
+                    Txt("状态", 12, false, true), downloadStatusFilter,
+                    Btn("刷新列表", ApplyDownloadFilter),
+                    Btn("清除条件", () =>
+                    {
+                        downloadSearchQuery.Text = "";
+                        downloadStatusFilter.SelectedIndex = 0;
+                    })))));
+            downloadCounter = Txt("当前共有 " + downloads.Jobs.Count + " 个下载任务。", 12, false, true);
+            downloadList = new ListBox { ItemsSource = downloads.Jobs, Height = 350,
                 ItemTemplate = (DataTemplate)FindResource("DownloadItemTemplate"),
                 Margin = new Thickness(0, 6, 0, 10) };
-            root.Children.Add(Card(downloadList));
+            root.Children.Add(ResultsCard(Col(Txt("全部下载任务", 18, true),
+                downloadCounter, downloadList)));
 
             var heading = Txt("选中任务详情", 17, true);
             var status = Txt("", 14);
@@ -842,6 +865,36 @@ namespace BlockCraftLauncher.Wpf
         /// crashed when selecting a completed download (read-only Percent).
         /// No network or game files are touched.
         /// </summary>
+        void ApplyDownloadFilter()
+        {
+            if (downloadList == null) return;
+            string query = (downloadSearchQuery?.Text ?? "").Trim();
+            string state = Convert.ToString(downloadStatusFilter?.SelectedItem) ?? "全部任务";
+            downloadList.Items.Filter = raw =>
+            {
+                var job = raw as DownloadJob;
+                if (job == null) return false;
+                if (query.Length > 0 &&
+                    (job.Title ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) < 0 &&
+                    (job.Kind ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) < 0 &&
+                    (job.Detail ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) < 0)
+                    return false;
+                switch (state)
+                {
+                    case "进行中": return job.IsRunning;
+                    case "已完成": return job.Status == "已完成";
+                    case "失败或取消": return job.Status == "失败" || job.Status == "已取消";
+                    case "等待中": return job.Status == "等待中";
+                    default: return true;
+                }
+            };
+            if (downloadCounter != null)
+                downloadCounter.Text = downloadList.Items.Count == 0 ?
+                    "当前筛选条件下没有任务。可清除条件或开始新的下载。" :
+                    "显示 " + downloadList.Items.Count + " / " + downloads.Jobs.Count +
+                    " 个任务 · 任务状态变化后可点击刷新列表。";
+        }
+
         internal void VerifyDownloadPageBindings()
         {
             Navigate("下载管理");
