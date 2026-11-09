@@ -1,6 +1,14 @@
 name: WPF controlled release (candidate / stable gate)
 
 on:
+  # A versioned candidate request in the WPF branch triggers release
+  # packaging without merging unfinished WPF changes into Python main.
+  # Stable still requires an explicit manual run on the reviewed main branch.
+  push:
+    branches:
+      - feature/wpf-net48-alpha-v0.9.27
+    paths:
+      - wpf-net48/RELEASE_CANDIDATE_REQUEST.md
   workflow_dispatch:
     inputs:
       release_tag:
@@ -32,8 +40,8 @@ jobs:
       run:
         shell: pwsh
     env:
-      RELEASE_TAG: ${{ inputs.release_tag }}
-      RELEASE_CHANNEL: ${{ inputs.channel }}
+      RELEASE_TAG: ${{ github.event_name == 'push' && 'v0.9.27-wpf-rc.1' || inputs.release_tag }}
+      RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'candidate' || inputs.channel }}
       REAL_DEVICE_ACCEPTANCE: ${{ inputs.real_device_acceptance }}
     steps:
       - uses: actions/checkout@v4
@@ -43,6 +51,10 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           if ($env:RELEASE_CHANNEL -eq 'candidate') {
+            if ('${{ github.event_name }}' -eq 'push' -and
+                '${{ github.ref }}' -ne 'refs/heads/feature/wpf-net48-alpha-v0.9.27') {
+              throw 'Automatic candidate publishing only runs on the WPF development branch'
+            }
             if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+-wpf-rc\.\d+$') {
               throw 'Candidate tags must be vMAJOR.MINOR.PATCH-wpf-rc.NUMBER'
             }
@@ -168,3 +180,4 @@ jobs:
           if ($env:RELEASE_CHANNEL -eq 'candidate') { $args += '--prerelease' }
           & gh @args
           if ($LASTEXITCODE -ne 0) { throw "GitHub release creation failed" }
+          Write-Host "Published release: https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/$env:RELEASE_TAG"
