@@ -146,7 +146,19 @@ namespace BlockCraftLauncher.Wpf.Services
                 "&query=" + Uri.EscapeDataString(query ?? "") +
                 "&facets=" + Uri.EscapeDataString(json.Serialize(facets));
             string data = await network.GetStringWithFallbackAsync(endpoint, "official", ct);
-            var parsed = json.DeserializeObject(data) as Dictionary<string, object>;
+            return ParseSearchResponse(data, type);
+        }
+
+        /// <summary>
+        /// Separately testable parser for Modrinth search metadata. Never
+        /// trusts icon hosts, download counts or project IDs as install URLs.
+        /// </summary>
+        public static ModrinthSearchPage ParseSearchResponse(string data, string type)
+        {
+            if (string.IsNullOrWhiteSpace(data) || data.Length > 12 * 1024 * 1024)
+                throw new InvalidDataException("Modrinth 搜索响应为空或超出大小限制");
+            var parsed = new JavaScriptSerializer { MaxJsonLength = 12 * 1024 * 1024 }
+                .DeserializeObject(data) as Dictionary<string, object>;
             if (parsed == null || !(parsed.TryGetValue("hits", out var raw) && raw is object[] rows))
                 throw new InvalidDataException("Modrinth 搜索响应缺少项目列表");
             var hits = new List<ResourceHit>();
