@@ -431,11 +431,14 @@ namespace BlockCraftLauncher.Wpf.Services
             }
             if (!seen.Contains(MainFile) || !seen.Contains(UpdaterFile))
                 throw new InvalidDataException("ZIP 内部缺少 EXE 校验项目");
-            foreach (string file in Directory.GetFiles(stage, "*", SearchOption.AllDirectories))
+            // The embedded onefile bootstrap expects a flat SHA256SUMS.txt
+            // for the top-level executable/DLL set. Subdirectories remain
+            // covered by the cryptographically verified whole-ZIP hash.
+            foreach (string file in Directory.GetFiles(stage))
                 if ((file.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
                     file.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) &&
                     !seen.Contains(Path.GetFileName(file)))
-                    throw new InvalidDataException("ZIP 存在未校验可执行文件");
+                    throw new InvalidDataException("ZIP 顶层存在未校验可执行文件");
         }
 
         static async Task SmokeTestAsync(string path, CancellationToken ct)
