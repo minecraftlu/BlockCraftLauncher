@@ -29,12 +29,15 @@ namespace BlockCraftLauncher.Wpf
                 string.Equals(arg, "--modrinth-deps-selftest", StringComparison.OrdinalIgnoreCase));
             bool saveRestoreSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--saves-restore-selftest", StringComparison.OrdinalIgnoreCase));
+            bool instanceDetectionSelfTest = e.Args.Any(arg =>
+                string.Equals(arg, "--instance-detection-selftest", StringComparison.OrdinalIgnoreCase));
             bool downloadPageSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--download-ui-selftest", StringComparison.OrdinalIgnoreCase));
             bool layoutSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--ui-layout-selftest", StringComparison.OrdinalIgnoreCase));
             smokeTest = authSelfTest || downloadSelfTest || dependencySelfTest ||
-                saveRestoreSelfTest || downloadPageSelfTest || layoutSelfTest || e.Args.Any(arg =>
+                saveRestoreSelfTest || instanceDetectionSelfTest ||
+                downloadPageSelfTest || layoutSelfTest || e.Args.Any(arg =>
                 string.Equals(arg, "--smoke-test", StringComparison.OrdinalIgnoreCase));
             // The CI probe must never open a browser, download Minecraft,
             // touch account tokens, or display a GUI message. Both ordinary
@@ -122,6 +125,21 @@ namespace BlockCraftLauncher.Wpf
                 {
                     WriteDiagnostic(ex);
                     Shutdown(29);
+                }
+                return;
+            }
+
+            if (instanceDetectionSelfTest)
+            {
+                try
+                {
+                    InstanceDetectionSanityChecks.Run();
+                    Shutdown(0);
+                }
+                catch (Exception ex)
+                {
+                    WriteDiagnostic(ex);
+                    Shutdown(30);
                 }
                 return;
             }
