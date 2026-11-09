@@ -103,6 +103,13 @@ jobs:
             & (Join-Path $out "Stage12IPCFixture.exe") -offline-ipc-selftest -worker (Join-Path $out "Stage12Worker.exe")
             if ($LASTEXITCODE -ne 0) { throw "offline IPC attempt $attempt failed" }
           }
+          # Real gophertunnel Bedrock login between TWO isolated Windows
+          # worker processes, relayed only by the versioned local IPC frames.
+          # This is completely synthetic; no account or room is contacted.
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            & (Join-Path $out "Stage12IPCFixture.exe") -offline-game-ipc-selftest -worker (Join-Path $out "Stage12Worker.exe")
+            if ($LASTEXITCODE -ne 0) { throw "offline game login via two process pipes failed: $attempt" }
+          }
 
   proven-netease-transport:
     runs-on: windows-latest
