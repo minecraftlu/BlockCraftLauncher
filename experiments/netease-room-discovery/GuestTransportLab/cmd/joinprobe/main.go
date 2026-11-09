@@ -11,6 +11,7 @@ import (
     "sync/atomic"
     "time"
 
+    "github.com/minecraftlu/BlockCraftLauncher/experiments/netease-room-discovery/GuestTransportLab/internal/admissiondiag"
     "github.com/minecraftlu/BlockCraftLauncher/experiments/netease-room-discovery/GuestTransportLab/internal/joinprobe"
     "github.com/minecraftlu/BlockCraftLauncher/experiments/netease-room-discovery/GuestTransportLab/internal/stage12readiness"
 )
@@ -168,7 +169,9 @@ func emitMachine(report joinprobe.Report) {
         RoomAdmissionAccepted: report.RoomAdmissionAccepted,
         AdmissionReplyObserved: report.AdmissionReplyObserved,
         AdmissionReplyCode: report.AdmissionReplyCode,
-        AdmissionDiagnosis: report.AdmissionDiagnosis,
+        // Recompute this for every report, including early cancellation and
+        // IPC selftests constructed without makeReport.
+        AdmissionDiagnosis: admissiondiag.Classify(report.AdmissionReplyObserved,report.AdmissionReplyCode),
         HostReadySeen: report.HostReadySeen,
         SignalingAuthenticated: report.SignalingAuthenticated,
         WebRTCTransportConnected: report.WebRTCTransportConnected,
