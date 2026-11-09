@@ -231,6 +231,10 @@
               <TextBlock Text="{Binding LoaderLabel}" FontSize="11"
                          Foreground="{DynamicResource MutedBrush}"
                          Margin="0,0,15,3"/>
+              <TextBlock Text="{Binding VersionsLabel}" FontSize="11"
+                         Foreground="{DynamicResource MutedBrush}"
+                         TextTrimming="CharacterEllipsis" MaxWidth="170"
+                         ToolTip="{Binding VersionsLabel}" Margin="0,0,15,3"/>
               <TextBlock Text="{Binding DownloadsLabel}" FontSize="11"
                          Foreground="{DynamicResource MutedBrush}"
                          Margin="0,0,15,3"/>
