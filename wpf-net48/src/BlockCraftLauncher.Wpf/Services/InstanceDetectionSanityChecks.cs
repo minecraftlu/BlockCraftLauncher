@@ -89,6 +89,46 @@ namespace BlockCraftLauncher.Wpf.Services
                 Require(found.MetadataFound && found.VersionId == "1.21.1",
                     "empty launch id uses base game version");
 
+                // Importing a version from another .minecraft folder must
+                // preserve that folder even when a shared default root exists.
+                string external = Path.Combine(scratch, "other-minecraft");
+                PutMetadata(external, "1.20.6");
+                string selectedJson = Path.Combine(external, "versions",
+                    "1.20.6", "1.20.6.json");
+                var imported = MinecraftInstanceLocator.ImportVersionMetadata(selectedJson);
+                Require(imported.LaunchVersion == "1.20.6" &&
+                    imported.Directory == Path.GetFullPath(external),
+                    "external import preserves version and its real root");
+                var importedLocation = MinecraftInstanceLocator.Resolve(imported, config);
+                Require(importedLocation.MetadataFound &&
+                    importedLocation.UsesInstanceDirectory &&
+                    importedLocation.GameRoot == Path.GetFullPath(external),
+                    "external imported version is detectable by the same launcher root");
+
+                // A loose JSON file must not be silently registered as a
+                // launchable Minecraft version with an unrelated game root.
+                string badName = Path.Combine(external, "versions",
+                    "1.20.6", "not-the-version.json");
+                File.WriteAllText(badName, "{}");
+                Reject(() => MinecraftInstanceLocator.ImportVersionMetadata(badName),
+                    "mismatching version metadata file name");
+                string wrongFolder = Path.Combine(external, "other",
+                    "1.19.4");
+                Directory.CreateDirectory(wrongFolder);
+                string wrongFolderJson = Path.Combine(wrongFolder, "1.19.4.json");
+                File.WriteAllText(wrongFolderJson, "{}");
+                Reject(() => MinecraftInstanceLocator.ImportVersionMetadata(wrongFolderJson),
+                    "metadata must live under a versions directory");
+
+                bool missingRejected = false;
+                try
+                {
+                    MinecraftInstanceLocator.ImportVersionMetadata(
+                        Path.Combine(external, "versions", "1.20.6", "missing.json"));
+                }
+                catch (FileNotFoundException) { missingRejected = true; }
+                Require(missingRejected, "missing import file must be rejected");
+
                 // Untrusted instance records must not traverse out of the
                 // game versions directory while probing local metadata.
                 profile.LaunchVersion = "../outside";
