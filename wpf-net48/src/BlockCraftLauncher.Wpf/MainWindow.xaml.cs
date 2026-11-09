@@ -427,8 +427,9 @@ namespace BlockCraftLauncher.Wpf
             var root = Col(Txt("下载管理", 24, true),
                 Txt("Minecraft、加载器、Modrinth、整合包与 CurseForge 任务集中查看。支持进度、取消和失败重试。", 12, false, true));
             root.Children.Add(Txt("下载任务", 17, true));
-            downloadList = new ListBox { ItemsSource = downloads.Jobs, Height = 230,
-                DisplayMemberPath = "Title", Margin = new Thickness(0, 6, 0, 10) };
+            downloadList = new ListBox { ItemsSource = downloads.Jobs, Height = 285,
+                ItemTemplate = (DataTemplate)FindResource("DownloadItemTemplate"),
+                Margin = new Thickness(0, 6, 0, 10) };
             root.Children.Add(Card(downloadList));
 
             var heading = Txt("选中任务详情", 17, true);
