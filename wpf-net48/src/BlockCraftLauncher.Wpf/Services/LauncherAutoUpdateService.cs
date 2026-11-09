@@ -576,8 +576,8 @@ namespace BlockCraftLauncher.Wpf.Services
         internal static string DirectPreviewExecutable(PreparedLauncherUpdate prepared)
         {
             if (prepared == null || prepared.Offer == null ||
-                !string.Equals(prepared.Offer.Mode, InstallMode, StringComparison.Ordinal))
-                throw new InvalidOperationException("当前下载包不适用于本安装形式");
+                (prepared.Offer.Mode != "onefile" && prepared.Offer.Mode != "zip"))
+                throw new InvalidOperationException("更新包类型无效");
             if (!IsPathInsideUpdateStaging(prepared.StagedPath))
                 throw new InvalidDataException("直接打开只能使用安全暂存目录中的已验证版本");
             if (prepared.Offer.Mode == "onefile")
@@ -637,6 +637,9 @@ namespace BlockCraftLauncher.Wpf.Services
         public async Task<bool> OpenPreparedDirectlyAsync(
             PreparedLauncherUpdate prepared, CancellationToken ct)
         {
+            if (prepared == null || prepared.Offer == null ||
+                prepared.Offer.Mode != InstallMode)
+                throw new InvalidOperationException("当前下载包不适用于本安装形式");
             string executable = DirectPreviewExecutable(prepared);
             string token = Guid.NewGuid().ToString("N");
             string marker = LauncherRelaunchSignal.FilePath(token);
