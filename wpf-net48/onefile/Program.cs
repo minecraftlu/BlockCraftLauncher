@@ -29,7 +29,8 @@ namespace BlockCraftLauncher.OneFile
                 "--smoke-test", "--ui-layout-selftest", "--download-ui-selftest",
                 "--download-selftest", "--modrinth-search-selftest",
                 "--modrinth-deps-selftest", "--saves-restore-selftest",
-                "--instance-detection-selftest", "--auth-selftest"
+                "--instance-detection-selftest", "--auth-selftest",
+                "--skin-selftest"
             }.Any(flag => string.Equals(flag, args[0], StringComparison.OrdinalIgnoreCase))) ||
                 (args.Length >= 3 && args.Length <= 4 &&
                  args[0] == "--after-update" &&
