@@ -1420,10 +1420,51 @@ namespace BlockCraftLauncher.Wpf
         }
         void CheckInstance()
         {
-            if (activeProfile == null) { MessageBox.Show("尚未选择实例"); return; }
-            var path = Path.Combine(activeProfile.Directory ?? settings.Root,
-                "versions", activeProfile.LaunchVersion, activeProfile.LaunchVersion + ".json");
-            MessageBox.Show(File.Exists(path) ? "本地版本元数据存在。完整运行仍取决于 Java、依赖库与资源文件。" : "当前未找到本地版本元数据：\n" + path, "离线检查");
+            if (activeProfile == null)
+            {
+                MessageBox.Show(this, "请先选择已经安装的游戏实例。", "检测本地文件");
+                return;
+            }
+            try
+            {
+                var location = MinecraftInstanceLocator.Resolve(activeProfile, settings);
+                if (location.MetadataFound)
+                {
+                    string source = location.UsesInstanceDirectory
+                        ? "当前实例目录" : "启动器公共游戏目录";
+                    Status("本地版本检测成功：" + location.VersionId + "（" + source + "）");
+                    MessageBox.Show(this,
+                        "已找到 Minecraft 版本元数据。\n\n" +
+                        "游戏版本：" + location.VersionId + "\n" +
+                        "检测位置：" + source + "\n" +
+                        "实际启动目录：" + location.GameRoot + "\n" +
+                        "版本文件：" + location.MetadataPath + "\n\n" +
+                        "此检查确认启动器能定位版本 JSON；不代表所有游戏资源、Java 运行环境或模组都已完整校验。\n" +
+                        "你已能正常启动游戏时，不需要重新下载或安装该版本。",
+                        "检测本地文件 · 已找到游戏版本",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                else
+                {
+                    Status("本地版本检测未找到：" + location.VersionId);
+                    string paths = location.InstanceMetadataPath == location.SharedMetadataPath
+                        ? location.SharedMetadataPath
+                        : "当前实例：" + location.InstanceMetadataPath + "\n" +
+                          "公共目录：" + location.SharedMetadataPath;
+                    MessageBox.Show(this,
+                        "没有找到与当前实例版本 ID 对应的本地 JSON 文件。\n\n" +
+                        "版本 ID：" + location.VersionId + "\n" +
+                        "已检查路径：\n" + paths + "\n\n" +
+                        "请核对启动器内选中的实例是否与你实际启动的 Minecraft 版本相同。" +
+                        "这不等于游戏无法运行，也不建议直接删除已安装文件。",
+                        "检测本地文件 · 未找到版本元数据",
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowError("检测本地游戏版本失败", ex);
+            }
         }
         void OpenGameFolder()
         {
