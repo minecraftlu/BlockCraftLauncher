@@ -553,7 +553,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 return prepared.StagedPath;
             }
             string stage = Path.GetFullPath(prepared.StagedPath);
-            string extracted = Directory.GetParent(stage)?.Parent?.FullName;
+            string extracted = Directory.GetParent(stage)?.FullName;
             if (extracted == null ||
                 !string.Equals(Path.GetFileName(extracted), "unpacked",
                     StringComparison.OrdinalIgnoreCase))
