@@ -279,7 +279,7 @@ namespace BlockCraftLauncher.Wpf
             launchPanel.Children.Add(launch);
             launchPanel.Children.Add(Row(
                 Btn("切换 / 管理实例", ManageInstance),
-                Btn("检测游戏文件", CheckInstance),
+                Btn("检查版本文件", CheckInstance),
                 Btn("游戏目录", OpenGameFolder)));
             var left = Card(launchPanel);
             left.Margin = new Thickness(0, 0, 13, 12);
