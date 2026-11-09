@@ -21,3 +21,18 @@ func TestFixtureRejectsUnsafeLaunch(t *testing.T) {
         t.Fatalf("cancelled context unexpectedly launched worker: %v",err)
     }
 }
+
+func TestFullGameFixtureRejectsUnsafeWorkerPath(t *testing.T) {
+    if err:=runOfflineFullGame(context.Background(),"worker.exe");!errors.Is(err,errFixture){
+        t.Fatalf("relative offline game worker accepted: %v",err)
+    }
+    missing:=filepath.Join(t.TempDir(),"missing-bedrock-worker.exe")
+    if err:=runOfflineFullGame(context.Background(),missing);!errors.Is(err,errFixture){
+        t.Fatalf("missing offline game worker accepted: %v",err)
+    }
+    ctx,cancel:=context.WithCancel(context.Background())
+    cancel()
+    if err:=runOfflineFullGame(ctx,missing);!errors.Is(err,errFixture){
+        t.Fatalf("cancelled game fixture accepted: %v",err)
+    }
+}
