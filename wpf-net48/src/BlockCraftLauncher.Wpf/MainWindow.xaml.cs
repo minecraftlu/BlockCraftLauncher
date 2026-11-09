@@ -34,7 +34,7 @@ namespace BlockCraftLauncher.Wpf
         TextBlock updateStatusText, updateNotesText, homeUpdateText;
         Border homeUpdateCard;
         ProgressBar updateProgressBar;
-        Button updateInstallButton, updateCheckButton;
+        Button updateInstallButton, updateCheckButton, updateDirectOpenButton;
         CheckBox settingsAutoCheck, settingsAutoDownload;
         ComboBox settingsUpdateChannel;
         readonly MinecraftBackend minecraft;
@@ -293,6 +293,7 @@ namespace BlockCraftLauncher.Wpf
             updateNotesText = null;
             updateInstallButton = null;
             updateCheckButton = null;
+            updateDirectOpenButton = null;
             updateProgressBar = null;
             homeUpdateText = null;
             homeUpdateCard = null;
@@ -338,6 +339,14 @@ namespace BlockCraftLauncher.Wpf
             Title = "BlockCraft Launcher · " + LauncherAutoUpdateService.CurrentTag + " · 更新完成";
             Status("更新完成！已自动打开新版 BlockCraft Launcher " +
                 LauncherAutoUpdateService.CurrentTag + "。");
+        }
+
+        internal void ShowDirectOpenNotice()
+        {
+            Title = "BlockCraft Launcher · " + LauncherAutoUpdateService.CurrentTag + " · 新版试用";
+            Status("已直接打开经过校验的新版启动器 " +
+                LauncherAutoUpdateService.CurrentTag +
+                "。此方式不覆盖桌面上的旧版 EXE；需要永久更新请使用“下载并安装”。");
         }
         void Log(string text) { logs.Add(DateTime.Now.ToString("HH:mm:ss") + "  " + text); }
         void ApplyTheme()
@@ -1711,8 +1720,8 @@ namespace BlockCraftLauncher.Wpf
         UIElement BuildLauncherUpdates()
         {
             var root = Col(Txt("启动器更新", 24, true),
-                Txt("PCL 风格：自动检查新版本、下载更新包、验证 SHA-256 后一键重启安装。"
-                    + "稳定版和测试版独立，默认不自动下载或强制安装。", 12, false, true));
+                Txt("PCL 风格：自动检测、校验后安装，或直接打开已下载的新版本试用。"
+                    + "稳定版和测试版独立，默认不强制下载或安装。", 12, false, true));
 
             root.Children.Add(Card(Col(
                 Txt("当前版本 · " + LauncherAutoUpdateService.CurrentTag, 18, true),
@@ -1737,14 +1746,19 @@ namespace BlockCraftLauncher.Wpf
                 await CheckLauncherUpdatesAsync(true), true);
             updateInstallButton = Btn("下载并安装 · 完成后自动打开新版", async () =>
                 await InstallLauncherUpdateAsync(), true);
+            updateDirectOpenButton = Btn("直接打开新版（不覆盖旧版）", async () =>
+                await OpenDownloadedUpdateDirectlyAsync());
             root.Children.Add(Card(Col(
                 Txt("更新状态", 18, true),
                 updateStatusText,
                 updateProgressBar,
                 updateNotesText,
                 Row(updateCheckButton, updateInstallButton,
+                    updateDirectOpenButton,
                     Btn("打开官方发布页", () => LauncherReleaseService.OpenOfficialRelease(
-                        "https://github.com/minecraftlu/BlockCraftLauncher/releases"))))));
+                        "https://github.com/minecraftlu/BlockCraftLauncher/releases")))),
+                Txt("“直接打开”会先下载并校验新版，从临时目录试用；旧安装保留。"
+                    + "正式覆盖更新请使用“下载并安装”，完成后会自动打开新版窗口。", 12, false, true))));
             root.Children.Add(Card(Col(Txt("自动更新设置", 18, true),
                 Txt("设置 → 自动更新，可切换稳定版/预览版通道，开启后台检查或自动下载。"
                     + "安装前会要求退出当前启动器，Minecraft 游戏进程不会被强制关闭。", 12, false, true),
@@ -1785,6 +1799,7 @@ namespace BlockCraftLauncher.Wpf
                         "稳定版（不自动安装 Alpha、RC 或网易联机实验包）") +
                     "。\n若只有测试版发布，可以在设置中主动切换更新通道。";
                 updateInstallButton.IsEnabled = available && !updatePreparing && !updateChecking;
+                updateDirectOpenButton.IsEnabled = available && !updatePreparing && !updateChecking;
                 updateCheckButton.IsEnabled = !updateChecking && !updatePreparing;
             }
 
@@ -1900,6 +1915,47 @@ namespace BlockCraftLauncher.Wpf
                 updatePreparing = false;
                 if (updateProgressBar != null)
                     updateProgressBar.Visibility = Visibility.Collapsed;
+                RefreshLauncherUpdatePanel();
+            }
+        }
+
+        async Task OpenDownloadedUpdateDirectlyAsync()
+        {
+            if (updatePreparing || updateChecking || updateCancellation.IsCancellationRequested)
+                return;
+            if (offeredUpdate == null)
+            {
+                await CheckLauncherUpdatesAsync(true);
+                if (offeredUpdate == null) return;
+            }
+            if (preparedUpdate == null || preparedUpdate.Offer != offeredUpdate)
+                await PrepareLauncherUpdateAsync(true);
+            if (preparedUpdate == null) return;
+
+            var candidate = preparedUpdate;
+            if (MessageBox.Show(this,
+                "是否直接打开 " + candidate.Offer.Tag + "？\n\n" +
+                "将从已校验的临时下载目录直接运行新版，确认新版主窗口显示后才关闭旧窗口。" +
+                "\n不会替换桌面上的旧 EXE，也不影响 Minecraft 世界或游戏进程。" +
+                "\n下次仍从旧安装位置启动。需要永久升级请点击“下载并安装”。",
+                "直接打开新版（不安装）",
+                MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                return;
+            updatePreparing = true;
+            RefreshLauncherUpdatePanel();
+            try
+            {
+                Status("正在直接打开已校验的新版，确认窗口显示后关闭当前窗口...");
+                bool shown = await autoUpdater.OpenPreparedDirectlyAsync(candidate,
+                    updateCancellation.Token);
+                if (!shown || updateCancellation.IsCancellationRequested) return;
+                Application.Current.Shutdown();
+            }
+            catch (OperationCanceledException) when (updateCancellation.IsCancellationRequested) { }
+            catch (Exception ex) { ShowError("无法直接打开新版", ex); }
+            finally
+            {
+                updatePreparing = false;
                 RefreshLauncherUpdatePanel();
             }
         }
