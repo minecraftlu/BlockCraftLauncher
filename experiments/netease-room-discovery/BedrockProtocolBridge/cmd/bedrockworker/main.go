@@ -60,6 +60,13 @@ func run(r io.Reader,w io.Writer) error {
 }
 
 func main() {
+    if len(os.Args)==4 && os.Args[1]=="-offline-china-build-reference" {
+        if err:=checkChinaBuildReference(os.Args[2],os.Args[3],os.Stdout);err!=nil {
+            fmt.Fprintln(os.Stderr,"OFFLINE_BUILD_REFERENCE_FAILED")
+            os.Exit(2)
+        }
+        return
+    }
     if len(os.Args)==3 && os.Args[1]=="-offline-codec-reference" {
         if err:=checkCodecReference(os.Args[2],os.Stdout);err!=nil {
             // Do not echo arguments: the worker never accepts account data.
