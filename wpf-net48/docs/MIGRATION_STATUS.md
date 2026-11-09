@@ -45,3 +45,14 @@
 3. CurseForge 后台下载队列、更新管理、整合包、浏览分类和授权兼容性；Modrinth 模组依赖图。
 4. Fabric 光影助手、实例维护、更新器安全安装/回滚、日志导出和主题缩放细节。
 5. 对微软账号令牌使用 Windows DPAPI 做加密存储，并完成审计。
+
+## 2026-11-10 · 本轮 Python 功能迁移：Modrinth 必需依赖 / 实例移除 / 存档恢复
+
+**注意：这是源码功能补齐和 Windows 离线验证；并非全部 Python 功能已经完成或真实联网安装全部稳定。**
+
+- 新增 `ModrinthDependencyPlanner`，按项目或固定版本处理 Modrinth 模组必需依赖、循环/重复依赖、加载器/Minecraft 版本匹配、最多 32 个项目与 16 层。仅接受合法 Modrinth CDN HTTPS URL、安全 JAR 名及有效 SHA-1。
+- 下载改为隔离暂存、同实例串行提交、批量原子登记，异常时回滚本次新增文件；已有模组文件从不自动覆盖。下载管理页面继续显示原有任务、取消及进度。
+- 实例管理新增“仅从列表移除实例”，与 Python 的安全语义一致，不删除实例目录/存档；增加 ZIP 安全恢复，只添加新世界，对路径穿越、符号链接、重复条目、数量/体积异常、同名存档保护及中途失败回滚。
+- [Windows CI #42655016102](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42655016102) 全部成功，包含普通/单 EXE 两组独立的 Modrinth 依赖与存档恢复离线回归；单 EXE SHA-256 `631bdb047571865ec940d5119ba23611b489408b908b97ded76e9a13860b19f2`。
+- 更完整的逐项状态与正式发布前的真实游戏验收门槛：[`PYTHON_MIGRATION_ACCEPTANCE.md`](PYTHON_MIGRATION_ACCEPTANCE.md)。
+
