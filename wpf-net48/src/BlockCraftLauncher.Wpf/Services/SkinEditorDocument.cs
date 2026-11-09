@@ -424,15 +424,25 @@ namespace BlockCraftLauncher.Wpf.Services
             Changed?.Invoke();
         }
 
-        public void SavePng(string path)
+        public byte[] ExportPngBytes()
         {
             if (editing) EndChange();
             var bitmap = TextureImage();
             var encoder = new PngBitmapEncoder();
             encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            using (var buffer = new MemoryStream())
+            {
+                encoder.Save(buffer);
+                return buffer.ToArray();
+            }
+        }
+
+        public void SavePng(string path)
+        {
+            byte[] data = ExportPngBytes();
             using (var stream = new FileStream(path, FileMode.Create,
                 FileAccess.Write, FileShare.None))
-                encoder.Save(stream);
+                stream.Write(data, 0, data.Length);
             Dirty = false;
         }
 
@@ -522,6 +532,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 try { SafeLibraryPath("../outside"); }
                 catch (InvalidDataException) { rejected = true; }
                 Require(rejected, "皮肤库路径不可穿越");
+                MinecraftSkinUploadService.RunOfflineSelfTest();
             }
             finally
             {
