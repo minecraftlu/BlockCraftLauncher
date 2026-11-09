@@ -198,7 +198,7 @@ namespace BlockCraftLauncher.Wpf
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 MinHeight = 380, Height = 555, Content = paintingSurface
             };
-            viewport.SetResourceReference(BackgroundProperty, "SearchSurfaceBrush");
+            viewport.SetResourceReference(Control.BackgroundProperty, "SearchSurfaceBrush");
             editorLeft.Children.Add(Card(Column(
                 Label("皮肤贴图 UV 画布 · 拖动鼠标逐像素绘制", 17, true),
                 Label("蓝色标记是基础层，金色标记是外层。选择“部位/图层”可以避免误涂其他区域。"),
@@ -239,7 +239,7 @@ namespace BlockCraftLauncher.Wpf
             colorSwatch.Width = 39; colorSwatch.Height = 39;
             colorSwatch.CornerRadius = new CornerRadius(7);
             colorSwatch.BorderThickness = new Thickness(1);
-            colorSwatch.SetResourceReference(BorderBrushProperty, "BorderBrushTheme");
+            colorSwatch.SetResourceReference(Border.BorderBrushProperty, "BorderBrushTheme");
             var colorSliders = Column();
             red.Minimum = green.Minimum = blue.Minimum = transparency.Minimum = 0;
             red.Maximum = green.Maximum = blue.Maximum = transparency.Maximum = 255;
@@ -329,8 +329,8 @@ namespace BlockCraftLauncher.Wpf
                 BorderThickness = new Thickness(1),
                 Margin = new Thickness(0, 0, 4, 10)
             };
-            frame.SetResourceReference(BackgroundProperty, "SearchSurfaceBrush");
-            frame.SetResourceReference(BorderBrushProperty, "BorderBrushTheme");
+            frame.SetResourceReference(Border.BackgroundProperty, "SearchSurfaceBrush");
+            frame.SetResourceReference(Border.BorderBrushProperty, "BorderBrushTheme");
             return frame;
         }
 
