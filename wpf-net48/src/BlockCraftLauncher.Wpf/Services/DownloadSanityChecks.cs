@@ -113,7 +113,10 @@ namespace BlockCraftLauncher.Wpf.Services
             Require(newest.Version == "v0.9.28" && newest.CompatibleWpf &&
                 newest.Newer && newest.Url.EndsWith("/v0.9.28"),
                 "选择兼容的最新正式 WPF Release");
-            Require(!LauncherReleaseService.SelectStableRelease("[{\\\"tag_name\\\":\\\"room-lab\\\",\\\"prerelease\\\":true}]").CompatibleWpf,
+            Require(!LauncherReleaseService.SelectStableRelease(
+                serializer.Serialize(new object[] {
+                    new { tag_name = "room-lab", prerelease = true }
+                })).CompatibleWpf,
                 "房间实验发布不能成为正式 WPF 更新");
             // This runs a simulated HTTP transport (no DNS or credentials)
             // through the SAME CmlLib game routing handler as production.
