@@ -2956,7 +2956,7 @@ namespace BlockCraftLauncher.Wpf
         }
         void ShowReleaseNotes()
         {
-            MessageBox.Show("BlockCraft Launcher v0.9.31 · 搜索界面与更新体验优化\n\n"
+            MessageBox.Show("BlockCraft Launcher v0.9.32 · 搜索界面与更新体验优化\n\n"
                 + "· 点击“下载并安装”后直接执行已校验更新，不再弹出“是/否”确认窗口\n"
                 + "· 新版自动打开并在状态栏显示结果；更新失败时才弹出故障提示\n"
                 + "· 保留自动检测、稳定/预览双通道、SHA-256 验证和独立回滚\n"
