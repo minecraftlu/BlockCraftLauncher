@@ -142,6 +142,8 @@
         </StackPanel>
         <TextBlock TextWrapping="Wrap" Foreground="#D5B682" Margin="0,5,0,0"
                    Text="此按钮会向网易服务器发送真实登录与入房请求。只对自己创建或已获得房主许可的房间使用；探针结束时会关闭本地连接，但网易房间列表中的离线记录可能暂时保留；尚不能加载游戏世界。" />
+        <TextBlock TextWrapping="Wrap" Foreground="#8FD7E7" Margin="0,6,0,2"
+                   Text="Stage 12.9 · 入房回执诊断：新版会显示服务器实际返回的数字拒绝码。0=入房成功，1=房间不存在，4=房间满员，14=密码错误；未知码只报告数字，不推测账号、权限或协议问题。没有回执不等于服务器拒绝。仍不代表进入游戏世界。" />
         <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
           <Button x:Name="RealWebRTCButton" IsEnabled="False"
                   Style="{StaticResource PrimaryButton}" Click="RealWebRTC_Click"
