@@ -47,3 +47,13 @@
 Windows 10/11 真实用户须验证：旧的 **v0.9.30 RC2 由于自身仍包含确认弹窗，升级到 v0.9.31 RC1 时会最后显示一次旧弹窗**，这是旧二进制无法被新包修改的正常行为。安装 v0.9.31 后，应通过之后的**更高版本**再次测试「下载并安装」，届时不会出现确认弹窗；安装成功后自动打开新主窗口。还需检查 Modrinth 和 CurseForge 在线搜索、分类/版本筛选和图标；安装游戏/模组与整合包成功；浅色/深色、DPI 与 840 像素窗口无遮挡。使用受限权限安装目录、断网和杀软拦截时，失败必须可恢复。
 
 **未经上述实测验收，不将 RC1 宣称为最终 Stable。**
+
+## 2026-11-10 · v0.9.31 RC1 已受控发布
+
+- 公开发行：[v0.9.31-wpf-rc.1 GitHub Release](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.31-wpf-rc.1)，含独立 OneFile EXE、完整 ZIP、单文件 SHA-256 和完整 SHA-256 清单。**prerelease，不是 Stable。**
+- 发布构建：[GitHub Actions #42693630922](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42693630922) **success**。全新 Windows runner 下检查版本门禁、静态回归、普通/单 EXE、更新助手模拟失败回滚、WPF 实际窗口渲染、SHA-256 校验以及上传发布资产均成功。
+- 开发构建：[GitHub Actions #42693187901](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42693187901) **success**（29 项）。
+- 主功能：用户点击安装后不再在新版应用中出现旧版「确认安装 / 是 / 否」弹窗；独立更新助手仍备份、退出后替换、成功自动重开，只有下载/校验/安装/启动故障时阻断式提示。
+- 搜索 UI：官方游戏版本、Modrinth 模组/光影/资源包、CurseForge、整合包、下载任务统一搜索筛选、真实项目图片、结果卡片、进度与中文提示；首页/侧栏/设置/其他页面统一标题与暗/亮色。
+- 首次升级注意：v0.9.30 RC2 旧程序的确认框不能由 v0.9.31 远程消除。从 RC2 更新到 RC1 时可能还会显示旧弹窗一次；**只有安装 v0.9.31 后的下一次更新**才能验证真正的失败才弹窗逻辑。想立即跳过旧弹窗可以手动下载 RC1。
+- 实机在线下载与实际 UI/DPI、Minecraft/模组兼容、静默更新下一版本仍待验收。Stable 继续不满足发布门槛。
