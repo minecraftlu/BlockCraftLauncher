@@ -64,8 +64,10 @@ namespace BlockCraftLauncher.Wpf
         TextBox packSearchQuery;
         ListBox packSearchResults;
         ListBox modUpgradeResults;
-        TextBox cfSearchQuery;
+        TextBox cfSearchQuery, cfVersionFilter;
         ListBox cfSearchResults;
+        ComboBox cfCategoryFilter, cfSortMode;
+        readonly List<CurseForgeHit> cfLoadedHits = new List<CurseForgeHit>();
         TextBlock cfSearchStatus;
         CancellationTokenSource cfSearchCancellation;
         CheckBox settingsMcim;
@@ -1250,35 +1252,38 @@ namespace BlockCraftLauncher.Wpf
         UIElement BuildCurseForge()
         {
             var root = Col(PageHeading("下载中心 / CurseForge", "CurseForge 模组",
-                "搜索模组名称、浏览作者实拍截图与项目介绍；下载前再次核对版本、依赖及授权链接。"));
+                "搜索模组、浏览真实项目图片、筛选游戏版本，再按已安装实例选择兼容文件。"));
             if (!settings.McimEnabled)
                 return Col(
-                    Txt("CurseForge 需要主动启用 MCIM 社区镜像。启用后将从该镜像获取项目图片与模组信息，"
-                        + "没有自动使用任何其他启动器的私有 API Key。", 13),
-                    Row(Btn("确认启用 CurseForge 图文搜索", () =>
-                    {
-                        if (MessageBox.Show(this,
-                            "MCIM 是第三方社区镜像，可能暂时不可用，缓存信息也可能晚于官方。\n" +
-                            "启用后从 MCIM 查询模组；安装使用受允许的下载 URL 和 SHA-1 校验，链接不可用时停止。\n\n" +
-                            "是否主动启用并保存这一设置？",
-                            "启用社区模组镜像",
-                            MessageBoxButton.YesNo, MessageBoxImage.Question)
-                            != MessageBoxResult.Yes) return;
-                        settings.McimEnabled = true;
-                        try { store.Save(settings); }
-                        catch (Exception ex)
+                    PageHeading("下载中心 / CurseForge", "开启 CurseForge 搜索",
+                        "此搜索通过第三方 MCIM 社区镜像获取项目列表，需要主动启用。"),
+                    SearchCard(Col(
+                        Txt("可选的第三方资源来源", 18, true),
+                        Txt("启用后才会从 MCIM 读取公开的项目名称、图标、截图及元数据。"
+                            + "不会使用其他启动器的私有 API Key；镜像可能限流或暂时不可用。", 12, false, true),
+                        Row(Btn("启用 CurseForge 搜索", () =>
                         {
-                            settings.McimEnabled = false;
-                            ShowError("保存 MCIM 设置失败", ex);
-                            return;
-                        }
-                        Navigate("CurseForge");
-                        Status("已启用 MCIM 图文搜索，可查询 CurseForge 模组封面和截图。");
-                    }, true),
-                    Btn("前往设置", () => Navigate("设置"))));
+                            if (MessageBox.Show(this,
+                                "MCIM 是第三方社区镜像，缓存资料可能滞后。\n" +
+                                "安装时仍会校验版本、文件哈希及允许分发的链接。\n\n" +
+                                "是否启用 CurseForge 搜索？",
+                                "启用社区模组来源",
+                                MessageBoxButton.YesNo, MessageBoxImage.Question)
+                                != MessageBoxResult.Yes) return;
+                            settings.McimEnabled = true;
+                            try { store.Save(settings); }
+                            catch (Exception ex)
+                            {
+                                settings.McimEnabled = false;
+                                ShowError("保存社区资源设置失败", ex);
+                                return;
+                            }
+                            Navigate("CurseForge");
+                            Status("已启用 CurseForge 图文搜索。");
+                        }, true), Btn("查看下载设置", () => Navigate("设置"))))));
 
-            cfSearchQuery = new TextBox { Width = 325,
-                ToolTip = "输入模组名称（支持中英文），留空可查询热门模组" };
+            cfSearchQuery = new TextBox { Width = 310 };
+            ApplySearchInputStyle(cfSearchQuery, "输入模组名称、作者或关键词；留空浏览热门模组");
             cfSearchQuery.KeyDown += async (sender, args) =>
             {
                 if (args.Key == System.Windows.Input.Key.Enter)
@@ -1287,30 +1292,89 @@ namespace BlockCraftLauncher.Wpf
                     await SearchCurseForgeAsync();
                 }
             };
-            cfSearchStatus = Txt("搜索模组后，点击列表可预览模组封面和相关截图。", 12, false, true);
-            cfSearchStatus.Margin = new Thickness(0, 4, 0, 4);
-            root.Children.Add(Card(Col(
-                Txt("搜索 Minecraft 模组", 18, true),
-                Row(cfSearchQuery, Btn("搜索模组", async () => await SearchCurseForgeAsync(), true),
-                    Btn("清空关键词", () => cfSearchQuery.Text = "")),
-                cfSearchStatus)));
+            cfVersionFilter = new TextBox { Width = 155 };
+            ApplySearchInputStyle(cfVersionFilter, "在当前页筛选，例如输入 1.21.1");
+            cfVersionFilter.TextChanged += (sender, args) => ApplyCurseForgeFilters();
+            cfCategoryFilter = new ComboBox
+            {
+                ItemsSource = new[] { "全部分类" }, SelectedIndex = 0, Width = 178
+            };
+            ApplySearchInputStyle(cfCategoryFilter, "当前页已有项目的分类");
+            cfCategoryFilter.SelectionChanged += (sender, args) => ApplyCurseForgeFilters();
+            cfSortMode = new ComboBox
+            {
+                ItemsSource = new[] { "相关度", "最多下载", "按名称" },
+                SelectedIndex = 0, Width = 145
+            };
+            ApplySearchInputStyle(cfSortMode, "排序只针对当前已加载的项目");
+            cfSortMode.SelectionChanged += (sender, args) => ApplyCurseForgeFilters();
 
+            var filters = Row(
+                Txt("版本", 12, false, true), cfVersionFilter,
+                Txt("分类", 12, false, true), cfCategoryFilter,
+                Txt("排序", 12, false, true), cfSortMode);
+            root.Children.Add(SearchCard(Col(
+                Txt("搜索 Minecraft 模组", 18, true),
+                Txt("项目数据来自 CurseForge / MCIM；版本、分类和排序仅作用于当前加载的搜索结果。", 12, false, true),
+                Row(Txt("名称", 12, false, true), cfSearchQuery,
+                    Btn("搜索模组", async () => await SearchCurseForgeAsync(), true),
+                    Btn("重置筛选", () =>
+                    {
+                        cfSearchQuery.Text = "";
+                        cfVersionFilter.Text = "";
+                        cfCategoryFilter.SelectedIndex = 0;
+                        cfSortMode.SelectedIndex = 0;
+                        ApplyCurseForgeFilters();
+                    })),
+                filters)));
+
+            cfSearchStatus = Txt("输入关键词后点击搜索；空关键词可以浏览热门项目。", 12, false, true);
             cfSearchResults = new ListBox
             {
-                Height = 390,
+                Height = 460,
                 ItemTemplate = (DataTemplate)FindResource("CurseForgeItemTemplate"),
-                ToolTip = "双击模组查看原作者提供的游戏截图"
+                ToolTip = "单击选中，双击查看原作者上传的模组截图"
             };
             cfSearchResults.MouseDoubleClick += (sender, args) => ShowCurseForgeDetails();
-            root.Children.Add(Card(Col(Txt("搜索结果 · 图文列表", 18, true), cfSearchResults)));
+            root.Children.Add(ResultsCard(Col(
+                Txt("CurseForge 搜索结果", 18, true),
+                cfSearchStatus, cfSearchResults)));
 
-            root.Children.Add(Card(Col(Txt("模组详情与安装", 18, true),
-                Row(Btn("查看模组封面与截图", ShowCurseForgeDetails),
-                    Btn("安装选中模组", async () => await InstallCurseForgeAsync(), true),
-                    Btn("打开下载任务", () => Navigate("下载管理"))),
-                Txt("截图来自模组原始项目元数据，不会伪造模组实际游戏画面；部分项目未上传图片。"
-                    + " 具体兼容性由安装步骤再次检查。", 12, false, true))));
+            root.Children.Add(Card(Col(Txt("选择模组后", 18, true),
+                Row(Btn("查看模组图片与详情", ShowCurseForgeDetails),
+                    Btn("安装到当前游戏实例", async () => await InstallCurseForgeAsync(), true),
+                    Btn("查看下载任务", () => Navigate("下载管理"))),
+                Txt("图片来自作者提供的项目资料；项目是否兼容当前实例由安装前的实际文件检查决定。", 12, false, true))));
             return root;
+        }
+
+        void ApplyCurseForgeFilters()
+        {
+            if (cfSearchResults == null || currentPage != "CurseForge") return;
+            string version = (cfVersionFilter?.Text ?? "").Trim();
+            string category = Convert.ToString(cfCategoryFilter?.SelectedItem) ?? "全部分类";
+            IEnumerable<CurseForgeHit> filtered = cfLoadedHits;
+            if (version.Length > 0)
+                filtered = filtered.Where(hit =>
+                    (hit.VersionsLabel ?? "").IndexOf(version, StringComparison.OrdinalIgnoreCase) >= 0);
+            if (category != "全部分类")
+                filtered = filtered.Where(hit =>
+                    (hit.CategoryLabel ?? "").Split(new[] { " · " },
+                        StringSplitOptions.RemoveEmptyEntries).Any(value =>
+                            string.Equals(value, category, StringComparison.OrdinalIgnoreCase)));
+            if (cfSortMode?.SelectedIndex == 1)
+                filtered = filtered.OrderByDescending(hit => hit.DownloadCount);
+            else if (cfSortMode?.SelectedIndex == 2)
+                filtered = filtered.OrderBy(hit => hit.Name, StringComparer.CurrentCultureIgnoreCase);
+            var visible = filtered.ToList();
+            cfSearchResults.ItemsSource = visible;
+            if (cfSearchStatus != null)
+                cfSearchStatus.Text = cfLoadedHits.Count == 0 ?
+                    "暂无项目；请搜索名称或检查 MCIM 网络设置。" :
+                    visible.Count == 0 ?
+                    "当前已加载的项目中没有匹配项；可清除版本/分类筛选，或尝试其他搜索词。" :
+                    "当前页显示 " + visible.Count + " / " + cfLoadedHits.Count +
+                    " 个模组 · 双击查看图片 · 安装时再次确认兼容性。";
         }
 
         void ShowCurseForgeDetails()
@@ -1406,10 +1470,20 @@ namespace BlockCraftLauncher.Wpf
                     found = await client.SearchAsync(query, cancellation.Token);
                 if (cancellation.IsCancellationRequested ||
                     currentPage != "CurseForge" || results != cfSearchResults) return;
-                results.ItemsSource = found;
-                if (label != null)
-                    label.Text = found.Count == 0 ? "未找到符合条件的模组，试试其他关键词。" :
-                        "找到 " + found.Count + " 个模组；点击选择，双击或按详情按钮查看截图。";
+                cfLoadedHits.Clear();
+                cfLoadedHits.AddRange(found);
+                if (cfCategoryFilter != null)
+                {
+                    var categories = found.SelectMany(hit =>
+                        (hit.CategoryLabel ?? "").Split(new[] { " · " },
+                            StringSplitOptions.RemoveEmptyEntries))
+                        .Distinct(StringComparer.CurrentCultureIgnoreCase)
+                        .OrderBy(value => value, StringComparer.CurrentCultureIgnoreCase);
+                    cfCategoryFilter.ItemsSource = new[] { "全部分类" }
+                        .Concat(categories).ToArray();
+                    cfCategoryFilter.SelectedIndex = 0;
+                }
+                ApplyCurseForgeFilters();
                 Status("CurseForge 已加载 " + found.Count + " 个图文项目");
             }
             catch (OperationCanceledException) { /* Search or page switch cancelled. */ }
