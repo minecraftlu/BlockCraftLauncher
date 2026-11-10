@@ -406,7 +406,8 @@ namespace BlockCraftLauncher.Wpf
 
             onlineSource.ItemsSource = new[] {
                 "自由授权图库（Mosaicary）", "全部图库（多来源）",
-                "社区图库（DP-Plugins）", "玩家皮肤（Mojang）" };
+                "社区图库（DP-Plugins）",
+                "全部公开皮肤（未授权仅预览）", "玩家皮肤（Mojang）" };
             onlineSource.SelectedIndex = 1; // all supported galleries, by default
             onlineSource.Width = 186;
             StyleSearch(onlineSource);
@@ -533,8 +534,11 @@ namespace BlockCraftLauncher.Wpf
 
         void UpdateOnlineFilters()
         {
-            bool catalog = onlineSource.SelectedIndex == 0 || onlineSource.SelectedIndex == 1;
-            bool player = onlineSource.SelectedIndex == 3;
+            bool catalog = onlineSource.SelectedIndex == 0 ||
+                onlineSource.SelectedIndex == 1 || onlineSource.SelectedIndex == 3;
+            bool player = onlineSource.SelectedIndex == 4;
+            if (onlineSource.SelectedIndex == 3)
+                onlineOpenOnly.IsChecked = false;
             onlineCategory.IsEnabled = onlineSort.IsEnabled = catalog;
             onlineArms.IsEnabled = catalog;
             onlineOpenOnly.IsEnabled = !player;
@@ -588,26 +592,27 @@ namespace BlockCraftLauncher.Wpf
             onlineStatus.Text = "正在搜索在线皮肤（会保留原作者许可信息）...";
             try
             {
-                if (source == 3 && query.Length == 0)
+                if (source == 4 && query.Length == 0)
                     throw new ArgumentException("玩家搜索需要输入 Minecraft Java 玩家名或 UUID");
                 var entries = new List<OnlineSkinEntry>();
                 int maxPage = 1;
                 int total = 0;
                 var errors = new List<string>();
-                if (source == 0 || source == 1)
+                if (source == 0 || source == 1 || source == 3)
                 {
                     try
                     {
                         var gallery = await OnlineSkinSearchService.BrowseMosaicaryAsync(
                             query, page, MosaicaryCategory(), MosaicaryModel(),
-                            MosaicarySort(), onlyFree, CancellationToken.None);
+                            MosaicarySort(), onlyFree, CancellationToken.None,
+                            source == 3);
                         entries.AddRange(gallery.Entries);
                         maxPage = gallery.TotalPages;
                         total = gallery.Total;
                     }
                     catch (Exception ex)
                     {
-                        if (source == 0) throw;
+                        if (source == 0 || source == 3) throw;
                         errors.Add("Mosaicary：" + ex.GetBaseException().Message);
                     }
                 }
@@ -625,7 +630,7 @@ namespace BlockCraftLauncher.Wpf
                         errors.Add("DP-Plugins：" + ex.GetBaseException().Message);
                     }
                 }
-                if (source == 3)
+                if (source == 4)
                     entries.AddRange(await OnlineSkinSearchService.FindPlayerAsync(
                         query, CancellationToken.None));
 
@@ -637,8 +642,10 @@ namespace BlockCraftLauncher.Wpf
                 onlinePage = page;
                 onlinePages = maxPage;
                 onlineResults.ItemsSource = entries;
-                onlinePrevButton.IsEnabled = page > 1 && (source == 0 || source == 1);
-                onlineNextButton.IsEnabled = page < maxPage && (source == 0 || source == 1);
+                onlinePrevButton.IsEnabled = page > 1 &&
+                    (source == 0 || source == 1 || source == 3);
+                onlineNextButton.IsEnabled = page < maxPage &&
+                    (source == 0 || source == 1 || source == 3);
                 onlinePageStatus.Text = "第 " + page + " / " + maxPage +
                     " 页 · 本页展示 " + entries.Count + " 项" +
                     (total > 0 ? " · 图库共有 " + total + " 项（筛选前）" : "") +
