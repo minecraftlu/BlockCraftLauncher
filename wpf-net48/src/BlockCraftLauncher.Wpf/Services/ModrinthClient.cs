@@ -28,11 +28,13 @@ namespace BlockCraftLauncher.Wpf.Services
         public string CategoryLabel { get; set; }
         public string LoaderLabel { get; set; }
         public string VersionsLabel { get; set; }
-        public string SourceLabel => "Modrinth";
+        public string Source { get; set; } = "Modrinth";
+        public string SourceLabel => Source == "GitHub" ? "GitHub 开源" : "Modrinth";
         public string KindLabel
         {
             get
             {
+                if (Source == "GitHub") return "社区开源仓库 · GitHub Releases";
                 switch (Kind)
                 {
                     case "mod": return "模组 · Modrinth";
