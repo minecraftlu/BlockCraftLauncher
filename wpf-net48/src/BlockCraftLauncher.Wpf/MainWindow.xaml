@@ -22,7 +22,7 @@
     <Border Background="{DynamicResource TitleBarBrush}">
       <Grid Margin="13,0,5,0">
         <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="187"/>
+          <ColumnDefinition Width="203"/>
           <ColumnDefinition Width="*"/>
           <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>

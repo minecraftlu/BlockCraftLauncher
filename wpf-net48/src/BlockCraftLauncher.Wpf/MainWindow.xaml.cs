@@ -123,7 +123,7 @@ namespace BlockCraftLauncher.Wpf
             TopSettingsButton.Click += (sender, args) => Navigate("设置");
             TopMoreButton.Click += (sender, args) => Navigate("关于");
             TaskShortcut.Click += (sender, args) => Navigate("下载管理");
-            BuildVersionText.Text = LauncherAutoUpdateService.CurrentTag + "  ·  预览版";
+            BuildVersionText.Text = LauncherAutoUpdateService.CurrentTag.Split('-')[0] + "  ·  预览版";
             ApplyTheme();
             ApplyZoom();
             Navigate("首页");
@@ -1091,6 +1091,18 @@ namespace BlockCraftLauncher.Wpf
             resourceQuery.Text = "示例筛选";
             resourceList.SelectedIndex = 0;
             ArrangeLayoutProbe(1080, 680, "03-download");
+            string originalTheme = settings.Theme;
+            try
+            {
+                settings.Theme = "深色";
+                ApplyTheme();
+                ArrangeLayoutProbe(1080, 680, "06-dark-download");
+            }
+            finally
+            {
+                settings.Theme = originalTheme;
+                ApplyTheme();
+            }
             ArrangeLayoutProbe(850, 560);
             if (resourceList.Items.Count != 2 || resourceSource.SelectedIndex != 0 ||
                 resourceMatchVersion == null || resourceQuery.ActualWidth < 140 ||
@@ -1185,6 +1197,9 @@ namespace BlockCraftLauncher.Wpf
             if (settingsNetworkMode == null || settingsDownloadThreads == null)
                 throw new InvalidOperationException("下载设置缺少字段");
             ArrangeLayoutProbe(1080, 680, "05-settings");
+            if (Math.Abs(settingsNetworkMode.TranslatePoint(new Point(), PageHost).X -
+                    settingsDownloadThreads.TranslatePoint(new Point(), PageHost).X) > 1)
+                throw new InvalidOperationException("下载设置输入框未左对齐");
             Navigate("个性化");
             if (settingsTheme == null || settingsZoom == null)
                 throw new InvalidOperationException("个性化设置缺少字段");
@@ -1312,14 +1327,15 @@ namespace BlockCraftLauncher.Wpf
         static Border ProjectResults(TextBlock status, ListBox results, WrapPanel actions,
             Button previous = null, Button next = null)
         {
-            var content = Col(Txt("搜索结果", 16, true), status, results, actions);
+            var footer = new DockPanel { Margin = new Thickness(0, 3, 0, 0) };
             if (previous != null && next != null)
             {
                 var pages = Row(previous, next);
-                pages.HorizontalAlignment = HorizontalAlignment.Center;
-                content.Children.Add(pages);
+                DockPanel.SetDock(pages, Dock.Right);
+                footer.Children.Add(pages);
             }
-            return ResultsCard(content);
+            footer.Children.Add(actions);
+            return ResultsCard(Col(Txt("搜索结果", 16, true), status, results, footer));
         }
 
         UIElement BuildResources(string type)
@@ -2649,7 +2665,13 @@ namespace BlockCraftLauncher.Wpf
             Place(form, title, row, 0);
 
             var right = new StackPanel { Margin = new Thickness(0, 0, 0, 12) };
-            editor.HorizontalAlignment = HorizontalAlignment.Stretch;
+            if (!double.IsPositiveInfinity(editor.MaxWidth))
+            {
+                editor.Width = editor.MaxWidth;
+                editor.HorizontalAlignment = HorizontalAlignment.Left;
+            }
+            else
+                editor.HorizontalAlignment = HorizontalAlignment.Stretch;
             if (editor is TextBox input)
             {
                 input.MinWidth = 100;

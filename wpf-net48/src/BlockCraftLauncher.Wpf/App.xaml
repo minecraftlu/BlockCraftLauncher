@@ -412,7 +412,18 @@
                        TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"/>
             <WrapPanel Margin="0,3,0,0">
               <TextBlock Text="{Binding BaseVersion}" Foreground="{DynamicResource MutedBrush}" Margin="0,0,9,0"/>
-              <TextBlock Text="{Binding Loader}" Foreground="{DynamicResource MutedBrush}"/>
+              <TextBlock Foreground="{DynamicResource MutedBrush}">
+                <TextBlock.Style>
+                  <Style TargetType="TextBlock">
+                    <Setter Property="Text" Value="{Binding Loader}"/>
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding Loader}" Value="vanilla">
+                        <Setter Property="Text" Value="原版"/>
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </TextBlock.Style>
+              </TextBlock>
             </WrapPanel>
             <TextBlock Text="{Binding Directory}" Foreground="{DynamicResource MutedBrush}"
                        TextTrimming="CharacterEllipsis" ToolTip="{Binding Directory}" FontSize="11"/>

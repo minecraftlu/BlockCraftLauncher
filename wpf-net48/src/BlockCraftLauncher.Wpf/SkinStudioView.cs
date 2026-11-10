@@ -104,7 +104,12 @@ namespace BlockCraftLauncher.Wpf
 
         static Button ActionButton(string caption, Action action, bool accent = false)
         {
-            var b = new Button { Content = caption, MinHeight = 36 };
+            var b = new Button { MinHeight = 34 };
+            var label = new TextBlock { Text = caption };
+            label.SetBinding(TextBlock.ForegroundProperty, new System.Windows.Data.Binding(nameof(Button.Foreground))
+                { Source = b, Mode = System.Windows.Data.BindingMode.OneWay });
+            b.Content = label;
+            System.Windows.Automation.AutomationProperties.SetName(b, caption);
             if (accent)
                 b.SetResourceReference(FrameworkElement.StyleProperty, "AccentButton");
             b.Click += (sender, args) => action();
@@ -170,7 +175,6 @@ namespace BlockCraftLauncher.Wpf
             columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
             columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(249) });
 
-            var editorLeft = Column();
             var toolRow = new WrapPanel();
             tool.ItemsSource = new[] { "画笔", "橡皮擦", "取色器", "油漆桶" };
             tool.SelectedIndex = 0; tool.Width = 116;
@@ -191,11 +195,9 @@ namespace BlockCraftLauncher.Wpf
             }
             part.SelectionChanged += (sender, args) => DrawGuides();
             layer.SelectionChanged += (sender, args) => DrawGuides();
-            editorLeft.Children.Add(Card(Column(
-                Label("绘制工具", 16, true), toolRow,
-                Row(ActionButton("撤销（Ctrl+Z）", () => { document.Undo(); }),
-                    ActionButton("重做（Ctrl+Y）", () => { document.Redo(); }),
-                    ActionButton("清除所选图层", ClearSelection)))) );
+            var history = Row(ActionButton("撤销（Ctrl+Z）", () => { document.Undo(); }),
+                ActionButton("重做（Ctrl+Y）", () => { document.Redo(); }),
+                ActionButton("清除所选图层", ClearSelection));
 
             texture.Stretch = Stretch.Fill;
             RenderOptions.SetBitmapScalingMode(texture, BitmapScalingMode.NearestNeighbor);
@@ -228,14 +230,12 @@ namespace BlockCraftLauncher.Wpf
                 Height = 413, Content = paintingSurface
             };
             viewport.SetResourceReference(Control.BackgroundProperty, "SearchSurfaceBrush");
-            editorLeft.Children.Add(Card(Column(
-                Label("像素画布", 16, true),
-                Label("蓝线标记基础层，金线标记外层。拖动鼠标可连续绘制。"),
+            var editor = Card(Column(Label("像素画布", 16, true),
+                toolRow, history,
                 Row(Label("缩放"), zoom, Label("画笔大小"), brush, showGrid),
-                viewport,
-                pointInfo)));
-            Grid.SetColumn(editorLeft, 0);
-            columns.Children.Add(editorLeft);
+                viewport, pointInfo,
+                Label("蓝线标记基础层，金线标记外层。拖动鼠标可连续绘制。")));
+            columns.Children.Add(editor);
 
             var rightPanel = Column();
             armModel.ItemsSource = new[] { "经典宽臂 · Steve（4px）", "纤细手臂 · Alex（3px）" };
