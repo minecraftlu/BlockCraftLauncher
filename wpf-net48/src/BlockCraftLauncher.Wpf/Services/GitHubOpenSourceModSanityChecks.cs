@@ -30,7 +30,10 @@ namespace BlockCraftLauncher.Wpf.Services
                 ["full_name"] = name,
                 ["description"] = "Minecraft Java open source mod",
                 ["archived"] = archived, ["fork"] = false, ["private"] = false,
-                ["owner"] = new Dictionary<string, object> { ["login"] = name.Split('/')[0] },
+                ["owner"] = new Dictionary<string, object> {
+                    ["login"] = name.Split('/')[0],
+                    ["avatar_url"] = "https://avatars.githubusercontent.com/u/123456?v=4"
+                },
                 ["license"] = license == null ? null :
                     new Dictionary<string, object> { ["spdx_id"] = license }
             };
@@ -83,8 +86,18 @@ namespace BlockCraftLauncher.Wpf.Services
                 "只有明确 SPDX 开源许可的有效公开仓库被展示");
             Require(page.Hits[0].Source == "GitHub" &&
                 page.Hits[0].SourceLabel == "GitHub 开源" &&
-                page.Hits[0].CategoryLabel.Contains("MIT"),
-                "GitHub 的来源和许可需清晰标注");
+                page.Hits[0].CategoryLabel.Contains("MIT") &&
+                page.Hits[0].IconUrl == "https://avatars.githubusercontent.com/u/123456?v=4",
+                "GitHub 的来源、许可及作者头像需清晰标注");
+            Require(GitHubOpenSourceModClient.TrustedAuthorAvatar(
+                    "https://avatars.githubusercontent.com/u/123?v=4") != null &&
+                GitHubOpenSourceModClient.TrustedAuthorAvatar(
+                    "https://avatars.githubusercontent.com.evil.invalid/u/123") == null &&
+                GitHubOpenSourceModClient.TrustedAuthorAvatar(
+                    "http://avatars.githubusercontent.com/u/123") == null &&
+                GitHubOpenSourceModClient.TrustedAuthorAvatar(
+                    "https://avatars.githubusercontent.com/other/malicious.png") == null,
+                "只允许 Github 官方头像主机和严格的 ID 路径");
         }
 
         static void ReleaseAssets()
