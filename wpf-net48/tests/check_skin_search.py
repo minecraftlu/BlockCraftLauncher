@@ -79,5 +79,15 @@ assert "File.Move(stage, target)" in service
 assert "File.Move(noteStage, committed + \".source.txt\")" in service
 assert "SkinSourceNote(skin)" in service
 assert "if (!skin.CanDownload)" in service
+# Public-but-not-free-license skins are opt-in single-item downloads.
+# Display and attribution must never represent an ARR/unknown skin as CC0.
+assert "RequiresLicenseNotice" in service
+assert 'Source == "Mosaicary" || Source == "DP-Plugins"' in service
+assert "Not verified; saving does not grant reuse or redistribution rights" in service
+assert "ConfirmUnlicensedSkin(item, \"下载\")" in studio
+assert "ConfirmUnlicensedSkin(item, \"下载并编辑\")" in studio
+assert 'MessageBoxButton.YesNo, MessageBoxImage.Warning' in studio
+assert "仅显示开放许可" in studio
+assert "source=all" in service
 
 print("PASS: online skin search/download static wiring (real Windows tests still required)")
