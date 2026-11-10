@@ -1,7 +1,7 @@
 param([Parameter(Mandatory)][ValidateSet('Preflight', 'Live')][string]$Phase)
 
 $ErrorActionPreference = 'Stop'
-if ($env:RELEASE_TAG -ne 'v0.9.37-wpf-rc.3') { throw 'RC3 preview requires exactly v0.9.37-wpf-rc.3' }
+if ($env:RELEASE_TAG -ne 'v0.9.37-wpf-rc.4') { throw 'RC4 preview requires exactly v0.9.37-wpf-rc.4' }
 $env:BCL_TAG = $env:RELEASE_TAG
 $env:BCL_ZIP = $env:RELEASE_ZIP
 $env:BCL_SINGLE = $env:RELEASE_EXE
@@ -222,7 +222,7 @@ function Test-Upgrade($mode, $probe, $sha, $bootstrap) {
       if ((Get-FileHash -LiteralPath $bootstrap -Algorithm SHA256).Hash -ne $sha) {
         throw 'OneFile update did not replace the original bootstrap'
       }
-      $main = Join-Path (Find-OneFilePayload $env:BCL_NEW_WPF_SHA 'v0.9.37-wpf-rc.3') 'BlockCraftLauncher.Wpf.exe'
+      $main = Join-Path (Find-OneFilePayload $env:BCL_NEW_WPF_SHA 'v0.9.37-wpf-rc.4') 'BlockCraftLauncher.Wpf.exe'
     }
     if ((Get-FileHash -LiteralPath $main -Algorithm SHA256).Hash -ne $env:BCL_NEW_WPF_SHA) {
       throw "$mode installed an unexpected WPF executable"
