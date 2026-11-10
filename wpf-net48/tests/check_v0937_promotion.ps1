@@ -1,7 +1,7 @@
 param([Parameter(Mandatory)][ValidateSet('Preflight', 'Live')][string]$Phase)
 
 $ErrorActionPreference = 'Stop'
-if ($env:RELEASE_TAG -ne 'v0.9.37') { throw 'Stable promotion requires exactly v0.9.37' }
+if ($env:RELEASE_TAG -ne 'v0.9.37-wpf-rc.1') { throw 'RC1 preview requires exactly v0.9.37-wpf-rc.1' }
 $env:BCL_TAG = $env:RELEASE_TAG
 $env:BCL_ZIP = $env:RELEASE_ZIP
 $env:BCL_SINGLE = $env:RELEASE_EXE
@@ -45,7 +45,7 @@ if ($Phase -eq 'Preflight') {
   $names = @($env:BCL_SINGLE, $env:BCL_ZIP, 'RELEASE-SHA256SUMS.txt')
   $candidate = @(@{
     tag_name = $env:BCL_TAG
-    prerelease = $false
+    prerelease = $true
     draft = $false
     html_url = "$page/tag/$env:BCL_TAG"
     assets = @($names | ForEach-Object {
@@ -80,10 +80,10 @@ public static class ReleaseProbe
         string json = File.ReadAllText(fixture);
         foreach (string mode in new[] { "zip", "onefile" })
         {
-            var offer = LauncherAutoUpdateService.SelectOffer(json, "stable", mode);
+            var offer = LauncherAutoUpdateService.SelectOffer(json, "preview", mode);
             if (offer == null || offer.Tag != tag ||
-                LauncherAutoUpdateService.SelectOffer(json, "preview", mode) != null ||
-                LauncherAutoUpdateService.SelectOffer(json, "stable", mode, tag) != null)
+                LauncherAutoUpdateService.SelectOffer(json, "stable", mode) != null ||
+                LauncherAutoUpdateService.SelectOffer(json, "preview", mode, tag) != null)
                 throw new InvalidOperationException("Wrong channel selection for " + mode);
         }
 
@@ -100,7 +100,7 @@ public static class ReleaseProbe
         Environment.SetEnvironmentVariable("BLOCKCRAFT_SINGLEFILE_BOOTSTRAP", mode == "onefile" ? bootstrap : null);
         if (LauncherAutoUpdateService.InstallMode != mode)
             throw new InvalidOperationException("Unexpected install mode");
-        var updater = new LauncherAutoUpdateService(new LauncherConfig { UpdateChannel = "stable" });
+        var updater = new LauncherAutoUpdateService(new LauncherConfig { UpdateChannel = "preview" });
         using (var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(140)))
         {
             LauncherUpdateOffer offer = null;
@@ -222,7 +222,7 @@ function Test-Upgrade($mode, $probe, $sha, $bootstrap) {
       if ((Get-FileHash -LiteralPath $bootstrap -Algorithm SHA256).Hash -ne $sha) {
         throw 'OneFile update did not replace the original bootstrap'
       }
-      $main = Join-Path (Find-OneFilePayload $env:BCL_NEW_WPF_SHA 'v0.9.37') 'BlockCraftLauncher.Wpf.exe'
+      $main = Join-Path (Find-OneFilePayload $env:BCL_NEW_WPF_SHA 'v0.9.37-wpf-rc.1') 'BlockCraftLauncher.Wpf.exe'
     }
     if ((Get-FileHash -LiteralPath $main -Algorithm SHA256).Hash -ne $env:BCL_NEW_WPF_SHA) {
       throw "$mode installed an unexpected WPF executable"
