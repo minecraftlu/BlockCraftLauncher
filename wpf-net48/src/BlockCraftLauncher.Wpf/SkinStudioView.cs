@@ -28,6 +28,7 @@ namespace BlockCraftLauncher.Wpf
         readonly Func<byte[], bool, System.Threading.Tasks.Task> uploadToMicrosoft;
         readonly Func<string> accountName;
         readonly Action openEditor;
+        readonly Action openDownloads;
         readonly Action<OnlineSkinEntry> queueSkinDownload;
         UIElement editorPage;
         UIElement downloadPage;
@@ -161,11 +162,13 @@ namespace BlockCraftLauncher.Wpf
             Func<byte[], bool, System.Threading.Tasks.Task> uploadToMicrosoft = null,
             Func<string> accountName = null,
             Action openEditor = null,
-            Action<OnlineSkinEntry> queueSkinDownload = null)
+            Action<OnlineSkinEntry> queueSkinDownload = null,
+            Action openDownloads = null)
         {
             this.uploadToMicrosoft = uploadToMicrosoft;
             this.accountName = accountName;
             this.openEditor = openEditor;
+            this.openDownloads = openDownloads;
             this.queueSkinDownload = queueSkinDownload;
             document.Changed += () =>
             {
@@ -211,7 +214,8 @@ namespace BlockCraftLauncher.Wpf
                 Row(ActionButton("导入 PNG", ImportPng),
                     ActionButton("保存到皮肤库", SaveToLibrary, true),
                     ActionButton("导出 PNG", ExportPng),
-                    ActionButton("新建皮肤", ResetTemplate)))));
+                    ActionButton("新建皮肤", ResetTemplate),
+                    ActionButton("前往皮肤下载", () => openDownloads?.Invoke())))));
             // Keep the online catalog out of the DIY editing page.
             // Both navigation entries reuse this one instance so unsaved
             // edits and the selected search result survive page switches.
@@ -395,7 +399,10 @@ namespace BlockCraftLauncher.Wpf
         {
             var root = Column(Label("皮肤下载中心", 20, true),
                 Label("浏览开放许可皮肤图库、筛选作者与分类、下载 PNG 或进入 DIY 编辑器。" +
-                    "公开可下载不代表开源，许可证信息以作者实际声明为准。"));
+                    "公开可下载不代表开源，许可证信息以作者实际声明为准。"),
+                Row(ActionButton("前往皮肤 DIY", () => openEditor?.Invoke()),
+                    ActionButton("查看下载任务", () =>
+                        onlineStatus.Text = "可在左侧「下载 → 下载任务」中取消、重试或查看皮肤任务进度。")));
 
             onlineSource.ItemsSource = new[] {
                 "自由授权图库（Mosaicary）", "全部图库（多来源）",
