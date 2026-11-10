@@ -1,0 +1,46 @@
+# BlockCraft Launcher v0.9.28 · 中国大陆下载与 CurseForge 模组图文界面
+
+本轮目标：下一正式版候选功能。**Windows CI 只做离线回归和构建，不代表已完成中国大陆真实线路测速或全部在线下载验证。**
+
+## 中国大陆下载与稳定性
+
+- 设置 → 下载与网络 → 下载线路，新增「中国大陆优先 · 镜像失败回官方」，保存后适用于受支持的 Mojang/Fabric/BMCLAPI 下载。
+- 「自动测速」保留官方与镜像 HEAD 轻量测试；按来源主机复用 10 分钟结果、同一主机并行请求只执行一次探测；网络/服务器异常后短时间偏向官方。404 不惩罚整个镜像，因为单个快照可能缺失。
+- NetworkDownloader 把原 45 秒的长文件 HTTP 总超时调整为 20 分钟；元数据仍有每次请求 18 秒限时和最大 12 MiB 流式读取，避免 API 把界面长时间卡住。
+- 源 URL 和预期 SHA-1 的 SHA-256 指纹保存在 .blockcraft.part.origin；中断后**仅同源同哈希继续断点**，切换官方和镜像前丢弃来源不明的半文件，避免混合导致最终哈希错误。
+- 同一目标文件已经通过 SHA-1 验证时直接复用，不重复下载。失败重试和最终 SHA-1 校验仍然保留。
+- Modrinth API/CDN 可以在**用户主动启用 MCIM**时使用公开社区镜像加速，异常自动回退官方域名。只映射严格白名单的 HTTPS 公共 Modrinth/CurseForge 地址；微软 OAuth、账号令牌和未知域名绝不交给镜像。
+- 并发默认仍为 12，可在设置中 2～32 调整。不是越高越快：家庭网络和 CDN 的合理范围一般要按实测决定，不声称无限并发/多线程可解决所有限速问题。
+
+## CurseForge 图文列表
+
+- 通过已经存在、需要用户主动开启的 MCIM 服务读取官方兼容字段：logo.thumbnailUrl、screenshots、authors、categories、downloadCount、latestFilesIndexes。
+- 搜索页使用原作者的真实模组封面（安全 CDN HTTPS）和名称、作者、介绍、下载量、分类、近期版本文字；**不是 AI 生成的模组图片**。
+- 点击「查看模组封面与截图」或双击列表项，打开模组详细信息和最多 4 张作者截图。缺图时保留占位，不会伪造截图。
+- 只接受 CurseForge CDN/MCIM 白名单图片与官方 CurseForge Minecraft 模组链接，不从结果 JSON 加载任意外部网站。
+- 收藏/安装依旧使用原项目 ID，安装时重新检查 Minecraft 版本、加载器、依赖、允许的下载地址及 SHA-1；UI 里显示近期版本只是提示，**不等于该实例已兼容**。
+- 用户可在 CurseForge 页点击「确认启用 CurseForge 图文搜索」主动授权打开 MCIM；原配置默认关闭，启用会另行保存。
+- MCIM 由第三方社区维护，可能存在版权条款、限流、缓存滞后或缺图。不能绕过 CurseForge 文件分发限制，无法取得授权 URL 时停止并提示手动官方下载安装。
+
+## Windows CI 覆盖
+
+- 既有 --download-selftest 在普通多文件 WPF EXE / 单文件 EXE 中加入完全离线模拟：国内优先映射与官方回退、无授权不重写、微软账号 URL 隔离、断点来源与 SHA-1 防混用、CurseForge 图片 URL 白名单、真实 API 结构字段解析、缺图占位、恶意链接拒绝。
+- WPF --ui-layout-selftest 验证 CurseForge 图文列表模板存在、原来的导航/下载/设置/账号入口继续可用。
+- 尚未通过真实大陆网络下载完整游戏、低带宽/限速/断网续传以及 Modrinth / CurseForge 全流程安装的量化对比；必须等用户实测后才能推进 v0.9.28 正式 Stable。
+
+## 实机验收建议
+
+1. Windows x64 用新版安装一个之前未装过的 Minecraft Java 版本：自动线路和国内优先分别下载，记录耗时、实际 MB/s、报错。
+2. 刻意中断合法的大文件下载，再继续；检查临时文件不会导致 JAR 损坏和游戏启动失败。
+3. 进入 CurseForge，主动启用 MCIM 并搜索 Sodium / JEI 等允许分发的模组，检查图标、截图和详情显示；无图项目要有占位。
+4. 使用与游戏版本匹配的模组验证安装；若作者禁止镜像下载，应停止并提示手动官方获取。
+5. 验证微软正版登录/游戏启动、存档/模组保存位置不变。
+
+本次不涉及网易手机版房间的互通实现。
+
+## 2026-11-10 · v0.9.28 RC1 发布结果
+
+- **GitHub Release Candidate 1**：[v0.9.28-wpf-rc.1](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.28-wpf-rc.1)，属于 prerelease，正式稳定版仍未发布。
+- **受控发布 CI**：[Windows #42678756716](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42678756716) **success**，覆盖版本/发布通道检查、WPF x64 编译、源码回归、普通与单 EXE 的离线测试、发布包 SHA-256 和 GitHub 资产上传。
+- 安装包：单文件 EXE、完整 ZIP、EXE 校验文件与 RELEASE-SHA256SUMS.txt 已上传到固定 GitHub Releases 页面，不依赖短期 Actions Artifact。
+- v0.9.27-wpf-rc.1 和旧 Python 主线没有被覆盖。真实中国大陆网络下载速度、断网续传和 CurseForge 图片/CDN 可用性仍等待 Windows 实测反馈。
