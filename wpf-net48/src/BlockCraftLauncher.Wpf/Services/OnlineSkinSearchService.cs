@@ -56,7 +56,7 @@ namespace BlockCraftLauncher.Wpf.Services
             {
                 Timeout = TimeSpan.FromSeconds(16)
             };
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher/0.9.35");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher/0.9.36");
             return client;
         }
 
