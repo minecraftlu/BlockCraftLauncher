@@ -1505,6 +1505,40 @@ namespace BlockCraftLauncher.Wpf
             else if (e.Key == Key.S) { SaveToLibrary(); e.Handled = true; }
         }
 
+        /// <summary>
+        /// Render a real WPF 3D preview of the built-in offline cyan skin
+        /// after the UI is laid out. Mesh-only tests cannot detect a model
+        /// which is technically present but transparent on the screen.
+        /// </summary>
+        internal void Verify3DRenderedPixels()
+        {
+            if (downloadMode || editor3D.ActualWidth < 150 ||
+                editor3D.ActualHeight < 150)
+                throw new InvalidOperationException("皮肤 3D 视图未正确布局");
+            int width = (int)Math.Round(editor3D.ActualWidth);
+            int height = (int)Math.Round(editor3D.ActualHeight);
+            var shot = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                width, height, 96, 96, PixelFormats.Pbgra32);
+            shot.Render(editor3D);
+            var pixels = new byte[width * height * 4];
+            shot.CopyPixels(pixels, width * 4, 0);
+            int teal = 0;
+            for (int y = height / 4; y < height * 3 / 4; y++)
+                for (int x = width / 5; x < width * 4 / 5; x++)
+                {
+                    int i = (y * width + x) * 4;
+                    int b = pixels[i], g = pixels[i + 1], r = pixels[i + 2];
+                    // Original locally generated default skin has a strong
+                    // cyan sweatshirt, unlike the neutral preview background.
+                    if (pixels[i + 3] > 180 && g > r + 24 && b > r + 28)
+                        teal++;
+                }
+            if (teal < 160)
+                throw new InvalidOperationException(
+                    "3D 皮肤模型未正确显示（胸前衣服颜色像素过少：" + teal +
+                    "）。请检查 WPF 材质与 UV，而非仅检查三角面数量。");
+        }
+
         internal void VerifyOfflineLayout()
         {
             if (texture.Source == null || front.Source == null || back.Source == null ||
