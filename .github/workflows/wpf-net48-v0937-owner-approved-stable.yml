@@ -1,0 +1,866 @@
+name: v0.9.37 one-time owner-approved stable release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'wpf-net48/docs/V0937_STABLE_OWNER_ACCEPTANCE_TRIGGER.md'
+
+jobs:
+  package-and-release:
+    if: github.repository == 'minecraftlu/BlockCraftLauncher'
+    runs-on: windows-2022
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      RELEASE_TAG: v0.9.37
+      RELEASE_CHANNEL: stable
+      REAL_DEVICE_ACCEPTANCE: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Verify release tag and stability gates
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # The only authorized commit sequence is a workflow addition and a
+          # single separate owner-acceptance record based on reviewed main.
+          $reviewed = '709f6640c6c8a4702c2460b08fa14df2daf04dcd'
+          $base = (& git rev-parse HEAD~2).Trim()
+          if ($LASTEXITCODE -ne 0 -or $base -ne $reviewed) {
+            throw 'One-time release source base does not match reviewed CI SHA'
+          }
+          $actual = @(& git diff --name-only $reviewed HEAD | Sort-Object)
+          $expected = @(
+            '.github/workflows/wpf-net48-v0937-owner-approved-stable.yml',
+            'wpf-net48/docs/V0937_STABLE_OWNER_ACCEPTANCE_TRIGGER.md'
+          ) | Sort-Object
+          if ($actual.Count -ne 2 -or
+              (Compare-Object $actual $expected)) {
+            throw 'Source changed after main CI; refusing stable release'
+          }
+          $record = Get-Content -LiteralPath 'wpf-net48/docs/V0937_STABLE_OWNER_ACCEPTANCE_TRIGGER.md' -Raw
+          if ($record -notmatch '(?m)^REAL_DEVICE_ACCEPTANCE: true
+              $env:RELEASE_TAG -ne 'v0.9.37') {
+            throw 'This reviewed workflow only publishes v0.9.37 stable'
+          }
+          if ('${{ github.ref }}' -ne 'refs/heads/main') {
+            throw 'Stable release only permitted from reviewed main'
+          }
+          if ($env:REAL_DEVICE_ACCEPTANCE -ne 'true') {
+            throw 'Stable release requires explicit owner real-device acceptance'
+          }
+          # A stable version is immutable. Refuse to rebuild or silently
+          # replace previously issued tags, even if the Release is a draft.
+          $existing = & git ls-remote --tags origin "refs/tags/$env:RELEASE_TAG"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot verify stable release tag availability' }
+          if ($existing) { throw 'Stable release tag already exists; refusing overwrite' }
+          $source = Get-Content 'wpf-net48/src/BlockCraftLauncher.Wpf/Services/LauncherAutoUpdateService.cs' -Raw
+          $tag = [regex]::Match($source, 'internal const string CurrentTag = "([^"]+)";').Groups[1].Value
+          if ($tag -ne $env:RELEASE_TAG) { throw 'The release tag must match the installed updater tag' }
+          $version = ($tag -split '-', 2)[0]
+          $zipSuffix = if ($env:RELEASE_CHANNEL -eq 'stable') { 'Windows-x64' } else { 'Alpha-Windows-x64' }
+          "RELEASE_EXE=BlockCraftLauncher-$version-WPF-OneFile-Windows-x64.exe" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_ZIP=BlockCraftLauncher-$version-WPF-net48-$zipSuffix.zip" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          if (-not (Test-Path 'wpf-net48/docs/STABLE_RELEASE_ACCEPTANCE.md')) {
+            throw 'Stable release acceptance criteria are missing'
+          }
+
+      - name: Run static checks (fail on the first regression)
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($check in @(
+            'check_project.py', 'check_phase2.py', 'check_windows_packaging.py',
+            'check_v0926_features.py', 'check_onefile.py', 'check_pcl_downloads.py',
+            'check_download_bindings.py', 'check_auth_recovery.py',
+            'check_pcl_unified_ui.py', 'check_skin_search.py',
+            'check_server_discovery.py'
+          )) {
+            python "tests/$check"
+            if ($LASTEXITCODE -ne 0) { throw "Static check failed: $check" }
+          }
+
+      - name: Compile and package normal ZIP and single EXE
+        working-directory: wpf-net48
+        shell: cmd
+        run: call build\build-windows.bat
+
+      - name: Verify offline updater transaction rollback
+        working-directory: wpf-net48
+        timeout-minutes: 3
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Updater.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--selftest' -PassThru
+          if (-not $process.WaitForExit(35000)) { $process.Kill(); throw 'Updater test timeout' }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) { throw "Updater rollback test failed: $($process.ExitCode)" }
+
+      - name: Execute offline selftests on both distributions
+        working-directory: wpf-net48
+        timeout-minutes: 15
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $normal = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $single = (Resolve-Path "dist/$env:RELEASE_EXE").Path
+          foreach ($exe in @($normal, $single)) {
+            foreach ($flag in @(
+              '--smoke-test', '--ui-layout-selftest', '--download-ui-selftest',
+              '--download-selftest', '--modrinth-search-selftest',
+              '--modrinth-deps-selftest', '--saves-restore-selftest',
+              '--instance-detection-selftest', '--auth-selftest',
+              '--skin-selftest', '--server-search-selftest'
+            )) {
+              $process = Start-Process -FilePath $exe -ArgumentList $flag -PassThru
+              if (-not $process.WaitForExit(70000)) {
+                $process.Kill()
+                throw "Timed out: $exe $flag"
+              }
+              $process.Refresh()
+              if ($process.ExitCode -ne 0) {
+                throw "Test failed: $exe $flag exit=$($process.ExitCode)"
+              }
+              Write-Host "PASS: $(Split-Path $exe -Leaf) $flag"
+            }
+          }
+
+      - name: Confirm updated WPF window really renders and reopens (normal and OneFile)
+        working-directory: wpf-net48
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./tests/check_window_relaunch.ps1
+
+      - name: Generate release asset hashes and notes
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dist = (Resolve-Path 'dist').Path
+          $assets = @($env:RELEASE_EXE, $env:RELEASE_ZIP)
+          $manifest = @()
+          foreach ($asset in $assets) {
+            $file = Join-Path $dist $asset
+            if (-not (Test-Path $file)) { throw "Missing release asset: $asset" }
+            $sha = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            $manifest += "$sha  $asset"
+          }
+          $manifest | Set-Content -LiteralPath (Join-Path $dist 'RELEASE-SHA256SUMS.txt') -Encoding ASCII
+          $channel = if ($env:RELEASE_CHANNEL -eq 'stable') { '正式版' } else { '预览版' }
+          $text = @"
+          Windows 10/11 x64 · WPF · .NET Framework 4.8 · v0.9.37 正式版
+
+          本版继承 v0.9.36 的皮肤、下载、自动更新与 UI 功能，并新增开源模组支持：
+          - 下载中心支持 Mojang 玩家皮肤、开放许可图库与第三方社区皮肤搜索，图文列表、分类筛选、预览、PNG 下载及来源/许可记录。
+          - 新版 3D 皮肤预览支持鼠标 360° 旋转、缩放、自动旋转与皮肤外层切换；基础皮肤使用不依赖 GPU 图集采样的像素几何，RC5 用户已反馈实机正常。
+          - 皮肤下载与模组下载同属「下载」分类，支持统一任务进度、取消与重试；「更多 → 皮肤 DIY」独立提供本地编辑、导入导出与明确确认的正版皮肤上传。
+          - 未声明授权的公开皮肤仅在用户明确选择并确认版权提示后允许单张下载。下载不赋予转载、修改、商用或再分发权利。
+          - 「联机 → 查找服务器」支持从第三方公开 Java 服务器目录按名称/IP、版本、缓存在线状态查找、排序和翻页；可收藏、复制地址或使用当前 Java 实例加入。
+          - 保留 Minecraft 安装启动、微软正版登录、Modrinth/CurseForge 合法内容下载、模组图标、存档管理、中国内地和海外可选下载线路。
+          - Modrinth 按游戏版本/加载器筛选有效 JAR 和必要依赖，排除源码与开发 JAR。
+          - 新增 GitHub 公开 SPDX 开源仓库搜索，查找最多 60 个历史发布版中与当前 Minecraft 版本匹配的 JAR。
+          - GitHub 模组安装需要用户确认、官方 Release SHA-256 和加载器 JAR 元数据校验；依赖或安装包无法核实则提示作者项目页，不保证覆盖全部开源模组。
+          - Modrinth 模组/光影/资源包/整合包及可选 MCIM CurseForge 搜索增加短时缓存；Mosaicary/DP-Plugins 公共皮肤图库支持短时缓存和限速缩略图加载。
+          - 仅已允许的双线路下载/元数据请求缩短首次连接超时，失败仍回退至备选；保留断点来源隔离与下载文件哈希验证。实际可用性依地区、运营商和第三方服务而异。
+          - ZIP/单文件 EXE 更新继续校验 SHA-256；更新失败回滚，成功后重新打开新版窗口。应用内「稳定版」通道仅检查非 prerelease 版本。
+          - 第三方目录服务的网络可达性、缓存状态、服务器白名单及授权取决于提供方，不能保证所有地区和服务器都可用。
+
+          正式发行文件为 Windows-x64 的 EXE 与 ZIP。下载后请核对 RELEASE-SHA256SUMS.txt。
+          安全：发布的 EXE 与 ZIP 提供 SHA-256、Sigstore Cosign 无密钥签名包（*.sigstore.json）与 GitHub SLSA 构建来源证明。它们可校验文件和构建来源，但不是 Windows Authenticode，SmartScreen 仍可能显示“未知发布者”。
+          验证说明：https://github.com/minecraftlu/BlockCraftLauncher/blob/main/wpf-net48/docs/FREE_RELEASE_SIGNING.md
+          问题反馈：https://github.com/minecraftlu/BlockCraftLauncher/issues
+          "@
+          $text | Set-Content -LiteralPath (Join-Path $dist 'RELEASE-NOTES.txt') -Encoding UTF8
+
+      - name: Verify v0.9.36 stable can parse and verify the new v0.9.37 ZIP
+        if: env.RELEASE_CHANNEL == 'stable'
+        working-directory: wpf-net48
+        timeout-minutes: 4
+        run: ./tests/check_v0937_promotion.ps1 -Phase Preflight
+
+      # Build-provenance and keyless signatures bind the shipped file bytes to
+      # this GitHub Actions workflow. They are not Windows Authenticode.
+      - name: Install open-source Cosign (verified binary)
+        uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Generate Sigstore keyless signatures for the release EXE and ZIP
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in @($env:RELEASE_EXE, $env:RELEASE_ZIP)) {
+            $asset = Join-Path 'dist' $name
+            & cosign sign-blob --yes --bundle "$asset.sigstore.json" $asset
+            if ($LASTEXITCODE -ne 0) { throw "Cosign signing failed: $name" }
+            if (-not (Test-Path -LiteralPath "$asset.sigstore.json")) {
+              throw "Cosign bundle not written: $name"
+            }
+          }
+
+      - name: Record independent GitHub/Sigstore build-provenance attestation
+        uses: actions/attest@v4
+        with:
+          # Exact immutable release binaries; do not attest a path wildcard.
+          subject-path: |
+            wpf-net48/dist/BlockCraftLauncher-v0.9.37-WPF-OneFile-Windows-x64.exe
+            wpf-net48/dist/BlockCraftLauncher-v0.9.37-WPF-net48-Windows-x64.zip
+
+      - name: Block publication unless SHA-256, Cosign and provenance all verify
+        working-directory: wpf-net48
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./build/verify-sigstore-release.ps1 -ReleaseTag $env:RELEASE_TAG -DistPath ./dist
+
+      - name: Publish a GitHub release only after all checks
+        working-directory: wpf-net48
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = @("dist/$env:RELEASE_EXE", "dist/$env:RELEASE_EXE.sha256",
+            "dist/$env:RELEASE_ZIP", 'dist/RELEASE-SHA256SUMS.txt',
+            "dist/$env:RELEASE_EXE.sigstore.json",
+            "dist/$env:RELEASE_ZIP.sigstore.json")
+          foreach ($file in $files) {
+            if (-not (Test-Path $file)) { throw "Missing publish file: $file" }
+          }
+          $args = @('release', 'create', $env:RELEASE_TAG) + $files +
+            @('--repo', '${{ github.repository }}', '--target', '${{ github.sha }}',
+              '--title', "BlockCraft Launcher $env:RELEASE_TAG",
+              '--notes-file', 'dist/RELEASE-NOTES.txt')
+          if ($env:RELEASE_CHANNEL -eq 'candidate') { $args += @('--prerelease', '--latest=false') }
+          else { $args += '--latest' }
+          & gh @args
+          if ($LASTEXITCODE -ne 0) { throw "GitHub release creation failed" }
+          Write-Host "Published release: https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/$env:RELEASE_TAG"
+
+      - name: Upgrade v0.9.36 stable ZIP and OneFile from published v0.9.37
+        if: env.RELEASE_CHANNEL == 'stable'
+        working-directory: wpf-net48
+        timeout-minutes: 10
+        run: ./tests/check_v0937_promotion.ps1 -Phase Live
+ -or
+              $record -notmatch '(?m)^RELEASE_TAG: v0\.9\.37
+              $env:RELEASE_TAG -ne 'v0.9.37') {
+            throw 'This reviewed workflow only publishes v0.9.37 stable'
+          }
+          if ('${{ github.ref }}' -ne 'refs/heads/main') {
+            throw 'Stable release only permitted from reviewed main'
+          }
+          if ($env:REAL_DEVICE_ACCEPTANCE -ne 'true') {
+            throw 'Stable release requires explicit owner real-device acceptance'
+          }
+          # A stable version is immutable. Refuse to rebuild or silently
+          # replace previously issued tags, even if the Release is a draft.
+          $existing = & git ls-remote --tags origin "refs/tags/$env:RELEASE_TAG"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot verify stable release tag availability' }
+          if ($existing) { throw 'Stable release tag already exists; refusing overwrite' }
+          $source = Get-Content 'wpf-net48/src/BlockCraftLauncher.Wpf/Services/LauncherAutoUpdateService.cs' -Raw
+          $tag = [regex]::Match($source, 'internal const string CurrentTag = "([^"]+)";').Groups[1].Value
+          if ($tag -ne $env:RELEASE_TAG) { throw 'The release tag must match the installed updater tag' }
+          $version = ($tag -split '-', 2)[0]
+          $zipSuffix = if ($env:RELEASE_CHANNEL -eq 'stable') { 'Windows-x64' } else { 'Alpha-Windows-x64' }
+          "RELEASE_EXE=BlockCraftLauncher-$version-WPF-OneFile-Windows-x64.exe" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_ZIP=BlockCraftLauncher-$version-WPF-net48-$zipSuffix.zip" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          if (-not (Test-Path 'wpf-net48/docs/STABLE_RELEASE_ACCEPTANCE.md')) {
+            throw 'Stable release acceptance criteria are missing'
+          }
+
+      - name: Run static checks (fail on the first regression)
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($check in @(
+            'check_project.py', 'check_phase2.py', 'check_windows_packaging.py',
+            'check_v0926_features.py', 'check_onefile.py', 'check_pcl_downloads.py',
+            'check_download_bindings.py', 'check_auth_recovery.py',
+            'check_pcl_unified_ui.py', 'check_skin_search.py',
+            'check_server_discovery.py'
+          )) {
+            python "tests/$check"
+            if ($LASTEXITCODE -ne 0) { throw "Static check failed: $check" }
+          }
+
+      - name: Compile and package normal ZIP and single EXE
+        working-directory: wpf-net48
+        shell: cmd
+        run: call build\build-windows.bat
+
+      - name: Verify offline updater transaction rollback
+        working-directory: wpf-net48
+        timeout-minutes: 3
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Updater.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--selftest' -PassThru
+          if (-not $process.WaitForExit(35000)) { $process.Kill(); throw 'Updater test timeout' }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) { throw "Updater rollback test failed: $($process.ExitCode)" }
+
+      - name: Execute offline selftests on both distributions
+        working-directory: wpf-net48
+        timeout-minutes: 15
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $normal = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $single = (Resolve-Path "dist/$env:RELEASE_EXE").Path
+          foreach ($exe in @($normal, $single)) {
+            foreach ($flag in @(
+              '--smoke-test', '--ui-layout-selftest', '--download-ui-selftest',
+              '--download-selftest', '--modrinth-search-selftest',
+              '--modrinth-deps-selftest', '--saves-restore-selftest',
+              '--instance-detection-selftest', '--auth-selftest',
+              '--skin-selftest', '--server-search-selftest'
+            )) {
+              $process = Start-Process -FilePath $exe -ArgumentList $flag -PassThru
+              if (-not $process.WaitForExit(70000)) {
+                $process.Kill()
+                throw "Timed out: $exe $flag"
+              }
+              $process.Refresh()
+              if ($process.ExitCode -ne 0) {
+                throw "Test failed: $exe $flag exit=$($process.ExitCode)"
+              }
+              Write-Host "PASS: $(Split-Path $exe -Leaf) $flag"
+            }
+          }
+
+      - name: Confirm updated WPF window really renders and reopens (normal and OneFile)
+        working-directory: wpf-net48
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./tests/check_window_relaunch.ps1
+
+      - name: Generate release asset hashes and notes
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dist = (Resolve-Path 'dist').Path
+          $assets = @($env:RELEASE_EXE, $env:RELEASE_ZIP)
+          $manifest = @()
+          foreach ($asset in $assets) {
+            $file = Join-Path $dist $asset
+            if (-not (Test-Path $file)) { throw "Missing release asset: $asset" }
+            $sha = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            $manifest += "$sha  $asset"
+          }
+          $manifest | Set-Content -LiteralPath (Join-Path $dist 'RELEASE-SHA256SUMS.txt') -Encoding ASCII
+          $channel = if ($env:RELEASE_CHANNEL -eq 'stable') { '正式版' } else { '预览版' }
+          $text = @"
+          Windows 10/11 x64 · WPF · .NET Framework 4.8 · v0.9.37 正式版
+
+          本版继承 v0.9.36 的皮肤、下载、自动更新与 UI 功能，并新增开源模组支持：
+          - 下载中心支持 Mojang 玩家皮肤、开放许可图库与第三方社区皮肤搜索，图文列表、分类筛选、预览、PNG 下载及来源/许可记录。
+          - 新版 3D 皮肤预览支持鼠标 360° 旋转、缩放、自动旋转与皮肤外层切换；基础皮肤使用不依赖 GPU 图集采样的像素几何，RC5 用户已反馈实机正常。
+          - 皮肤下载与模组下载同属「下载」分类，支持统一任务进度、取消与重试；「更多 → 皮肤 DIY」独立提供本地编辑、导入导出与明确确认的正版皮肤上传。
+          - 未声明授权的公开皮肤仅在用户明确选择并确认版权提示后允许单张下载。下载不赋予转载、修改、商用或再分发权利。
+          - 「联机 → 查找服务器」支持从第三方公开 Java 服务器目录按名称/IP、版本、缓存在线状态查找、排序和翻页；可收藏、复制地址或使用当前 Java 实例加入。
+          - 保留 Minecraft 安装启动、微软正版登录、Modrinth/CurseForge 合法内容下载、模组图标、存档管理、中国内地和海外可选下载线路。
+          - Modrinth 按游戏版本/加载器筛选有效 JAR 和必要依赖，排除源码与开发 JAR。
+          - 新增 GitHub 公开 SPDX 开源仓库搜索，查找最多 60 个历史发布版中与当前 Minecraft 版本匹配的 JAR。
+          - GitHub 模组安装需要用户确认、官方 Release SHA-256 和加载器 JAR 元数据校验；依赖或安装包无法核实则提示作者项目页，不保证覆盖全部开源模组。
+          - Modrinth 模组/光影/资源包/整合包及可选 MCIM CurseForge 搜索增加短时缓存；Mosaicary/DP-Plugins 公共皮肤图库支持短时缓存和限速缩略图加载。
+          - 仅已允许的双线路下载/元数据请求缩短首次连接超时，失败仍回退至备选；保留断点来源隔离与下载文件哈希验证。实际可用性依地区、运营商和第三方服务而异。
+          - ZIP/单文件 EXE 更新继续校验 SHA-256；更新失败回滚，成功后重新打开新版窗口。应用内「稳定版」通道仅检查非 prerelease 版本。
+          - 第三方目录服务的网络可达性、缓存状态、服务器白名单及授权取决于提供方，不能保证所有地区和服务器都可用。
+
+          正式发行文件为 Windows-x64 的 EXE 与 ZIP。下载后请核对 RELEASE-SHA256SUMS.txt。
+          安全：发布的 EXE 与 ZIP 提供 SHA-256、Sigstore Cosign 无密钥签名包（*.sigstore.json）与 GitHub SLSA 构建来源证明。它们可校验文件和构建来源，但不是 Windows Authenticode，SmartScreen 仍可能显示“未知发布者”。
+          验证说明：https://github.com/minecraftlu/BlockCraftLauncher/blob/main/wpf-net48/docs/FREE_RELEASE_SIGNING.md
+          问题反馈：https://github.com/minecraftlu/BlockCraftLauncher/issues
+          "@
+          $text | Set-Content -LiteralPath (Join-Path $dist 'RELEASE-NOTES.txt') -Encoding UTF8
+
+      - name: Verify v0.9.36 stable can parse and verify the new v0.9.37 ZIP
+        if: env.RELEASE_CHANNEL == 'stable'
+        working-directory: wpf-net48
+        timeout-minutes: 4
+        run: ./tests/check_v0937_promotion.ps1 -Phase Preflight
+
+      # Build-provenance and keyless signatures bind the shipped file bytes to
+      # this GitHub Actions workflow. They are not Windows Authenticode.
+      - name: Install open-source Cosign (verified binary)
+        uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Generate Sigstore keyless signatures for the release EXE and ZIP
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in @($env:RELEASE_EXE, $env:RELEASE_ZIP)) {
+            $asset = Join-Path 'dist' $name
+            & cosign sign-blob --yes --bundle "$asset.sigstore.json" $asset
+            if ($LASTEXITCODE -ne 0) { throw "Cosign signing failed: $name" }
+            if (-not (Test-Path -LiteralPath "$asset.sigstore.json")) {
+              throw "Cosign bundle not written: $name"
+            }
+          }
+
+      - name: Record independent GitHub/Sigstore build-provenance attestation
+        uses: actions/attest@v4
+        with:
+          # Exact immutable release binaries; do not attest a path wildcard.
+          subject-path: |
+            wpf-net48/dist/BlockCraftLauncher-v0.9.37-WPF-OneFile-Windows-x64.exe
+            wpf-net48/dist/BlockCraftLauncher-v0.9.37-WPF-net48-Windows-x64.zip
+
+      - name: Block publication unless SHA-256, Cosign and provenance all verify
+        working-directory: wpf-net48
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./build/verify-sigstore-release.ps1 -ReleaseTag $env:RELEASE_TAG -DistPath ./dist
+
+      - name: Publish a GitHub release only after all checks
+        working-directory: wpf-net48
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = @("dist/$env:RELEASE_EXE", "dist/$env:RELEASE_EXE.sha256",
+            "dist/$env:RELEASE_ZIP", 'dist/RELEASE-SHA256SUMS.txt',
+            "dist/$env:RELEASE_EXE.sigstore.json",
+            "dist/$env:RELEASE_ZIP.sigstore.json")
+          foreach ($file in $files) {
+            if (-not (Test-Path $file)) { throw "Missing publish file: $file" }
+          }
+          $args = @('release', 'create', $env:RELEASE_TAG) + $files +
+            @('--repo', '${{ github.repository }}', '--target', '${{ github.sha }}',
+              '--title', "BlockCraft Launcher $env:RELEASE_TAG",
+              '--notes-file', 'dist/RELEASE-NOTES.txt')
+          if ($env:RELEASE_CHANNEL -eq 'candidate') { $args += @('--prerelease', '--latest=false') }
+          else { $args += '--latest' }
+          & gh @args
+          if ($LASTEXITCODE -ne 0) { throw "GitHub release creation failed" }
+          Write-Host "Published release: https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/$env:RELEASE_TAG"
+
+      - name: Upgrade v0.9.36 stable ZIP and OneFile from published v0.9.37
+        if: env.RELEASE_CHANNEL == 'stable'
+        working-directory: wpf-net48
+        timeout-minutes: 10
+        run: ./tests/check_v0937_promotion.ps1 -Phase Live
+ -or
+              $record -notmatch '(?m)^REVIEWED_MAIN_SHA: 709f6640c6c8a4702c2460b08fa14df2daf04dcd
+              $env:RELEASE_TAG -ne 'v0.9.37') {
+            throw 'This reviewed workflow only publishes v0.9.37 stable'
+          }
+          if ('${{ github.ref }}' -ne 'refs/heads/main') {
+            throw 'Stable release only permitted from reviewed main'
+          }
+          if ($env:REAL_DEVICE_ACCEPTANCE -ne 'true') {
+            throw 'Stable release requires explicit owner real-device acceptance'
+          }
+          # A stable version is immutable. Refuse to rebuild or silently
+          # replace previously issued tags, even if the Release is a draft.
+          $existing = & git ls-remote --tags origin "refs/tags/$env:RELEASE_TAG"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot verify stable release tag availability' }
+          if ($existing) { throw 'Stable release tag already exists; refusing overwrite' }
+          $source = Get-Content 'wpf-net48/src/BlockCraftLauncher.Wpf/Services/LauncherAutoUpdateService.cs' -Raw
+          $tag = [regex]::Match($source, 'internal const string CurrentTag = "([^"]+)";').Groups[1].Value
+          if ($tag -ne $env:RELEASE_TAG) { throw 'The release tag must match the installed updater tag' }
+          $version = ($tag -split '-', 2)[0]
+          $zipSuffix = if ($env:RELEASE_CHANNEL -eq 'stable') { 'Windows-x64' } else { 'Alpha-Windows-x64' }
+          "RELEASE_EXE=BlockCraftLauncher-$version-WPF-OneFile-Windows-x64.exe" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_ZIP=BlockCraftLauncher-$version-WPF-net48-$zipSuffix.zip" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          if (-not (Test-Path 'wpf-net48/docs/STABLE_RELEASE_ACCEPTANCE.md')) {
+            throw 'Stable release acceptance criteria are missing'
+          }
+
+      - name: Run static checks (fail on the first regression)
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($check in @(
+            'check_project.py', 'check_phase2.py', 'check_windows_packaging.py',
+            'check_v0926_features.py', 'check_onefile.py', 'check_pcl_downloads.py',
+            'check_download_bindings.py', 'check_auth_recovery.py',
+            'check_pcl_unified_ui.py', 'check_skin_search.py',
+            'check_server_discovery.py'
+          )) {
+            python "tests/$check"
+            if ($LASTEXITCODE -ne 0) { throw "Static check failed: $check" }
+          }
+
+      - name: Compile and package normal ZIP and single EXE
+        working-directory: wpf-net48
+        shell: cmd
+        run: call build\build-windows.bat
+
+      - name: Verify offline updater transaction rollback
+        working-directory: wpf-net48
+        timeout-minutes: 3
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Updater.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--selftest' -PassThru
+          if (-not $process.WaitForExit(35000)) { $process.Kill(); throw 'Updater test timeout' }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) { throw "Updater rollback test failed: $($process.ExitCode)" }
+
+      - name: Execute offline selftests on both distributions
+        working-directory: wpf-net48
+        timeout-minutes: 15
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $normal = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $single = (Resolve-Path "dist/$env:RELEASE_EXE").Path
+          foreach ($exe in @($normal, $single)) {
+            foreach ($flag in @(
+              '--smoke-test', '--ui-layout-selftest', '--download-ui-selftest',
+              '--download-selftest', '--modrinth-search-selftest',
+              '--modrinth-deps-selftest', '--saves-restore-selftest',
+              '--instance-detection-selftest', '--auth-selftest',
+              '--skin-selftest', '--server-search-selftest'
+            )) {
+              $process = Start-Process -FilePath $exe -ArgumentList $flag -PassThru
+              if (-not $process.WaitForExit(70000)) {
+                $process.Kill()
+                throw "Timed out: $exe $flag"
+              }
+              $process.Refresh()
+              if ($process.ExitCode -ne 0) {
+                throw "Test failed: $exe $flag exit=$($process.ExitCode)"
+              }
+              Write-Host "PASS: $(Split-Path $exe -Leaf) $flag"
+            }
+          }
+
+      - name: Confirm updated WPF window really renders and reopens (normal and OneFile)
+        working-directory: wpf-net48
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./tests/check_window_relaunch.ps1
+
+      - name: Generate release asset hashes and notes
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dist = (Resolve-Path 'dist').Path
+          $assets = @($env:RELEASE_EXE, $env:RELEASE_ZIP)
+          $manifest = @()
+          foreach ($asset in $assets) {
+            $file = Join-Path $dist $asset
+            if (-not (Test-Path $file)) { throw "Missing release asset: $asset" }
+            $sha = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            $manifest += "$sha  $asset"
+          }
+          $manifest | Set-Content -LiteralPath (Join-Path $dist 'RELEASE-SHA256SUMS.txt') -Encoding ASCII
+          $channel = if ($env:RELEASE_CHANNEL -eq 'stable') { '正式版' } else { '预览版' }
+          $text = @"
+          Windows 10/11 x64 · WPF · .NET Framework 4.8 · v0.9.37 正式版
+
+          本版继承 v0.9.36 的皮肤、下载、自动更新与 UI 功能，并新增开源模组支持：
+          - 下载中心支持 Mojang 玩家皮肤、开放许可图库与第三方社区皮肤搜索，图文列表、分类筛选、预览、PNG 下载及来源/许可记录。
+          - 新版 3D 皮肤预览支持鼠标 360° 旋转、缩放、自动旋转与皮肤外层切换；基础皮肤使用不依赖 GPU 图集采样的像素几何，RC5 用户已反馈实机正常。
+          - 皮肤下载与模组下载同属「下载」分类，支持统一任务进度、取消与重试；「更多 → 皮肤 DIY」独立提供本地编辑、导入导出与明确确认的正版皮肤上传。
+          - 未声明授权的公开皮肤仅在用户明确选择并确认版权提示后允许单张下载。下载不赋予转载、修改、商用或再分发权利。
+          - 「联机 → 查找服务器」支持从第三方公开 Java 服务器目录按名称/IP、版本、缓存在线状态查找、排序和翻页；可收藏、复制地址或使用当前 Java 实例加入。
+          - 保留 Minecraft 安装启动、微软正版登录、Modrinth/CurseForge 合法内容下载、模组图标、存档管理、中国内地和海外可选下载线路。
+          - Modrinth 按游戏版本/加载器筛选有效 JAR 和必要依赖，排除源码与开发 JAR。
+          - 新增 GitHub 公开 SPDX 开源仓库搜索，查找最多 60 个历史发布版中与当前 Minecraft 版本匹配的 JAR。
+          - GitHub 模组安装需要用户确认、官方 Release SHA-256 和加载器 JAR 元数据校验；依赖或安装包无法核实则提示作者项目页，不保证覆盖全部开源模组。
+          - Modrinth 模组/光影/资源包/整合包及可选 MCIM CurseForge 搜索增加短时缓存；Mosaicary/DP-Plugins 公共皮肤图库支持短时缓存和限速缩略图加载。
+          - 仅已允许的双线路下载/元数据请求缩短首次连接超时，失败仍回退至备选；保留断点来源隔离与下载文件哈希验证。实际可用性依地区、运营商和第三方服务而异。
+          - ZIP/单文件 EXE 更新继续校验 SHA-256；更新失败回滚，成功后重新打开新版窗口。应用内「稳定版」通道仅检查非 prerelease 版本。
+          - 第三方目录服务的网络可达性、缓存状态、服务器白名单及授权取决于提供方，不能保证所有地区和服务器都可用。
+
+          正式发行文件为 Windows-x64 的 EXE 与 ZIP。下载后请核对 RELEASE-SHA256SUMS.txt。
+          安全：发布的 EXE 与 ZIP 提供 SHA-256、Sigstore Cosign 无密钥签名包（*.sigstore.json）与 GitHub SLSA 构建来源证明。它们可校验文件和构建来源，但不是 Windows Authenticode，SmartScreen 仍可能显示“未知发布者”。
+          验证说明：https://github.com/minecraftlu/BlockCraftLauncher/blob/main/wpf-net48/docs/FREE_RELEASE_SIGNING.md
+          问题反馈：https://github.com/minecraftlu/BlockCraftLauncher/issues
+          "@
+          $text | Set-Content -LiteralPath (Join-Path $dist 'RELEASE-NOTES.txt') -Encoding UTF8
+
+      - name: Verify v0.9.36 stable can parse and verify the new v0.9.37 ZIP
+        if: env.RELEASE_CHANNEL == 'stable'
+        working-directory: wpf-net48
+        timeout-minutes: 4
+        run: ./tests/check_v0937_promotion.ps1 -Phase Preflight
+
+      # Build-provenance and keyless signatures bind the shipped file bytes to
+      # this GitHub Actions workflow. They are not Windows Authenticode.
+      - name: Install open-source Cosign (verified binary)
+        uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Generate Sigstore keyless signatures for the release EXE and ZIP
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in @($env:RELEASE_EXE, $env:RELEASE_ZIP)) {
+            $asset = Join-Path 'dist' $name
+            & cosign sign-blob --yes --bundle "$asset.sigstore.json" $asset
+            if ($LASTEXITCODE -ne 0) { throw "Cosign signing failed: $name" }
+            if (-not (Test-Path -LiteralPath "$asset.sigstore.json")) {
+              throw "Cosign bundle not written: $name"
+            }
+          }
+
+      - name: Record independent GitHub/Sigstore build-provenance attestation
+        uses: actions/attest@v4
+        with:
+          # Exact immutable release binaries; do not attest a path wildcard.
+          subject-path: |
+            wpf-net48/dist/BlockCraftLauncher-v0.9.37-WPF-OneFile-Windows-x64.exe
+            wpf-net48/dist/BlockCraftLauncher-v0.9.37-WPF-net48-Windows-x64.zip
+
+      - name: Block publication unless SHA-256, Cosign and provenance all verify
+        working-directory: wpf-net48
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./build/verify-sigstore-release.ps1 -ReleaseTag $env:RELEASE_TAG -DistPath ./dist
+
+      - name: Publish a GitHub release only after all checks
+        working-directory: wpf-net48
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = @("dist/$env:RELEASE_EXE", "dist/$env:RELEASE_EXE.sha256",
+            "dist/$env:RELEASE_ZIP", 'dist/RELEASE-SHA256SUMS.txt',
+            "dist/$env:RELEASE_EXE.sigstore.json",
+            "dist/$env:RELEASE_ZIP.sigstore.json")
+          foreach ($file in $files) {
+            if (-not (Test-Path $file)) { throw "Missing publish file: $file" }
+          }
+          $args = @('release', 'create', $env:RELEASE_TAG) + $files +
+            @('--repo', '${{ github.repository }}', '--target', '${{ github.sha }}',
+              '--title', "BlockCraft Launcher $env:RELEASE_TAG",
+              '--notes-file', 'dist/RELEASE-NOTES.txt')
+          if ($env:RELEASE_CHANNEL -eq 'candidate') { $args += @('--prerelease', '--latest=false') }
+          else { $args += '--latest' }
+          & gh @args
+          if ($LASTEXITCODE -ne 0) { throw "GitHub release creation failed" }
+          Write-Host "Published release: https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/$env:RELEASE_TAG"
+
+      - name: Upgrade v0.9.36 stable ZIP and OneFile from published v0.9.37
+        if: env.RELEASE_CHANNEL == 'stable'
+        working-directory: wpf-net48
+        timeout-minutes: 10
+        run: ./tests/check_v0937_promotion.ps1 -Phase Live
+) {
+            throw 'Missing exact owner acceptance / release target in trigger record'
+          }
+          if ($env:RELEASE_CHANNEL -ne 'stable' -or
+              $env:RELEASE_TAG -ne 'v0.9.37') {
+            throw 'This reviewed workflow only publishes v0.9.37 stable'
+          }
+          if ('${{ github.ref }}' -ne 'refs/heads/main') {
+            throw 'Stable release only permitted from reviewed main'
+          }
+          if ($env:REAL_DEVICE_ACCEPTANCE -ne 'true') {
+            throw 'Stable release requires explicit owner real-device acceptance'
+          }
+          # A stable version is immutable. Refuse to rebuild or silently
+          # replace previously issued tags, even if the Release is a draft.
+          $existing = & git ls-remote --tags origin "refs/tags/$env:RELEASE_TAG"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot verify stable release tag availability' }
+          if ($existing) { throw 'Stable release tag already exists; refusing overwrite' }
+          $source = Get-Content 'wpf-net48/src/BlockCraftLauncher.Wpf/Services/LauncherAutoUpdateService.cs' -Raw
+          $tag = [regex]::Match($source, 'internal const string CurrentTag = "([^"]+)";').Groups[1].Value
+          if ($tag -ne $env:RELEASE_TAG) { throw 'The release tag must match the installed updater tag' }
+          $version = ($tag -split '-', 2)[0]
+          $zipSuffix = if ($env:RELEASE_CHANNEL -eq 'stable') { 'Windows-x64' } else { 'Alpha-Windows-x64' }
+          "RELEASE_EXE=BlockCraftLauncher-$version-WPF-OneFile-Windows-x64.exe" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_ZIP=BlockCraftLauncher-$version-WPF-net48-$zipSuffix.zip" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          if (-not (Test-Path 'wpf-net48/docs/STABLE_RELEASE_ACCEPTANCE.md')) {
+            throw 'Stable release acceptance criteria are missing'
+          }
+
+      - name: Run static checks (fail on the first regression)
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($check in @(
+            'check_project.py', 'check_phase2.py', 'check_windows_packaging.py',
+            'check_v0926_features.py', 'check_onefile.py', 'check_pcl_downloads.py',
+            'check_download_bindings.py', 'check_auth_recovery.py',
+            'check_pcl_unified_ui.py', 'check_skin_search.py',
+            'check_server_discovery.py'
+          )) {
+            python "tests/$check"
+            if ($LASTEXITCODE -ne 0) { throw "Static check failed: $check" }
+          }
+
+      - name: Compile and package normal ZIP and single EXE
+        working-directory: wpf-net48
+        shell: cmd
+        run: call build\build-windows.bat
+
+      - name: Verify offline updater transaction rollback
+        working-directory: wpf-net48
+        timeout-minutes: 3
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Updater.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--selftest' -PassThru
+          if (-not $process.WaitForExit(35000)) { $process.Kill(); throw 'Updater test timeout' }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) { throw "Updater rollback test failed: $($process.ExitCode)" }
+
+      - name: Execute offline selftests on both distributions
+        working-directory: wpf-net48
+        timeout-minutes: 15
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $normal = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $single = (Resolve-Path "dist/$env:RELEASE_EXE").Path
+          foreach ($exe in @($normal, $single)) {
+            foreach ($flag in @(
+              '--smoke-test', '--ui-layout-selftest', '--download-ui-selftest',
+              '--download-selftest', '--modrinth-search-selftest',
+              '--modrinth-deps-selftest', '--saves-restore-selftest',
+              '--instance-detection-selftest', '--auth-selftest',
+              '--skin-selftest', '--server-search-selftest'
+            )) {
+              $process = Start-Process -FilePath $exe -ArgumentList $flag -PassThru
+              if (-not $process.WaitForExit(70000)) {
+                $process.Kill()
+                throw "Timed out: $exe $flag"
+              }
+              $process.Refresh()
+              if ($process.ExitCode -ne 0) {
+                throw "Test failed: $exe $flag exit=$($process.ExitCode)"
+              }
+              Write-Host "PASS: $(Split-Path $exe -Leaf) $flag"
+            }
+          }
+
+      - name: Confirm updated WPF window really renders and reopens (normal and OneFile)
+        working-directory: wpf-net48
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./tests/check_window_relaunch.ps1
+
+      - name: Generate release asset hashes and notes
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dist = (Resolve-Path 'dist').Path
+          $assets = @($env:RELEASE_EXE, $env:RELEASE_ZIP)
+          $manifest = @()
+          foreach ($asset in $assets) {
+            $file = Join-Path $dist $asset
+            if (-not (Test-Path $file)) { throw "Missing release asset: $asset" }
+            $sha = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            $manifest += "$sha  $asset"
+          }
+          $manifest | Set-Content -LiteralPath (Join-Path $dist 'RELEASE-SHA256SUMS.txt') -Encoding ASCII
+          $channel = if ($env:RELEASE_CHANNEL -eq 'stable') { '正式版' } else { '预览版' }
+          $text = @"
+          Windows 10/11 x64 · WPF · .NET Framework 4.8 · v0.9.37 正式版
+
+          本版继承 v0.9.36 的皮肤、下载、自动更新与 UI 功能，并新增开源模组支持：
+          - 下载中心支持 Mojang 玩家皮肤、开放许可图库与第三方社区皮肤搜索，图文列表、分类筛选、预览、PNG 下载及来源/许可记录。
+          - 新版 3D 皮肤预览支持鼠标 360° 旋转、缩放、自动旋转与皮肤外层切换；基础皮肤使用不依赖 GPU 图集采样的像素几何，RC5 用户已反馈实机正常。
+          - 皮肤下载与模组下载同属「下载」分类，支持统一任务进度、取消与重试；「更多 → 皮肤 DIY」独立提供本地编辑、导入导出与明确确认的正版皮肤上传。
+          - 未声明授权的公开皮肤仅在用户明确选择并确认版权提示后允许单张下载。下载不赋予转载、修改、商用或再分发权利。
+          - 「联机 → 查找服务器」支持从第三方公开 Java 服务器目录按名称/IP、版本、缓存在线状态查找、排序和翻页；可收藏、复制地址或使用当前 Java 实例加入。
+          - 保留 Minecraft 安装启动、微软正版登录、Modrinth/CurseForge 合法内容下载、模组图标、存档管理、中国内地和海外可选下载线路。
+          - Modrinth 按游戏版本/加载器筛选有效 JAR 和必要依赖，排除源码与开发 JAR。
+          - 新增 GitHub 公开 SPDX 开源仓库搜索，查找最多 60 个历史发布版中与当前 Minecraft 版本匹配的 JAR。
+          - GitHub 模组安装需要用户确认、官方 Release SHA-256 和加载器 JAR 元数据校验；依赖或安装包无法核实则提示作者项目页，不保证覆盖全部开源模组。
+          - Modrinth 模组/光影/资源包/整合包及可选 MCIM CurseForge 搜索增加短时缓存；Mosaicary/DP-Plugins 公共皮肤图库支持短时缓存和限速缩略图加载。
+          - 仅已允许的双线路下载/元数据请求缩短首次连接超时，失败仍回退至备选；保留断点来源隔离与下载文件哈希验证。实际可用性依地区、运营商和第三方服务而异。
+          - ZIP/单文件 EXE 更新继续校验 SHA-256；更新失败回滚，成功后重新打开新版窗口。应用内「稳定版」通道仅检查非 prerelease 版本。
+          - 第三方目录服务的网络可达性、缓存状态、服务器白名单及授权取决于提供方，不能保证所有地区和服务器都可用。
+
+          正式发行文件为 Windows-x64 的 EXE 与 ZIP。下载后请核对 RELEASE-SHA256SUMS.txt。
+          安全：发布的 EXE 与 ZIP 提供 SHA-256、Sigstore Cosign 无密钥签名包（*.sigstore.json）与 GitHub SLSA 构建来源证明。它们可校验文件和构建来源，但不是 Windows Authenticode，SmartScreen 仍可能显示“未知发布者”。
+          验证说明：https://github.com/minecraftlu/BlockCraftLauncher/blob/main/wpf-net48/docs/FREE_RELEASE_SIGNING.md
+          问题反馈：https://github.com/minecraftlu/BlockCraftLauncher/issues
+          "@
+          $text | Set-Content -LiteralPath (Join-Path $dist 'RELEASE-NOTES.txt') -Encoding UTF8
+
+      - name: Verify v0.9.36 stable can parse and verify the new v0.9.37 ZIP
+        if: env.RELEASE_CHANNEL == 'stable'
+        working-directory: wpf-net48
+        timeout-minutes: 4
+        run: ./tests/check_v0937_promotion.ps1 -Phase Preflight
+
+      # Build-provenance and keyless signatures bind the shipped file bytes to
+      # this GitHub Actions workflow. They are not Windows Authenticode.
+      - name: Install open-source Cosign (verified binary)
+        uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Generate Sigstore keyless signatures for the release EXE and ZIP
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in @($env:RELEASE_EXE, $env:RELEASE_ZIP)) {
+            $asset = Join-Path 'dist' $name
+            & cosign sign-blob --yes --bundle "$asset.sigstore.json" $asset
+            if ($LASTEXITCODE -ne 0) { throw "Cosign signing failed: $name" }
+            if (-not (Test-Path -LiteralPath "$asset.sigstore.json")) {
+              throw "Cosign bundle not written: $name"
+            }
+          }
+
+      - name: Record independent GitHub/Sigstore build-provenance attestation
+        uses: actions/attest@v4
+        with:
+          # Exact immutable release binaries; do not attest a path wildcard.
+          subject-path: |
+            wpf-net48/dist/BlockCraftLauncher-v0.9.37-WPF-OneFile-Windows-x64.exe
+            wpf-net48/dist/BlockCraftLauncher-v0.9.37-WPF-net48-Windows-x64.zip
+
+      - name: Block publication unless SHA-256, Cosign and provenance all verify
+        working-directory: wpf-net48
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./build/verify-sigstore-release.ps1 -ReleaseTag $env:RELEASE_TAG -DistPath ./dist
+
+      - name: Publish a GitHub release only after all checks
+        working-directory: wpf-net48
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = @("dist/$env:RELEASE_EXE", "dist/$env:RELEASE_EXE.sha256",
+            "dist/$env:RELEASE_ZIP", 'dist/RELEASE-SHA256SUMS.txt',
+            "dist/$env:RELEASE_EXE.sigstore.json",
+            "dist/$env:RELEASE_ZIP.sigstore.json")
+          foreach ($file in $files) {
+            if (-not (Test-Path $file)) { throw "Missing publish file: $file" }
+          }
+          $args = @('release', 'create', $env:RELEASE_TAG) + $files +
+            @('--repo', '${{ github.repository }}', '--target', '${{ github.sha }}',
+              '--title', "BlockCraft Launcher $env:RELEASE_TAG",
+              '--notes-file', 'dist/RELEASE-NOTES.txt')
+          if ($env:RELEASE_CHANNEL -eq 'candidate') { $args += @('--prerelease', '--latest=false') }
+          else { $args += '--latest' }
+          & gh @args
+          if ($LASTEXITCODE -ne 0) { throw "GitHub release creation failed" }
+          Write-Host "Published release: https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/$env:RELEASE_TAG"
+
+      - name: Upgrade v0.9.36 stable ZIP and OneFile from published v0.9.37
+        if: env.RELEASE_CHANNEL == 'stable'
+        working-directory: wpf-net48
+        timeout-minutes: 10
+        run: ./tests/check_v0937_promotion.ps1 -Phase Live
