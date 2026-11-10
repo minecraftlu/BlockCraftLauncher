@@ -14,7 +14,7 @@ assert 'CreateFromDirectory' in b and '0x8664' in b
 # extracted to an old v0.9.36 cache because the bootstrap's Release
 # constant wasn't advanced. Keep ALL package and updater tags identical.
 current = (r/'src/BlockCraftLauncher.Wpf/Services/LauncherAutoUpdateService.cs').read_text('utf8')
-packager = (r/'build/package-windows.ps1').read_text('utf8-sig')
+packager = (r/'build/package-windows.ps1').read_text('utf-8-sig')
 bootstrap = re.search(r'private const string Release = "(v\d+\.\d+\.\d+)";', s)
 updater = re.search(r'internal const string CurrentTag = "(v\d+\.\d+\.\d+)";', current)
 assert bootstrap and updater and bootstrap.group(1) == updater.group(1), 'OneFile cache tag != updater tag'
