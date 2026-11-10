@@ -49,13 +49,13 @@ jobs:
         shell: cmd
         working-directory: wpf-net48
         run: call build\build-windows.bat
-      - name: Verify real v0.9.36 stable updater recognizes v0.9.37 stable assets (preflight)
+      - name: Verify v0.9.36 stable preview-channel offer accepts v0.9.37 RC1
         working-directory: wpf-net48
         shell: pwsh
         timeout-minutes: 8
         env:
-          RELEASE_TAG: v0.9.37
-          RELEASE_ZIP: BlockCraftLauncher-v0.9.37-WPF-net48-Windows-x64.zip
+          RELEASE_TAG: v0.9.37-wpf-rc.1
+          RELEASE_ZIP: BlockCraftLauncher-v0.9.37-WPF-net48-Alpha-Windows-x64.zip
           RELEASE_EXE: BlockCraftLauncher-v0.9.37-WPF-OneFile-Windows-x64.exe
         run: |
           $ErrorActionPreference = 'Stop'
@@ -517,7 +517,7 @@ jobs:
         working-directory: wpf-net48
         run: |
           if (!(Test-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe')) { throw 'EXE not produced' }
-          if (!(Test-Path 'dist/BlockCraftLauncher-v0.9.37-WPF-net48-Windows-x64.zip')) { throw 'ZIP not produced' }
+          if (!(Test-Path 'dist/BlockCraftLauncher-v0.9.37-WPF-net48-Alpha-Windows-x64.zip')) { throw 'ZIP not produced' }
           if (!(Test-Path 'dist/BlockCraftLauncher-v0.9.37-WPF-OneFile-Windows-x64.exe')) { throw 'One-file EXE not produced' }
       - name: Verify public CI build hashes before provenance attestation
         shell: pwsh
@@ -526,7 +526,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $names = @(
             'BlockCraftLauncher-v0.9.37-WPF-OneFile-Windows-x64.exe',
-            'BlockCraftLauncher-v0.9.37-WPF-net48-Windows-x64.zip'
+            'BlockCraftLauncher-v0.9.37-WPF-net48-Alpha-Windows-x64.zip'
           )
           $lines = @(Get-Content -LiteralPath 'dist/RELEASE-SHA256SUMS.txt')
           if ($lines.Count -ne 2) { throw 'Expected exactly two release hashes' }
@@ -540,7 +540,7 @@ jobs:
         with:
           subject-path: |
             wpf-net48/dist/BlockCraftLauncher-v0.9.37-WPF-OneFile-Windows-x64.exe
-            wpf-net48/dist/BlockCraftLauncher-v0.9.37-WPF-net48-Windows-x64.zip
+            wpf-net48/dist/BlockCraftLauncher-v0.9.37-WPF-net48-Alpha-Windows-x64.zip
 
       # Exercise the same real keyless signing service on the CI branch, so
       # stable publishing does not become the first time Cosign is tried.
@@ -558,7 +558,7 @@ jobs:
           $signer = 'github.com/${{ github.repository }}/.github/workflows/wpf-net48-alpha-build.yml'
           foreach ($name in @(
             'BlockCraftLauncher-v0.9.37-WPF-OneFile-Windows-x64.exe',
-            'BlockCraftLauncher-v0.9.37-WPF-net48-Windows-x64.zip'
+            'BlockCraftLauncher-v0.9.37-WPF-net48-Alpha-Windows-x64.zip'
           )) {
             $file = Join-Path 'dist' $name
             & cosign sign-blob --yes --bundle "$file.sigstore.json" $file
@@ -573,11 +573,11 @@ jobs:
         with:
           name: BlockCraftLauncher-v0.9.37-WPF-net48-Windows
           path: |
-            wpf-net48/dist/BlockCraftLauncher-v0.9.37-WPF-net48-Windows-x64.zip
+            wpf-net48/dist/BlockCraftLauncher-v0.9.37-WPF-net48-Alpha-Windows-x64.zip
             wpf-net48/dist/BlockCraftLauncher-v0.9.37-WPF-OneFile-Windows-x64.exe
             wpf-net48/dist/BlockCraftLauncher-v0.9.37-WPF-OneFile-Windows-x64.exe.sha256
             wpf-net48/dist/RELEASE-SHA256SUMS.txt
             wpf-net48/dist/BlockCraftLauncher-v0.9.37-WPF-OneFile-Windows-x64.exe.sigstore.json
-            wpf-net48/dist/BlockCraftLauncher-v0.9.37-WPF-net48-Windows-x64.zip.sigstore.json
+            wpf-net48/dist/BlockCraftLauncher-v0.9.37-WPF-net48-Alpha-Windows-x64.zip.sigstore.json
           if-no-files-found: error
           retention-days: 14
