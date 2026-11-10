@@ -126,7 +126,8 @@ namespace BlockCraftLauncher.Wpf
             TopSettingsButton.Click += (sender, args) => Navigate("设置");
             TopMoreButton.Click += (sender, args) => Navigate("关于");
             TaskShortcut.Click += (sender, args) => Navigate("下载管理");
-            BuildVersionText.Text = LauncherAutoUpdateService.CurrentTag.Split('-')[0] + "  ·  预览版";
+            BuildVersionText.Text = LauncherAutoUpdateService.CurrentTag.Split('-')[0] +
+                "  ·  " + LauncherAutoUpdateService.BuildChannelLabel;
             ApplyTheme();
             ApplyZoom();
             Navigate("首页");
@@ -3421,7 +3422,8 @@ namespace BlockCraftLauncher.Wpf
         {
             return Col(PageHeading("关于", "BlockCraft Launcher  ·  Minecraft Java 启动器"),
                 Card(Col(Txt(LauncherAutoUpdateService.CurrentTag, 17, true),
-                    Txt("Windows x64  ·  .NET Framework 4.8  ·  预览版", 12, false, true),
+                    Txt("Windows x64  ·  .NET Framework 4.8  ·  " +
+                        LauncherAutoUpdateService.BuildChannelLabel, 12, false, true),
                     Row(Btn("检查更新", () => Navigate("启动器更新")),
                         Btn("查看发布记录", () => LauncherReleaseService.OpenOfficialRelease(
                             "https://github.com/minecraftlu/BlockCraftLauncher/releases"))))),

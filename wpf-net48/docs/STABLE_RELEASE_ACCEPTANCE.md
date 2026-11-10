@@ -1,7 +1,12 @@
 # BlockCraft Launcher WPF 稳定版发布验收门槛
 
 > 2026-11-10。UI 排版参考 PCL2 的交互层级，由 BlockCraft 独立实现；不复制其专有图标、图片或源码。
-> **目前 v0.9.27 WPF 仍是测试预览，不得只凭 GitHub Actions success 宣称稳定版。**
+
+## v0.9.35 发布验收
+
+项目所有者确认 v0.9.35 RC1 均能正常使用，并要求发布正式版。RC1 的 Windows 构建已通过模组图标等回归，且从 v0.9.34 的 ZIP 和单文件 EXE 均完成了联网升级与新版窗口重开。[RC1 构建](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42788551084) · [RC1 升级验证](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42791240457)
+
+正式版按以下流程从 `main` 构建，并用原始 RC1 校验两种安装包及稳定通道。
 
 ## 本轮已实施的界面统一
 

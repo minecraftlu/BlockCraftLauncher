@@ -232,7 +232,7 @@ namespace BlockCraftLauncher.Wpf.Services
             if (hit.Kind == "mod")
                 return await DownloadModWithDependenciesAsync(hit, profile, ct, progress);
             if (hit.Kind != "mod" && hit.Kind != "shader" && hit.Kind != "resourcepack")
-                throw new NotSupportedException("整合包安装需要安全解压及依赖处理，本预览版尚未迁移。请使用旧版。");
+                throw new NotSupportedException("请通过「整合包」页面安装 Modrinth 整合包。");
             string url = "https://api.modrinth.com/v2/project/" + Uri.EscapeDataString(hit.ProjectId) + "/version";
             var versions = await GetVersionRowsAsync(url, ct);
             if (versions == null || versions.Length == 0) throw new IOException("找不到可下载的资源版本");

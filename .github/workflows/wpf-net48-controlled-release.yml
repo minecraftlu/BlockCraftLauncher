@@ -1,9 +1,8 @@
 name: WPF controlled release (candidate / stable gate)
 
 on:
-  # A versioned candidate request in the WPF branch triggers release
-  # packaging without merging unfinished WPF changes into Python main.
-  # Stable still requires an explicit manual run on the reviewed main branch.
+  # Candidate requests run on the WPF development branch.
+  # Stable requires an explicit dispatch on reviewed main.
   push:
     branches:
       - feature/wpf-net48-alpha-v0.9.27
@@ -12,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Unique release tag (candidate: v0.9.35-wpf-rc.1)'
+        description: 'Tag matching the checked-out build'
         required: true
         default: 'v0.9.35-wpf-rc.1'
         type: string
@@ -25,7 +24,7 @@ on:
           - candidate
           - stable
       real_device_acceptance:
-        description: 'I completed the Windows, account, Minecraft and LAN acceptance checklist'
+        description: 'Project owner confirmed Windows, account, Minecraft and LAN acceptance'
         type: boolean
         required: false
         default: false
@@ -68,14 +67,18 @@ jobs:
             if ($env:REAL_DEVICE_ACCEPTANCE -ne 'true') {
               throw 'Stable publishing requires real-device acceptance signoff'
             }
-            $package = Get-Content 'wpf-net48/build/package-windows.ps1' -Raw
-            $ui = Get-Content 'wpf-net48/src/BlockCraftLauncher.Wpf/MainWindow.xaml.cs' -Raw
-            if ($package -match 'WPF.net48.Alpha' -or $ui -match 'WPF 界面优化预览') {
-              throw 'Update preview labels and packaging version before publishing stable'
-            }
           } else {
             throw 'Unknown release channel'
           }
+          $source = Get-Content 'wpf-net48/src/BlockCraftLauncher.Wpf/Services/LauncherAutoUpdateService.cs' -Raw
+          $tag = [regex]::Match($source, 'internal const string CurrentTag = "([^"]+)";').Groups[1].Value
+          if ($tag -ne $env:RELEASE_TAG) { throw 'The release tag must match the installed updater tag' }
+          $version = ($tag -split '-', 2)[0]
+          $zipSuffix = if ($env:RELEASE_CHANNEL -eq 'stable') { 'Windows-x64' } else { 'Alpha-Windows-x64' }
+          "RELEASE_EXE=BlockCraftLauncher-$version-WPF-OneFile-Windows-x64.exe" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_ZIP=BlockCraftLauncher-$version-WPF-net48-$zipSuffix.zip" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           if (-not (Test-Path 'wpf-net48/docs/STABLE_RELEASE_ACCEPTANCE.md')) {
             throw 'Stable release acceptance criteria are missing'
           }
@@ -116,7 +119,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $normal = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
-          $single = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.35-WPF-OneFile-Windows-x64.exe').Path
+          $single = (Resolve-Path "dist/$env:RELEASE_EXE").Path
           foreach ($exe in @($normal, $single)) {
             foreach ($flag in @(
               '--smoke-test', '--ui-layout-selftest', '--download-ui-selftest',
@@ -151,10 +154,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $dist = (Resolve-Path 'dist').Path
-          $assets = @(
-            'BlockCraftLauncher-v0.9.35-WPF-OneFile-Windows-x64.exe',
-            'BlockCraftLauncher-v0.9.35-WPF-net48-Alpha-Windows-x64.zip'
-          )
+          $assets = @($env:RELEASE_EXE, $env:RELEASE_ZIP)
           $manifest = @()
           foreach ($asset in $assets) {
             $file = Join-Path $dist $asset
@@ -163,20 +163,25 @@ jobs:
             $manifest += "$sha  $asset"
           }
           $manifest | Set-Content -LiteralPath (Join-Path $dist 'RELEASE-SHA256SUMS.txt') -Encoding ASCII
-          $text = @(
-            "BlockCraft Launcher $env:RELEASE_TAG ($env:RELEASE_CHANNEL)",
-            "",
-            "Windows x64 · WPF · .NET Framework 4.8",
-            "",
-            "Use the single EXE or extract the entire multi-file ZIP. Do not mix old DLLs.",
-            "Verify SHA-256 using RELEASE-SHA256SUMS.txt.",
-            "Original Python launcher and Minecraft saves must not be overwritten.",
-            "",
-            "Candidate builds are NOT stable: real Windows, Microsoft login, Minecraft",
-            "downloads, launcher combinations and LAN tests are still required.",
-            "NetEase mobile-room integration is not a supported feature."
-          )
+          $channel = if ($env:RELEASE_CHANNEL -eq 'stable') { '正式版' } else { '预览版' }
+          $text = @"
+          Windows x64 · WPF · .NET Framework 4.8 · $channel
+
+          - 已安装模组显示自带图标，停用模组同样显示。缺少可用图片时显示默认方块。
+          - 支持国内镜像和海外官方线路，提供 Microsoft 正版登录、实例管理及皮肤编辑。
+          - 可直接运行单文件 EXE，也可完整解压 ZIP 后打开 BlockCraftLauncher.Wpf.exe。
+          - 从 RC1 升级正式版时，在「设置 → 更新设置」选择「稳定版」，保存后检查更新。
+          - 从 Python 版迁移时，请在独立目录打开 WPF 版，再选择已有游戏实例。
+
+          校验文件为 RELEASE-SHA256SUMS.txt。
+          "@
           $text | Set-Content -LiteralPath (Join-Path $dist 'RELEASE-NOTES.txt') -Encoding UTF8
+
+      - name: Verify the stable packages with the original RC1 updater
+        if: env.RELEASE_CHANNEL == 'stable'
+        working-directory: wpf-net48
+        timeout-minutes: 4
+        run: ./tests/check_v0935_promotion.ps1 -Phase Preflight
 
       - name: Publish a GitHub release only after all checks
         working-directory: wpf-net48
@@ -184,12 +189,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $files = @(
-            'dist/BlockCraftLauncher-v0.9.35-WPF-OneFile-Windows-x64.exe',
-            'dist/BlockCraftLauncher-v0.9.35-WPF-OneFile-Windows-x64.exe.sha256',
-            'dist/BlockCraftLauncher-v0.9.35-WPF-net48-Alpha-Windows-x64.zip',
-            'dist/RELEASE-SHA256SUMS.txt'
-          )
+          $files = @("dist/$env:RELEASE_EXE", "dist/$env:RELEASE_EXE.sha256",
+            "dist/$env:RELEASE_ZIP", 'dist/RELEASE-SHA256SUMS.txt')
           foreach ($file in $files) {
             if (-not (Test-Path $file)) { throw "Missing publish file: $file" }
           }
@@ -197,7 +198,14 @@ jobs:
             @('--repo', '${{ github.repository }}', '--target', '${{ github.sha }}',
               '--title', "BlockCraft Launcher $env:RELEASE_TAG",
               '--notes-file', 'dist/RELEASE-NOTES.txt')
-          if ($env:RELEASE_CHANNEL -eq 'candidate') { $args += '--prerelease' }
+          if ($env:RELEASE_CHANNEL -eq 'candidate') { $args += @('--prerelease', '--latest=false') }
+          else { $args += '--latest' }
           & gh @args
           if ($LASTEXITCODE -ne 0) { throw "GitHub release creation failed" }
           Write-Host "Published release: https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/$env:RELEASE_TAG"
+
+      - name: Upgrade the original RC1 ZIP and OneFile from the stable channel
+        if: env.RELEASE_CHANNEL == 'stable'
+        working-directory: wpf-net48
+        timeout-minutes: 10
+        run: ./tests/check_v0935_promotion.ps1 -Phase Live

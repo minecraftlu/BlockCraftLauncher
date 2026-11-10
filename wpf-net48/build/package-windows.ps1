@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $folder = Join-Path $root 'src\BlockCraftLauncher.Wpf\bin\Release\net48'
@@ -65,7 +65,7 @@ Write-Host 'Verified standalone x64 update helper'
 
 $dist = Join-Path $root 'dist'
 New-Item -Path $dist -ItemType Directory -Force | Out-Null
-$name = 'BlockCraftLauncher-v0.9.35-WPF-net48-Alpha-Windows-x64'
+$name = 'BlockCraftLauncher-v0.9.35-WPF-net48-Windows-x64'
 $staging = Join-Path $dist $name
 if (Test-Path $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }
 New-Item -Path $staging -ItemType Directory | Out-Null
@@ -114,17 +114,14 @@ $stagedExe = Join-Path $staging 'BlockCraftLauncher.Wpf.exe'
 $hash = (Get-FileHash -LiteralPath $stagedExe -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  BlockCraftLauncher.Wpf.exe" | Set-Content -LiteralPath "$stagedExe.sha256" -Encoding ASCII
 @'
-BlockCraft Launcher v0.9.35 WPF Alpha - .NET Framework 4.8
-This is an incomplete migration preview. Do not overwrite the stable v0.9.26 Python/Go launcher.
-Requires Windows 10/11, .NET Framework 4.8 and Microsoft Edge WebView2 Runtime for Microsoft login.
-Some functionality (CurseForge, modpack installation, multiplayer, updater) is not yet migrated.
-Start BlockCraftLauncher.Wpf.exe in the extracted folder and keep ALL DLL files next to it.
-If the app reports a missing CmlLib.Core.Commons dependency, do NOT copy the EXE alone:
-extract the entire ZIP into a brand-new directory and run from that directory.
-SHA256SUMS.txt lists checksums for all shipped executable and DLL files.
-The --smoke-test command is a noninteractive startup dependency probe for CI.
-No .NET Framework 4.8 redistributable, Minecraft assets, or login tokens are bundled.
-'@ | Set-Content -LiteralPath (Join-Path $staging 'README-ALPHA.txt') -Encoding UTF8
+BlockCraft Launcher v0.9.35 正式版
+
+运行环境为 Windows 10/11 x64 和 .NET Framework 4.8。Microsoft 登录需要 WebView2 Runtime。
+请完整解压 ZIP，在解压目录中打开 BlockCraftLauncher.Wpf.exe，并保留同目录的 DLL。
+从 RC1 升级时，在「设置 → 更新设置」中选择「稳定版」，保存后进入「启动器更新」。
+从旧版 Python 启动器迁移时，请将 WPF 启动器放在独立目录中，并选择已有游戏实例。
+SHA256SUMS.txt 包含包内 EXE 和 DLL 的校验值。
+'@ | Set-Content -LiteralPath (Join-Path $staging 'README.txt') -Encoding UTF8
 $archive = Join-Path $dist "$name.zip"
 if (Test-Path $archive) { Remove-Item -LiteralPath $archive -Force }
 # ZIP entry names use forward slashes, including on Windows PowerShell.

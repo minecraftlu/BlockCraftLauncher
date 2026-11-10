@@ -49,7 +49,8 @@ namespace BlockCraftLauncher.Wpf.Services
     /// </summary>
     public sealed class LauncherAutoUpdateService
     {
-        internal const string CurrentTag = "v0.9.35-wpf-rc.1";
+        internal const string CurrentTag = "v0.9.35";
+        internal static string BuildChannelLabel => CurrentTag.Contains("-wpf-rc.") ? "预览版" : "正式版";
         internal const string ReleasesApi =
             "https://api.github.com/repos/minecraftlu/BlockCraftLauncher/releases?per_page=100";
         internal const string OfficialReleaseRoot =
