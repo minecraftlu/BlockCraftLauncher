@@ -4,7 +4,7 @@ Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $dist = Join-Path $root 'dist'
-$stage = Join-Path $dist 'BlockCraftLauncher-v0.9.36-WPF-net48-Alpha-Windows-x64'
+$stage = Join-Path $dist 'BlockCraftLauncher-v0.9.36-WPF-net48-Windows-x64'
 $payload = Join-Path $dist 'BlockCraftLauncher.OneFile.Payload.zip'
 $project = Join-Path $root 'onefile\BlockCraftLauncher.SingleFile.csproj'
 $name = 'BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe'
