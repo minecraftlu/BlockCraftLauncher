@@ -49,7 +49,7 @@ namespace BlockCraftLauncher.Wpf.Services
     /// </summary>
     public sealed class LauncherAutoUpdateService
     {
-        internal const string CurrentTag = "v0.9.35";
+        internal const string CurrentTag = "v0.9.36-wpf-rc.1";
         internal static string BuildChannelLabel => CurrentTag.Contains("-wpf-rc.") ? "预览版" : "正式版";
         internal const string ReleasesApi =
             "https://api.github.com/repos/minecraftlu/BlockCraftLauncher/releases?per_page=100";
@@ -156,7 +156,7 @@ namespace BlockCraftLauncher.Wpf.Services
 
         static string ExpectedAsset(string tag, string mode)
         {
-            string version = tag.Split('-')[0]; // v0.9.35-wpf-rc.1 -> v0.9.35
+            string version = tag.Split('-')[0]; // v0.9.36-wpf-rc.1 -> v0.9.36
             if (mode == "onefile")
                 return "BlockCraftLauncher-" + version + "-WPF-OneFile-Windows-x64.exe";
             if (mode == "zip")
@@ -282,7 +282,7 @@ namespace BlockCraftLauncher.Wpf.Services
             using (var handler = NetworkDownloader.CreateHttpHandler(settings, allowRedirects: false))
             using (var http = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(12) })
             {
-                http.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher-WPF-Update/0.9.35");
+                http.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher-WPF-Update/0.9.36");
                 Uri current = new Uri(url);
                 if (!TrustedRedirect(current) ||
                     !current.AbsolutePath.StartsWith(
