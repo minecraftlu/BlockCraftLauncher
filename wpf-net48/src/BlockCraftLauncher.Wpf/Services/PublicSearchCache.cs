@@ -39,7 +39,11 @@ namespace BlockCraftLauncher.Wpf.Services
                     path.StartsWith("/curseforge/v1/", StringComparison.Ordinal)) ||
                 (host == "mosaicary.com" &&
                     (path == "/api/skins" || path.StartsWith("/api/skins/", StringComparison.Ordinal))) ||
-                (host == "dpplugins.com" && path == "/api/skins");
+                (host == "dpplugins.com" && path == "/api/skins") ||
+                (host == "api.github.com" &&
+                    (path == "/search/repositories" ||
+                     System.Text.RegularExpressions.Regex.IsMatch(path,
+                        @"^/repos/[A-Za-z0-9-]{1,39}/[A-Za-z0-9_.-]{1,100}(?:/releases/latest)?$")));
             if (!allowed) return null;
 
             // A proxy or network-mode change must not reuse a response produced
