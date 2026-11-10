@@ -16,7 +16,7 @@ namespace BlockCraftLauncher.OneFile
     {
         private const string ResourceName = "BlockCraftLauncher.Payload.zip";
         private const string GameExe = "BlockCraftLauncher.Wpf.exe";
-        private const string Release = "v0.9.36-wpf-rc.5";
+        private const string Release = "v0.9.36";
         private const string Ready = ".blockcraft-ready";
 
         [STAThread]
