@@ -16,6 +16,9 @@ jobs:
     runs-on: windows-2022
     permissions:
       contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       - uses: actions/checkout@v4
       - uses: microsoft/setup-msbuild@v2
@@ -516,6 +519,29 @@ jobs:
           if (!(Test-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe')) { throw 'EXE not produced' }
           if (!(Test-Path 'dist/BlockCraftLauncher-v0.9.36-WPF-net48-Windows-x64.zip')) { throw 'ZIP not produced' }
           if (!(Test-Path 'dist/BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe')) { throw 'One-file EXE not produced' }
+      - name: Verify public CI build hashes before provenance attestation
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $names = @(
+            'BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe',
+            'BlockCraftLauncher-v0.9.36-WPF-net48-Windows-x64.zip'
+          )
+          $lines = @(Get-Content -LiteralPath 'dist/RELEASE-SHA256SUMS.txt')
+          if ($lines.Count -ne 2) { throw 'Expected exactly two release hashes' }
+          foreach ($name in $names) {
+            $hash = (Get-FileHash -LiteralPath (Join-Path 'dist' $name) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($lines -cnotcontains "$hash  $name") { throw "Release hash mismatch: $name" }
+          }
+
+      - name: Attest the exact CI-built Windows EXE and ZIP with GitHub/Sigstore
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe
+            wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-net48-Windows-x64.zip
+
       - uses: actions/upload-artifact@v4
         with:
           name: BlockCraftLauncher-v0.9.36-WPF-net48-Windows
@@ -523,5 +549,6 @@ jobs:
             wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-net48-Windows-x64.zip
             wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe
             wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe.sha256
+            wpf-net48/dist/RELEASE-SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
