@@ -21,7 +21,7 @@ namespace BlockCraftLauncher.Wpf.Services
         {
             using var downloads = new HttpClient(NetworkDownloader.CreateHttpHandler(config));
             using var account = new HttpClient(NetworkDownloader.CreateHttpHandler(new LauncherConfig()));
-            downloads.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher-WPF/0.9.34");
+            downloads.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher-WPF/0.9.35");
             var endpoints = new List<(string Label, string Url, bool NeedsAccount)>
             {
                 ("Mojang 游戏版本", MinecraftVersionCatalog.Official, false),

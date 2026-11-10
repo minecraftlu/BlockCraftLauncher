@@ -212,7 +212,7 @@ namespace BlockCraftLauncher.Wpf
                 return;
             }
 
-            Dispatcher.BeginInvoke(new Action(() =>
+            Dispatcher.BeginInvoke(new Action(async () =>
             {
                 try
                 {
@@ -225,7 +225,7 @@ namespace BlockCraftLauncher.Wpf
                         if (downloadPageSelfTest)
                             window.VerifyDownloadPageBindings();
                         if (layoutSelfTest)
-                            window.VerifyPclLayout();
+                            await window.VerifyPclLayoutAsync();
                         Shutdown(0);
                     }
                     else

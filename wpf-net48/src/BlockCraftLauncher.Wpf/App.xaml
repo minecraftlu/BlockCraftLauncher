@@ -457,12 +457,53 @@
               BorderThickness="0,0,0,1">
         <Grid>
           <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="38"/><ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="48"/><ColumnDefinition Width="*"/>
             <ColumnDefinition Width="62"/>
           </Grid.ColumnDefinitions>
+          <Border Width="34" Height="34" Margin="0,0,8,0" CornerRadius="6"
+                  Background="{DynamicResource BadgeBrush}" VerticalAlignment="Center">
+            <Border.Style>
+              <Style TargetType="Border">
+                <Setter Property="Visibility" Value="Collapsed"/>
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding IsMod}" Value="True">
+                    <Setter Property="Visibility" Value="Visible"/>
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </Border.Style>
+            <Grid Margin="3">
+              <Path x:Name="LocalModFallback" Width="20" Height="20" Stretch="Uniform"
+                    Stroke="{DynamicResource AccentInkBrush}" StrokeThickness="1.6"
+                    StrokeLineJoin="Round" Data="M 2,6 L 10,2 18,6 18,14 10,18 2,14 Z M 2,6 L 10,10 18,6 M 10,10 L 10,18">
+                <Path.Style>
+                  <Style TargetType="Path">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding Icon}" Value="{x:Null}">
+                        <Setter Property="Visibility" Value="Visible"/>
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </Path.Style>
+              </Path>
+              <Image x:Name="LocalModThumbnail" Source="{Binding Icon}" Stretch="Uniform"
+                     RenderOptions.BitmapScalingMode="HighQuality"/>
+            </Grid>
+          </Border>
           <TextBlock Text="&#xE8A7;" FontFamily="Segoe MDL2 Assets" FontSize="18"
                      Foreground="{DynamicResource AccentInkBrush}"
-                     VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                     VerticalAlignment="Center" HorizontalAlignment="Center">
+            <TextBlock.Style>
+              <Style TargetType="TextBlock">
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding IsMod}" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </TextBlock.Style>
+          </TextBlock>
           <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="12.5"
                      FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
                      VerticalAlignment="Center" ToolTip="{Binding FullPath}"/>

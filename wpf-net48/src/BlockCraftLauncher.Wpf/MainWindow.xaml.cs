@@ -76,6 +76,7 @@ namespace BlockCraftLauncher.Wpf
         Dictionary<string, UIElement> settingsPages;
         ComboBox localResourceKind;
         ListBox localResourceList, serverList, lanWorldList;
+        CancellationTokenSource localModIconLoad;
         TextBox serverName, serverAddress;
         TextBox packSearchQuery;
         ComboBox packVersionFilter, packSortMode;
@@ -151,6 +152,7 @@ namespace BlockCraftLauncher.Wpf
             {
                 gameProcessTimer.Stop();
                 updateCancellation.Cancel();
+                localModIconLoad?.Cancel();
                 gameProcesses.Dispose(); // Does not terminate the Minecraft game.
             };
         }
@@ -482,6 +484,7 @@ namespace BlockCraftLauncher.Wpf
 
         void Navigate(string page)
         {
+            localModIconLoad?.Cancel();
             resourceSearchCancellation?.Cancel();
             resourceSearchCancellation = null;
             cfSearchCancellation?.Cancel();
@@ -1016,7 +1019,7 @@ namespace BlockCraftLauncher.Wpf
         /// navigation on the normal window and on the single-EXE payload.
         /// Never fetches online manifests, installs mods or opens sign-in.
         /// </summary>
-        internal void VerifyPclLayout()
+        internal async Task VerifyPclLayoutAsync()
         {
             if (TopLaunchButton == null || TopDownloadButton == null || TopMultiplayerButton == null ||
                 TopSettingsButton == null || TopMoreButton == null ||
@@ -1042,7 +1045,7 @@ namespace BlockCraftLauncher.Wpf
             {
                 Id = "offline-layout-profile", Name = "原版 1.21.1",
                 BaseVersion = "1.21.1", LaunchVersion = "1.21.1", Loader = "vanilla",
-                Directory = Path.Combine(Path.GetTempPath(), "blockcraft-layout-probe")
+                Directory = Path.Combine(Path.GetTempPath(), "blockcraft-layout-probe-" + Guid.NewGuid().ToString("N"))
             };
             settings.Profiles.Add(sampleProfile);
             activeProfile = sampleProfile;
@@ -1062,6 +1065,7 @@ namespace BlockCraftLauncher.Wpf
             Navigate("模组更新");
             if (localResourceList?.ItemTemplate == null || sidebarButtons.Count != 3)
                 throw new InvalidOperationException("版本设置侧栏或本地资源列表缺失");
+            await VerifyLocalModIconsAsync(sampleProfile);
             Navigate("存档管理");
             BackButton_Click(this, new RoutedEventArgs());
             if (currentPage != "版本选择")
@@ -1225,6 +1229,38 @@ namespace BlockCraftLauncher.Wpf
             Navigate("首页");
             if (currentPage != "首页" || PageHost.Content == null)
                 throw new InvalidOperationException("导航返回首页失败");
+        }
+
+        async Task VerifyLocalModIconsAsync(GameProfile profile)
+        {
+            try
+            {
+                var expected = LocalModIconSanityChecks.CreateFixtures(InstanceResourceService.Folder(profile, "模组"));
+                await RefreshLocalResourceListAsync();
+                if (localResourceList.Items.Count != expected.Count)
+                    throw new InvalidOperationException("本地模组图标测试未列出全部文件");
+
+                foreach (LocalResourceItem item in localResourceList.Items)
+                {
+                    int expectedWidth = expected[item.Name];
+                    if (!item.IsMod || item.Disabled != item.Name.EndsWith(".disabled", StringComparison.Ordinal) ||
+                        (item.Icon?.PixelWidth ?? 0) != expectedWidth || (item.Icon != null && !item.Icon.IsFrozen))
+                        throw new InvalidOperationException("本地模组图片或停用状态读取错误：" + item.Name);
+
+                    var row = (FrameworkElement)localResourceList.ItemTemplate.LoadContent();
+                    row.DataContext = item;
+                    var thumbnail = (Image)row.FindName("LocalModThumbnail");
+                    var fallback = (FrameworkElement)row.FindName("LocalModFallback");
+                    if (thumbnail == null || fallback == null || thumbnail.Source != item.Icon ||
+                        fallback.Visibility != (expectedWidth == 0 ? Visibility.Visible : Visibility.Collapsed))
+                        throw new InvalidOperationException("本地模组列表图片或默认图标未正确显示：" + item.Name);
+                }
+                ArrangeLayoutProbe(1080, 680, "07-installed-mod-icons");
+            }
+            finally
+            {
+                if (Directory.Exists(profile.Directory)) Directory.Delete(profile.Directory, true);
+            }
         }
 
         void ArrangeLayoutProbe(int width, int height, string captureName = null)
@@ -2150,13 +2186,13 @@ namespace BlockCraftLauncher.Wpf
                 MinHeight = 140, MaxHeight = 310,
                 ItemTemplate = (DataTemplate)FindResource("LocalResourceItemTemplate")
             };
-            localResourceKind.SelectionChanged += (sender, args) => RefreshLocalResourceList();
+            localResourceKind.SelectionChanged += async (sender, args) => await RefreshLocalResourceListAsync();
             var local = Card(Col(Txt("已安装资源", 16, true),
                 SearchFields(("类型", localResourceKind)), localResourceList,
                 Row(Btn("导入文件", ImportLocalResource, true),
                     Btn("启用", () => ToggleLocalResource(true)),
                     Btn("停用", () => ToggleLocalResource(false)),
-                    Btn("刷新列表", RefreshLocalResourceList),
+                    Btn("刷新列表", async () => await RefreshLocalResourceListAsync()),
                     Btn("打开游戏目录", OpenGameFolder))));
             modUpgradeResults = new ListBox { MinHeight = 92, MaxHeight = 212 };
             var updates = Card(Col(Txt("Modrinth 更新", 16, true),
@@ -2165,7 +2201,7 @@ namespace BlockCraftLauncher.Wpf
                 Row(Btn("检查更新", async () => await CheckManagedUpdatesAsync(), true),
                     Btn("更新选中", async () => await ApplyManagedUpdatesAsync(false)),
                     Btn("更新全部", async () => await ApplyManagedUpdatesAsync(true)))));
-            RefreshLocalResourceList();
+            _ = RefreshLocalResourceListAsync();
             return Col(PageHeading("模组与资源", "当前版本  " + activeProfile.Name), local, updates);
         }
         async Task CheckManagedUpdatesAsync()
@@ -2210,17 +2246,47 @@ namespace BlockCraftLauncher.Wpf
                 Status("Modrinth 资源更新完成：" + updates.Count + " 项");
                 results.ItemsSource = null;
                 if (currentPage == "模组更新" && ReferenceEquals(profile, activeProfile))
-                    RefreshLocalResourceList();
+                    _ = RefreshLocalResourceListAsync();
             }
             catch (OperationCanceledException) { Status("模组更新已取消"); }
             catch (Exception ex) { ShowError("资源更新失败", ex); }
             finally { currentOperation.Dispose(); currentOperation = null; }
         }
-        void RefreshLocalResourceList()
+        async Task RefreshLocalResourceListAsync()
         {
+            localModIconLoad?.Cancel();
             if (localResourceList == null || localResourceKind == null || activeProfile == null) return;
-            try { localResourceList.ItemsSource = InstanceResourceService.List(activeProfile, Convert.ToString(localResourceKind.SelectedItem)); }
-            catch (Exception ex) { ShowError("读取本地资源失败", ex); }
+            string kind = Convert.ToString(localResourceKind.SelectedItem);
+            IReadOnlyList<LocalResourceItem> items;
+            try
+            {
+                items = InstanceResourceService.List(activeProfile, kind);
+                localResourceList.ItemsSource = items;
+            }
+            catch (Exception ex)
+            {
+                ShowError("读取本地资源失败", ex);
+                return;
+            }
+            if (kind != "模组" || items.Count == 0) return;
+
+            var load = new CancellationTokenSource();
+            localModIconLoad = load;
+            try
+            {
+                foreach (var item in items)
+                {
+                    var icon = await Task.Run(() => LocalModIcon.Read(item.FullPath), load.Token);
+                    load.Token.ThrowIfCancellationRequested();
+                    item.Icon = icon;
+                }
+            }
+            catch (OperationCanceledException) when (load.IsCancellationRequested) { }
+            finally
+            {
+                if (ReferenceEquals(localModIconLoad, load)) localModIconLoad = null;
+                load.Dispose();
+            }
         }
         void ImportLocalResource()
         {
@@ -2235,7 +2301,8 @@ namespace BlockCraftLauncher.Wpf
             try
             {
                 string added = InstanceResourceService.Import(activeProfile, kind, dialog.FileName);
-                Status("导入完成：" + Path.GetFileName(added)); RefreshLocalResourceList();
+                Status("导入完成：" + Path.GetFileName(added));
+                _ = RefreshLocalResourceListAsync();
             }
             catch (Exception ex) { ShowError("导入资源失败", ex); }
         }
@@ -2246,7 +2313,8 @@ namespace BlockCraftLauncher.Wpf
             try
             {
                 InstanceResourceService.SetEnabled(activeProfile, Convert.ToString(localResourceKind.SelectedItem), item, enabled);
-                Status((enabled ? "已启用：" : "已停用：") + item.Name); RefreshLocalResourceList();
+                Status((enabled ? "已启用：" : "已停用：") + item.Name);
+                _ = RefreshLocalResourceListAsync();
             }
             catch (Exception ex) { ShowError("操作本地资源失败", ex); }
         }
