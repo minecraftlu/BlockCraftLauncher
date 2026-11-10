@@ -49,7 +49,7 @@ namespace BlockCraftLauncher.Wpf.Services
     /// </summary>
     public sealed class LauncherAutoUpdateService
     {
-        internal const string CurrentTag = "v0.9.36-wpf-rc.4";
+        internal const string CurrentTag = "v0.9.36-wpf-rc.5";
         internal static string BuildChannelLabel => CurrentTag.Contains("-wpf-rc.") ? "预览版" : "正式版";
         internal const string ReleasesApi =
             "https://api.github.com/repos/minecraftlu/BlockCraftLauncher/releases?per_page=100";
@@ -156,7 +156,7 @@ namespace BlockCraftLauncher.Wpf.Services
 
         static string ExpectedAsset(string tag, string mode)
         {
-            string version = tag.Split('-')[0]; // v0.9.36-wpf-rc.4 -> v0.9.36
+            string version = tag.Split('-')[0]; // v0.9.36-wpf-rc.5 -> v0.9.36
             if (mode == "onefile")
                 return "BlockCraftLauncher-" + version + "-WPF-OneFile-Windows-x64.exe";
             if (mode == "zip")
