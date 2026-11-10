@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Globalization;
+using System.Windows.Media;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -19,23 +22,64 @@ namespace BlockCraftLauncher.Wpf.Services
     /// Minecraft player lookups use Mojang endpoints; community text searches
     /// use DP-Plugins' documented public, unauthenticated skins endpoint.
     /// </summary>
-    internal sealed class OnlineSkinEntry
+    internal sealed class OnlineSkinEntry : INotifyPropertyChanged
     {
+        public string Id { get; set; }
         public string Name { get; set; }
+        public string Description { get; set; }
         public string Source { get; set; }
         public string TextureUrl { get; set; }
+        public string ThumbnailUrl { get; set; }
+        public string DetailUrl { get; set; }
+        public string Author { get; set; }
+        public string License { get; set; }
+        public string Category { get; set; }
+        public string TagsLabel { get; set; }
+        public long Downloads { get; set; }
         public bool SlimArms { get; set; }
         public string Attribution { get; set; }
 
-        public override string ToString()
+        ImageSource thumbnail;
+        public ImageSource Thumbnail
         {
-            return Name + "  ·  " + Source + (SlimArms ? "  ·  Alex" : "  ·  Steve");
+            get => thumbnail;
+            set
+            {
+                if (ReferenceEquals(thumbnail, value)) return;
+                thumbnail = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Thumbnail)));
+            }
         }
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        public bool OpenLicense => OnlineSkinSearchService.IsFreeLicense(License);
+        public bool CanDownload => OpenLicense || Source == "Mojang 玩家";
+        public string LicenseLabel => OpenLicense ? "自由许可：" + License :
+            Source == "Mojang 玩家" ? "公开玩家皮肤 · 许可未声明" :
+            string.IsNullOrWhiteSpace(License) ? "许可未声明 · 请先确认" :
+            "受限制许可：" + License;
+        public string ModelLabel => SlimArms ? "Alex · 细手臂" : "Steve · 经典手臂";
+        public string AuthorLabel => string.IsNullOrWhiteSpace(Author) ?
+            "作者未知" : "作者：" + Author;
+        public string Summary => string.IsNullOrWhiteSpace(Description) ?
+            "公开 Minecraft Java 皮肤" : Description;
+        public string DownloadsLabel => Downloads <= 0 ? "" :
+            "下载 " + Downloads.ToString("N0", CultureInfo.InvariantCulture);
+        public override string ToString() =>
+            Name + " · " + Source + " · " + ModelLabel;
+    }
+
+    internal sealed class OnlineSkinPage
+    {
+        public IReadOnlyList<OnlineSkinEntry> Entries { get; set; }
+        public int Page { get; set; }
+        public int Total { get; set; }
+        public int TotalPages { get; set; }
     }
 
     internal static class OnlineSkinSearchService
     {
-        const int MaxJsonBytes = 256 * 1024;
+        const int MaxJsonBytes = 1024 * 1024;
         const int MaxPngBytes = 4 * 1024 * 1024;
         static readonly JavaScriptSerializer Json = new JavaScriptSerializer
         {
@@ -249,6 +293,153 @@ namespace BlockCraftLauncher.Wpf.Services
                 new Uri("https://sessionserver.mojang.com/session/minecraft/profile/" + uuid),
                 ct).ConfigureAwait(false);
             return new[] { ParseSessionProfile(profile, player) };
+        }
+
+
+        // 'Published' and 'open source' are not synonyms: CC-NC, CC-ND,
+        // 'all rights reserved', and missing permissions do not qualify.
+        internal static bool IsFreeLicense(string license)
+        {
+            string value = (license ?? "").Trim().ToLowerInvariant();
+            return new[] { "cc0", "cc0-1.0", "cc-by", "cc-by-3.0", "cc-by-4.0",
+                "cc-by-sa", "cc-by-sa-3.0", "cc-by-sa-4.0",
+                "mit", "apache-2.0", "gpl-3.0", "gpl-3.0-only" }
+                .Contains(value);
+        }
+
+        static int Number(Dictionary<string, object> obj, string key, int fallback = 0)
+        {
+            return int.TryParse(Str(obj, key), NumberStyles.Integer,
+                CultureInfo.InvariantCulture, out var result) ? result : fallback;
+        }
+
+        static string Short(string value, int max)
+        {
+            value = (value ?? "").Trim();
+            return value.Length <= max ? value : value.Substring(0, max);
+        }
+
+        static string JoinTags(Dictionary<string, object> obj)
+        {
+            if (obj == null || !obj.TryGetValue("tags", out var raw) ||
+                !(raw is object[] tags)) return "";
+            return Short(string.Join(" · ", tags.OfType<string>().Take(6)), 110);
+        }
+
+        /// <summary>
+        /// Mosaicary is a browsable, paginated, public skin gallery. We
+        /// restrict to PUBLISHED standard 64px skins, never harvested players.
+        /// Each result includes an explicit per-skin license and author.
+        /// </summary>
+        internal static OnlineSkinPage ParseMosaicaryPage(
+            Dictionary<string, object> data, int requestedPage, bool freeOnly)
+        {
+            if (data == null || !data.TryGetValue("skins", out var raw) ||
+                !(raw is object[] skins))
+                throw new InvalidDataException("Mosaicary 皮肤目录数据结构错误");
+            int page = Math.Max(1, Math.Min(10000, Number(data, "page", requestedPage)));
+            int pages = Math.Max(page, Math.Min(10000, Number(data, "pages", page)));
+            var entries = new List<OnlineSkinEntry>();
+            foreach (var model in skins.Select(Dict).Where(x => x != null).Take(50))
+            {
+                string id = Str(model, "id"), name = Short(Str(model, "name"), 80);
+                if (!Regex.IsMatch(id, @"^[a-zA-Z0-9]{12}$") ||
+                    name.Length == 0 || Number(model, "width") != 64 ||
+                    (Number(model, "height") != 64 && Number(model, "height") != 32) ||
+                    Str(model, "png").Length == 0) continue;
+                // Reject unlicensed, rights-reserved and non-commercial skins.
+                string license = Short(Str(model, "license"), 48);
+                if (freeOnly && !IsFreeLicense(license)) continue;
+                // Defensive source validation: avoid mixing scraped, no-license
+                // player skins into the explicitly licensed gallery.
+                if (model.TryGetValue("found", out var found) && found is bool isFound && isFound)
+                    continue;
+                string author = Short(Str(Object(model, "author"), "name"), 70);
+                if (author.Length == 0)
+                    author = Short(Str(Object(model, "publisher"), "name"), 70);
+                if (author.Length == 0) author = "未署名";
+                string detail = "https://mosaicary.com/models/" + id;
+                entries.Add(new OnlineSkinEntry
+                {
+                    Id = id, Name = name, Source = "Mosaicary",
+                    Author = author, License = license,
+                    Description = Short(Str(model, "category") +
+                        (JoinTags(model).Length > 0 ? " · " + JoinTags(model) : ""), 130),
+                    Category = Short(Str(model, "category"), 30),
+                    TagsLabel = JoinTags(model),
+                    TextureUrl = "https://mosaicary.com/api/skins/" + id + ".png",
+                    ThumbnailUrl = "https://mosaicary.com/api/skins/" + id + "/render.png",
+                    DetailUrl = detail,
+                    Downloads = Math.Max(0, Number(model, "downloads")),
+                    SlimArms = Str(model, "arms") == "slim",
+                    Attribution = "来源：Mosaicary · 作者：" + author +
+                        " · 许可证：" + (license.Length > 0 ? license : "未声明") +
+                        " · 详情：" + detail
+                });
+            }
+            return new OnlineSkinPage
+            {
+                Entries = entries,
+                Page = page,
+                Total = Math.Max(0, Number(data, "total")),
+                TotalPages = pages
+            };
+        }
+
+        public static async Task<OnlineSkinPage> BrowseMosaicaryAsync(
+            string text, int page, string category, string arms,
+            string sort, bool freeOnly, CancellationToken ct)
+        {
+            string query = (text ?? "").Trim();
+            if (query.Length > 60) throw new ArgumentException("搜索关键词不得超过 60 个字符");
+            if (page < 1 || page > 10000)
+                throw new ArgumentOutOfRangeException(nameof(page));
+            var args = new List<string> { "source=published", "size=64", "per=24",
+                "page=" + page.ToString(CultureInfo.InvariantCulture) };
+            if (query.Length > 0) args.Add("q=" + Uri.EscapeDataString(query));
+            if (new[] { "girls", "boys", "characters", "creatures" }.Contains(category))
+                args.Add("category=" + category);
+            if (arms == "slim" || arms == "classic") args.Add("arms=" + arms);
+            if (sort == "popular" || sort == "downloads") args.Add("sort=" + sort);
+            return ParseMosaicaryPage(await GetJson(new Uri(
+                "https://mosaicary.com/api/skins?" + string.Join("&", args)), ct)
+                .ConfigureAwait(false), page, freeOnly);
+        }
+
+        internal static async Task<ImageSource> DownloadThumbnailAsync(
+            OnlineSkinEntry item, CancellationToken ct)
+        {
+            if (item == null || item.Source != "Mosaicary" ||
+                !Regex.IsMatch(item.Id ?? "", @"^[a-zA-Z0-9]{12}$"))
+                return null;
+            // Do not load untrusted third-party image URLs into WPF's
+            // automatic BitmapImage network downloader.
+            var url = new Uri("https://mosaicary.com/api/skins/" + item.Id + "/render.png");
+            byte[] bytes = await GetBytes(url, 1024 * 1024, ct).ConfigureAwait(false);
+            using (var stream = new MemoryStream(bytes, false))
+            {
+                var decoder = new PngBitmapDecoder(stream, BitmapCreateOptions.None,
+                    BitmapCacheOption.OnLoad);
+                if (decoder.Frames.Count == 0 || decoder.Frames[0].PixelWidth < 1 ||
+                    decoder.Frames[0].PixelHeight < 1 ||
+                    decoder.Frames[0].PixelWidth > 512 || decoder.Frames[0].PixelHeight > 512)
+                    throw new InvalidDataException("皮肤缩略图超出允许尺寸");
+                var frame = decoder.Frames[0];
+                frame.Freeze();
+                return frame;
+            }
+        }
+
+        internal static string SkinSourceNote(OnlineSkinEntry item)
+        {
+            if (item == null) return "";
+            return "Minecraft skin attribution\n" +
+                "Name: " + Short(item.Name, 80) + "\n" +
+                "Author: " + Short(item.Author, 70) + "\n" +
+                "Source: " + Short(item.Source, 40) + "\n" +
+                "License: " + Short(item.License, 48) + "\n" +
+                "Original page: " + Short(item.DetailUrl, 512) + "\n" +
+                "Creative Commons licenses may require credit and share-alike on redistribution.\n";
         }
 
         public static async Task<IReadOnlyList<OnlineSkinEntry>> SearchCommunityAsync(
