@@ -91,7 +91,8 @@ jobs:
             'check_project.py', 'check_phase2.py', 'check_windows_packaging.py',
             'check_v0926_features.py', 'check_onefile.py', 'check_pcl_downloads.py',
             'check_download_bindings.py', 'check_auth_recovery.py',
-            'check_pcl_unified_ui.py', 'check_skin_search.py'
+            'check_pcl_unified_ui.py', 'check_skin_search.py',
+            'check_server_discovery.py'
           )) {
             python "tests/$check"
             if ($LASTEXITCODE -ne 0) { throw "Static check failed: $check" }
@@ -126,7 +127,7 @@ jobs:
               '--download-selftest', '--modrinth-search-selftest',
               '--modrinth-deps-selftest', '--saves-restore-selftest',
               '--instance-detection-selftest', '--auth-selftest',
-              '--skin-selftest'
+              '--skin-selftest', '--server-search-selftest'
             )) {
               $process = Start-Process -FilePath $exe -ArgumentList $flag -PassThru
               if (-not $process.WaitForExit(70000)) {
