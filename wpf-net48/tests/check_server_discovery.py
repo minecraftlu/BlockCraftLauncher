@@ -30,7 +30,8 @@ assert "MC Monitor" in service and "MSID" in service
 assert 'x:Key="PublicServerResultTemplate"' in xaml
 for field in ("Name", "Summary", "Address", "PlayerLabel", "VersionLabel", "StatusLabel", "SourceLabel"):
     assert "{Binding " + field + "}" in xaml
-assert '<Image Source="{Binding IconUrl}"' not in xaml
+server_template = xaml.split('x:Key="PublicServerResultTemplate"', 1)[1].split('</DataTemplate>', 1)[0]
+assert "<Image " not in server_template  # no untrusted remote catalogue icons
 
 # Search is a separate multiplayer subpage; favorites and LAN retain their
 # pre-existing pages and only a real user's button triggers lookups or joins.
