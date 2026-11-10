@@ -56,4 +56,28 @@ assert "onlineAutoLoaded" not in studio, "online catalogs must not auto-connect 
 
 assert "OnlineSkinSearchService.RunOfflineSelfTest()" in app
 assert "dpplugins.com" in docs and "Mojang" in docs
+# Online skin search is a distinct Download navigation page, while DIY remains in More.
+main = (SRC / "MainWindow.xaml.cs").read_text("utf8")
+assert 'AddNavSection("社区资源", "资源中心", "皮肤下载"' in main
+assert 'AddNavSection("工具", "皮肤 DIY"' in main
+assert 'case "皮肤下载":' in main and 'case "皮肤 DIY":' in main
+assert "GetSkinStudio().ShowDownloadPage(true)" in main
+assert "GetSkinStudio().ShowDownloadPage(false)" in main
+assert 'QueueSkinDownload' in main and 'downloads.Enqueue("皮肤"' in main
+assert "OnlineSkinSearchService.DownloadToLibraryAsync(" in main
+assert "downloadPage = BuildOnlineSearch()" in studio
+assert "editorPage = page" in studio
+assert "ShowDownloadPage(bool downloads)" in studio
+assert "if (downloadMode ||" in studio
+assert "queueSkinDownload(item)" in studio
+assert "onlineSource.SelectedIndex = 1" in studio
+# Skin downloads must be cancellable, retryable through the same task system,
+# never replace existing user files and must always preserve source attribution.
+assert "IProgress<DownloadBytes> progress = null" in service
+assert "ct.ThrowIfCancellationRequested()" in service
+assert "File.Move(stage, target)" in service
+assert "File.Move(noteStage, committed + \".source.txt\")" in service
+assert "SkinSourceNote(skin)" in service
+assert "if (!skin.CanDownload)" in service
+
 print("PASS: online skin search/download static wiring (real Windows tests still required)")

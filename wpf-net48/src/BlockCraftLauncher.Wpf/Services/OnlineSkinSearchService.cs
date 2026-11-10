@@ -169,7 +169,8 @@ namespace BlockCraftLauncher.Wpf.Services
             return "https://textures.minecraft.net" + uri.AbsolutePath;
         }
 
-        static async Task<byte[]> GetBytes(Uri url, int maximum, CancellationToken ct)
+        static async Task<byte[]> GetBytes(Uri url, int maximum, CancellationToken ct,
+            IProgress<DownloadBytes> progress = null)
         {
             using (var request = new HttpRequestMessage(HttpMethod.Get, url))
             using (var response = await Http.SendAsync(request,
@@ -196,6 +197,8 @@ namespace BlockCraftLauncher.Wpf.Services
                         if (buffer.Length + length > maximum)
                             throw new InvalidDataException("在线皮肤响应超过安全大小限制");
                         buffer.Write(chunk, 0, length);
+                        progress?.Report(new DownloadBytes(buffer.Length,
+                            response.Content.Headers.ContentLength ?? 0));
                     }
                     return buffer.ToArray();
                 }
@@ -335,7 +338,8 @@ namespace BlockCraftLauncher.Wpf.Services
         /// Each result includes an explicit per-skin license and author.
         /// </summary>
         internal static OnlineSkinPage ParseMosaicaryPage(
-            Dictionary<string, object> data, int requestedPage, bool freeOnly)
+            Dictionary<string, object> data, int requestedPage, bool freeOnly,
+            bool includeFound = false)
         {
             if (data == null || !data.TryGetValue("skins", out var raw) ||
                 !(raw is object[] skins))
@@ -353,19 +357,21 @@ namespace BlockCraftLauncher.Wpf.Services
                 // Reject unlicensed, rights-reserved and non-commercial skins.
                 string license = Short(Str(model, "license"), 48);
                 if (freeOnly && !IsFreeLicense(license)) continue;
-                // Defensive source validation: avoid mixing scraped, no-license
-                // player skins into the explicitly licensed gallery.
-                if (model.TryGetValue("found", out var found) && found is bool isFound && isFound)
-                    continue;
-                string author = Short(Str(Object(model, "author"), "name"), 70);
-                if (author.Length == 0)
+                bool foundSkin = model.TryGetValue("found", out var found) &&
+                    found is bool isFound && isFound;
+                // Found player skins are for opt-in browsing ONLY: never mark
+                // them as open-license works or enable Save/Use permissions.
+                if (foundSkin && !includeFound) continue;
+                string author = foundSkin ? "原作者未知" :
+                    Short(Str(Object(model, "author"), "name"), 70);
+                if (author.Length == 0 && !foundSkin)
                     author = Short(Str(Object(model, "publisher"), "name"), 70);
                 if (author.Length == 0) author = "未署名";
                 string detail = "https://mosaicary.com/models/" + id;
                 entries.Add(new OnlineSkinEntry
                 {
                     Id = id, Name = name, Source = "Mosaicary",
-                    Author = author, License = license,
+                    Author = author, License = foundSkin ? "" : license,
                     Description = Short(Str(model, "category") +
                         (JoinTags(model).Length > 0 ? " · " + JoinTags(model) : ""), 130),
                     Category = Short(Str(model, "category"), 30),
@@ -376,7 +382,8 @@ namespace BlockCraftLauncher.Wpf.Services
                     Downloads = Math.Max(0, Number(model, "downloads")),
                     SlimArms = Str(model, "arms") == "slim",
                     Attribution = "来源：Mosaicary · 作者：" + author +
-                        " · 许可证：" + (license.Length > 0 ? license : "未声明") +
+                        " · 许可证：" + (foundSkin ? "未声明（仅预览）" :
+                            (license.Length > 0 ? license : "未声明")) +
                         " · 详情：" + detail
                 });
             }
@@ -391,13 +398,15 @@ namespace BlockCraftLauncher.Wpf.Services
 
         public static async Task<OnlineSkinPage> BrowseMosaicaryAsync(
             string text, int page, string category, string arms,
-            string sort, bool freeOnly, CancellationToken ct)
+            string sort, bool freeOnly, CancellationToken ct,
+            bool includeFound = false)
         {
             string query = (text ?? "").Trim();
             if (query.Length > 60) throw new ArgumentException("搜索关键词不得超过 60 个字符");
             if (page < 1 || page > 10000)
                 throw new ArgumentOutOfRangeException(nameof(page));
-            var args = new List<string> { "source=published", "size=64", "per=24",
+            var args = new List<string> {
+                includeFound ? "source=all" : "source=published", "size=64", "per=24",
                 "page=" + page.ToString(CultureInfo.InvariantCulture) };
             if (query.Length > 0) args.Add("q=" + Uri.EscapeDataString(query));
             if (new[] { "girls", "boys", "characters", "creatures" }.Contains(category))
@@ -406,7 +415,7 @@ namespace BlockCraftLauncher.Wpf.Services
             if (sort == "popular" || sort == "downloads") args.Add("sort=" + sort);
             return ParseMosaicaryPage(await GetJson(new Uri(
                 "https://mosaicary.com/api/skins?" + string.Join("&", args)), ct)
-                .ConfigureAwait(false), page, freeOnly);
+                .ConfigureAwait(false), page, freeOnly, includeFound);
         }
 
         internal static async Task<byte[]> DownloadThumbnailAsync(
@@ -482,7 +491,7 @@ namespace BlockCraftLauncher.Wpf.Services
             if (!root.TryGetValue("skins", out var value) || !(value is object[] skins))
                 throw new InvalidDataException("社区皮肤搜索结果结构已变化");
             var result = new List<OnlineSkinEntry>();
-            foreach (var skin in skins.Select(Dict).Where(x => x != null).Take(40))
+            foreach (var skin in skins.Select(Dict).Where(x => x != null).Take(200))
             {
                 string url = Str(skin, "skinUrl");
                 string name = Str(skin, "name");
@@ -539,17 +548,103 @@ namespace BlockCraftLauncher.Wpf.Services
                 VerifyPng(preview);
                 return preview;
             }
-            return await DownloadPngAsync(skin, ct).ConfigureAwait(false);
+            // Browsing an unlicensed community entry may display its public
+            // image, but does not enable Save or Use in the UI.
+            var previewUrl = SafePublicSkinUri(skin.TextureUrl);
+            byte[] raw = await GetBytes(previewUrl, MaxPngBytes, ct).ConfigureAwait(false);
+            VerifyPng(raw);
+            return raw;
         }
 
         public static async Task<byte[]> DownloadPngAsync(
-            OnlineSkinEntry skin, CancellationToken ct)
+            OnlineSkinEntry skin, CancellationToken ct,
+            IProgress<DownloadBytes> progress = null)
         {
             if (skin == null) throw new ArgumentNullException(nameof(skin));
+            if (!skin.CanDownload)
+                throw new InvalidOperationException("此皮肤未声明可下载许可，请先查看原作者授权");
             var uri = SafePublicSkinUri(skin.TextureUrl);
-            byte[] png = await GetBytes(uri, MaxPngBytes, ct).ConfigureAwait(false);
+            byte[] png = await GetBytes(uri, MaxPngBytes, ct, progress).ConfigureAwait(false);
             VerifyPng(png);
             return png;
+        }
+
+        /// <summary>
+        /// Shared skin-download task target: isolated staging, normalized 64x64
+        /// PNG, unique destination (never overwrite an existing skin),
+        /// attribution sidecar, cancellation and full retry through the
+        /// launcher's existing DownloadTaskCenter.
+        /// </summary>
+        public static async Task<string> DownloadToLibraryAsync(
+            OnlineSkinEntry skin, CancellationToken ct,
+            IProgress<DownloadBytes> progress = null)
+        {
+            if (skin == null || !skin.CanDownload)
+                throw new InvalidOperationException("这张皮肤没有可验证的下载权限");
+            byte[] png = await DownloadPngAsync(skin, ct, progress).ConfigureAwait(true);
+            ct.ThrowIfCancellationRequested();
+            string directory = SkinEditorDocument.LocalLibrary;
+            Directory.CreateDirectory(directory);
+            string slug = Regex.Replace(skin.Name ?? "", @"[\\/:*?""<>|\p{C}]", "-")
+                .Trim().TrimEnd('.', ' ');
+            if (slug.Length > 25) slug = slug.Substring(0, 25);
+            if (slug.Length == 0) slug = "Minecraft";
+            string stage = Path.Combine(directory, ".skin-" +
+                Guid.NewGuid().ToString("N") + ".png");
+            string stagingInput = Path.Combine(Path.GetTempPath(),
+                "BlockCraft-Skin-Import-" + Guid.NewGuid().ToString("N") + ".png");
+            string noteStage = stage + ".source.txt";
+            string committed = null;
+            try
+            {
+                File.WriteAllBytes(stagingInput, png);
+                var normalized = new SkinEditorDocument();
+                normalized.LoadPng(stagingInput, skin.SlimArms);
+                normalized.SavePng(stage);
+                File.WriteAllText(noteStage, SkinSourceNote(skin), Encoding.UTF8);
+                ct.ThrowIfCancellationRequested();
+                // File.Move is non-overwriting, preventing race conditions and
+                // accidental user data loss even with parallel/retried jobs.
+                for (int attempt = 0; attempt < 8; attempt++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    string name = "在线-" + slug + "-" +
+                        DateTime.UtcNow.ToString("MMdd-HHmmss", CultureInfo.InvariantCulture) +
+                        "-" + Guid.NewGuid().ToString("N").Substring(0, 6);
+                    string target = SkinEditorDocument.SafeLibraryPath(name);
+                    try
+                    {
+                        File.Move(stage, target);
+                        committed = target;
+                        break;
+                    }
+                    catch (IOException) when (File.Exists(target))
+                    {
+                        // A simultaneous download won that exact name.
+                    }
+                }
+                if (committed == null)
+                    throw new IOException("无法取得唯一的本地皮肤文件名");
+                ct.ThrowIfCancellationRequested();
+                File.Move(noteStage, committed + ".source.txt");
+                return committed;
+            }
+            catch
+            {
+                if (committed != null)
+                {
+                    try { File.Delete(committed); } catch (IOException) { }
+                }
+                throw;
+            }
+            finally
+            {
+                foreach (string temporary in new[] { stage, noteStage, stagingInput })
+                {
+                    try { if (File.Exists(temporary)) File.Delete(temporary); }
+                    catch (IOException) { }
+                }
+            }
         }
 
         internal static void VerifyPng(byte[] data)
@@ -593,6 +688,11 @@ namespace BlockCraftLauncher.Wpf.Services
                         ["id"] = "ABCDef012346", ["name"] = "Restricted",
                         ["width"] = 64, ["height"] = 64, ["png"] = "https://mosaicary.com/",
                         ["license"] = "arr"
+                    },
+                    new Dictionary<string, object> {
+                        ["id"] = "ABCDef012347", ["name"] = "Found player",
+                        ["width"] = 64, ["height"] = 64, ["png"] = "https://mosaicary.com/",
+                        ["found"] = true
                     }
                 }
             };
@@ -601,6 +701,11 @@ namespace BlockCraftLauncher.Wpf.Services
                 catalog.Entries[0].OpenLicense && catalog.Entries[0].SlimArms &&
                 catalog.Entries[0].TextureUrl.Contains("/ABCDef012345.png"),
                 "Mosaicary 分页、许可过滤、可信主机、模型及作者");
+            var publicCatalog = ParseMosaicaryPage(sample, 1, false, true);
+            Require(publicCatalog.Entries.Count == 3 &&
+                publicCatalog.Entries.Any(x => x.Name == "Found player" &&
+                    !x.OpenLicense && !x.CanDownload),
+                "公开发现的玩家皮肤可以查看，但绝不能被当作开放许可下载");
             Require(ValidPlayerInput("jeb_") && ValidPlayerInput(
                 "853c80ef3c3749fdaa49938b674adae6"), "玩家名和 UUID");
             Require(!ValidPlayerInput("../secret") && !ValidPlayerInput("bad?"),

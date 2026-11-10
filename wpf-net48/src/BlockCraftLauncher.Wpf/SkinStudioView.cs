@@ -27,6 +27,13 @@ namespace BlockCraftLauncher.Wpf
         readonly SkinEditorDocument document = new SkinEditorDocument();
         readonly Func<byte[], bool, System.Threading.Tasks.Task> uploadToMicrosoft;
         readonly Func<string> accountName;
+        readonly Action openEditor;
+        readonly Action openDownloads;
+        readonly Action<OnlineSkinEntry> queueSkinDownload;
+        UIElement editorPage;
+        UIElement downloadPage;
+        bool downloadMode;
+        internal bool DownloadMode => downloadMode;
         bool uploading;
         readonly Image texture = new Image();
         readonly Image front = new Image();
@@ -153,10 +160,16 @@ namespace BlockCraftLauncher.Wpf
 
         public SkinStudioView(
             Func<byte[], bool, System.Threading.Tasks.Task> uploadToMicrosoft = null,
-            Func<string> accountName = null)
+            Func<string> accountName = null,
+            Action openEditor = null,
+            Action<OnlineSkinEntry> queueSkinDownload = null,
+            Action openDownloads = null)
         {
             this.uploadToMicrosoft = uploadToMicrosoft;
             this.accountName = accountName;
+            this.openEditor = openEditor;
+            this.openDownloads = openDownloads;
+            this.queueSkinDownload = queueSkinDownload;
             document.Changed += () =>
             {
                 RefreshImages();
@@ -177,8 +190,11 @@ namespace BlockCraftLauncher.Wpf
             SetColor(selected);
             Loaded += (sender, args) =>
             {
-                Keyboard.Focus(paintingSurface);
-                OfferRecoveryOnce();
+                if (!downloadMode)
+                {
+                    Keyboard.Focus(paintingSurface);
+                    OfferRecoveryOnce();
+                }
             };
             Unloaded += (sender, args) =>
             {
@@ -198,8 +214,11 @@ namespace BlockCraftLauncher.Wpf
                 Row(ActionButton("导入 PNG", ImportPng),
                     ActionButton("保存到皮肤库", SaveToLibrary, true),
                     ActionButton("导出 PNG", ExportPng),
-                    ActionButton("新建皮肤", ResetTemplate)))));
-            page.Children.Add(BuildOnlineSearch());
+                    ActionButton("新建皮肤", ResetTemplate),
+                    ActionButton("前往皮肤下载", () => openDownloads?.Invoke())))));
+            // Keep the online catalog out of the DIY editing page.
+            // Both navigation entries reuse this one instance so unsaved
+            // edits and the selected search result survive page switches.
 
             var columns = new Grid();
             columns.ColumnDefinitions.Add(new ColumnDefinition {
@@ -342,8 +361,35 @@ namespace BlockCraftLauncher.Wpf
             Grid.SetColumn(rightPanel, 2);
             columns.Children.Add(rightPanel);
             page.Children.Add(columns);
-            Content = page;
+            editorPage = page;
+            downloadPage = BuildOnlineSearch();
+            downloadPage.Visibility = Visibility.Collapsed;
+            var sections = new Grid();
+            sections.Children.Add(editorPage);
+            sections.Children.Add(downloadPage);
+            Content = sections;
             ResizeEditor();
+        }
+
+        internal void ShowDownloadPage(bool downloads)
+        {
+            downloadMode = downloads;
+            if (editorPage != null)
+                editorPage.Visibility = downloads ? Visibility.Collapsed : Visibility.Visible;
+            if (downloadPage != null)
+                downloadPage.Visibility = downloads ? Visibility.Visible : Visibility.Collapsed;
+            if (downloads)
+            {
+                // Leave the unsaved DIY document intact; prevent CTRL+S
+                // while a search TextBox or download result is focused.
+                draftTimer.Stop();
+                SaveRecoveryDraft();
+            }
+            else
+            {
+                RefreshLibrary();
+                OfferRecoveryOnce();
+            }
         }
 
 
@@ -353,12 +399,16 @@ namespace BlockCraftLauncher.Wpf
         {
             var root = Column(Label("皮肤下载中心", 20, true),
                 Label("浏览开放许可皮肤图库、筛选作者与分类、下载 PNG 或进入 DIY 编辑器。" +
-                    "公开可下载不代表开源，许可证信息以作者实际声明为准。"));
+                    "公开可下载不代表开源，许可证信息以作者实际声明为准。"),
+                Row(ActionButton("前往皮肤 DIY", () => openEditor?.Invoke()),
+                    ActionButton("查看下载任务", () =>
+                        onlineStatus.Text = "可在左侧「下载 → 下载任务」中取消、重试或查看皮肤任务进度。")));
 
             onlineSource.ItemsSource = new[] {
                 "自由授权图库（Mosaicary）", "全部图库（多来源）",
-                "社区图库（DP-Plugins）", "玩家皮肤（Mojang）" };
-            onlineSource.SelectedIndex = 0;
+                "社区图库（DP-Plugins）",
+                "全部公开皮肤（未授权仅预览）", "玩家皮肤（Mojang）" };
+            onlineSource.SelectedIndex = 1; // all supported galleries, by default
             onlineSource.Width = 186;
             StyleSearch(onlineSource);
             onlineQuery.MaxLength = 60;
@@ -484,8 +534,11 @@ namespace BlockCraftLauncher.Wpf
 
         void UpdateOnlineFilters()
         {
-            bool catalog = onlineSource.SelectedIndex == 0 || onlineSource.SelectedIndex == 1;
-            bool player = onlineSource.SelectedIndex == 3;
+            bool catalog = onlineSource.SelectedIndex == 0 ||
+                onlineSource.SelectedIndex == 1 || onlineSource.SelectedIndex == 3;
+            bool player = onlineSource.SelectedIndex == 4;
+            if (onlineSource.SelectedIndex == 3)
+                onlineOpenOnly.IsChecked = false;
             onlineCategory.IsEnabled = onlineSort.IsEnabled = catalog;
             onlineArms.IsEnabled = catalog;
             onlineOpenOnly.IsEnabled = !player;
@@ -539,26 +592,27 @@ namespace BlockCraftLauncher.Wpf
             onlineStatus.Text = "正在搜索在线皮肤（会保留原作者许可信息）...";
             try
             {
-                if (source == 3 && query.Length == 0)
+                if (source == 4 && query.Length == 0)
                     throw new ArgumentException("玩家搜索需要输入 Minecraft Java 玩家名或 UUID");
                 var entries = new List<OnlineSkinEntry>();
                 int maxPage = 1;
                 int total = 0;
                 var errors = new List<string>();
-                if (source == 0 || source == 1)
+                if (source == 0 || source == 1 || source == 3)
                 {
                     try
                     {
                         var gallery = await OnlineSkinSearchService.BrowseMosaicaryAsync(
                             query, page, MosaicaryCategory(), MosaicaryModel(),
-                            MosaicarySort(), onlyFree, CancellationToken.None);
+                            MosaicarySort(), onlyFree, CancellationToken.None,
+                            source == 3);
                         entries.AddRange(gallery.Entries);
                         maxPage = gallery.TotalPages;
                         total = gallery.Total;
                     }
                     catch (Exception ex)
                     {
-                        if (source == 0) throw;
+                        if (source == 0 || source == 3) throw;
                         errors.Add("Mosaicary：" + ex.GetBaseException().Message);
                     }
                 }
@@ -576,7 +630,7 @@ namespace BlockCraftLauncher.Wpf
                         errors.Add("DP-Plugins：" + ex.GetBaseException().Message);
                     }
                 }
-                if (source == 3)
+                if (source == 4)
                     entries.AddRange(await OnlineSkinSearchService.FindPlayerAsync(
                         query, CancellationToken.None));
 
@@ -588,8 +642,10 @@ namespace BlockCraftLauncher.Wpf
                 onlinePage = page;
                 onlinePages = maxPage;
                 onlineResults.ItemsSource = entries;
-                onlinePrevButton.IsEnabled = page > 1 && (source == 0 || source == 1);
-                onlineNextButton.IsEnabled = page < maxPage && (source == 0 || source == 1);
+                onlinePrevButton.IsEnabled = page > 1 &&
+                    (source == 0 || source == 1 || source == 3);
+                onlineNextButton.IsEnabled = page < maxPage &&
+                    (source == 0 || source == 1 || source == 3);
                 onlinePageStatus.Text = "第 " + page + " / " + maxPage +
                     " 页 · 本页展示 " + entries.Count + " 项" +
                     (total > 0 ? " · 图库共有 " + total + " 项（筛选前）" : "") +
@@ -740,6 +796,13 @@ namespace BlockCraftLauncher.Wpf
             var item = selectedOnlineSkin;
             var png = selectedOnlinePng;
             if (item == null || png == null || !item.CanDownload) return;
+            if (queueSkinDownload != null)
+            {
+                queueSkinDownload(item);
+                onlineStatus.Text = "已加入下载队列：「下载 → 下载任务」可查看进度、取消或重试。" +
+                    " 皮肤完成后会保存到本地皮肤库。";
+                return;
+            }
             onlineSaveButton.IsEnabled = false;
             try
             {
@@ -795,6 +858,7 @@ namespace BlockCraftLauncher.Wpf
                 onlineStatus.Text = "已导入 DIY 编辑器。请点击“保存到皮肤库”或“导出 PNG”留存。";
                 info.Text = "已载入在线皮肤：" + item.Name +
                     "\n来源：" + item.Attribution;
+                openEditor?.Invoke();
             }
             catch (Exception ex)
             {
@@ -1371,7 +1435,7 @@ namespace BlockCraftLauncher.Wpf
 
         void OnShortcut(object sender, KeyEventArgs e)
         {
-            if ((Keyboard.Modifiers & ModifierKeys.Control) == 0 ||
+            if (downloadMode || (Keyboard.Modifiers & ModifierKeys.Control) == 0 ||
                 e.OriginalSource is TextBox) return;
             if (e.Key == Key.Z) { document.Undo(); e.Handled = true; }
             else if (e.Key == Key.Y) { document.Redo(); e.Handled = true; }
@@ -1384,8 +1448,11 @@ namespace BlockCraftLauncher.Wpf
                 guideCanvas == null || tool.SelectedIndex != 0 ||
                 part.SelectedIndex != 0 || layer.SelectedIndex != 0 ||
                 savedSkins == null || hex == null ||
-                onlineResults == null || onlineSource.SelectedIndex != 0 ||
+                onlineResults == null || onlineSource.SelectedIndex != 1 ||
                 onlineSearchButton == null || onlineSaveButton == null ||
+                editorPage == null || downloadPage == null ||
+                editorPage.Visibility != (downloadMode ? Visibility.Collapsed : Visibility.Visible) ||
+                downloadPage.Visibility != (downloadMode ? Visibility.Visible : Visibility.Collapsed) ||
                 document.TextureImage().PixelWidth != 64)
                 throw new InvalidOperationException("皮肤 DIY 工具、贴图、图层或预览窗口未初始化");
             int before = guideCanvas.Children.Count;
