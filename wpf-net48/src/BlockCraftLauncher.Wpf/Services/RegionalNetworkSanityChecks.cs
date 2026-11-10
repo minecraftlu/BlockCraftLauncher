@@ -138,7 +138,7 @@ namespace BlockCraftLauncher.Wpf.Services
             var slowBody = new ScriptedHandler((request, token) =>
                 Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) {
                     Content = new StreamContent(new DelayedFirstReadStream(
-                        "{\\"hits\\":[],\\"total_hits\\":0}"))
+                        @"{""hits"":[],""total_hits"":0}"))
                 }));
             using (var client = new NetworkDownloader(new LauncherConfig {
                 NetworkMode = "official", DownloadRetries = 1
