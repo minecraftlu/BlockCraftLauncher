@@ -49,12 +49,12 @@ jobs:
         shell: cmd
         working-directory: wpf-net48
         run: call build\build-windows.bat
-      - name: Verify v0.9.36 stable preview-channel offer accepts v0.9.37 RC4
+      - name: Verify v0.9.36 stable preview-channel offer accepts v0.9.37 RC5
         working-directory: wpf-net48
         shell: pwsh
         timeout-minutes: 8
         env:
-          RELEASE_TAG: v0.9.37-wpf-rc.4
+          RELEASE_TAG: v0.9.37-wpf-rc.5
           RELEASE_ZIP: BlockCraftLauncher-v0.9.37-WPF-net48-Alpha-Windows-x64.zip
           RELEASE_EXE: BlockCraftLauncher-v0.9.37-WPF-OneFile-Windows-x64.exe
         run: |
