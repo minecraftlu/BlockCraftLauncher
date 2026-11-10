@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Web.Script.Serialization;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
 namespace BlockCraftLauncher.Wpf.Services
@@ -188,8 +189,16 @@ namespace BlockCraftLauncher.Wpf.Services
                     else
                         icon.DecodePixelHeight = Math.Min(ThumbnailEdge, height);
                     icon.EndInit();
-                    icon.Freeze();
-                    return icon;
+
+                    // Retain only the thumbnail pixels, so a long mod list does not keep all of the encoded images.
+                    var rgba = new FormatConvertedBitmap(icon, PixelFormats.Pbgra32, null, 0);
+                    int stride = rgba.PixelWidth * 4;
+                    var pixels = new byte[stride * rgba.PixelHeight];
+                    rgba.CopyPixels(pixels, stride, 0);
+                    var thumbnail = BitmapSource.Create(rgba.PixelWidth, rgba.PixelHeight, 96, 96,
+                        PixelFormats.Pbgra32, null, pixels, stride);
+                    thumbnail.Freeze();
+                    return thumbnail;
                 }
             }
             catch (Exception error) when (error is IOException || error is InvalidDataException ||

@@ -44,7 +44,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 ("legacy.png", Png(32, 35, 122, 85)));
             WriteMod("06-fallback.jar", "fabric.mod.json", "{ invalid json }", 24,
                 ("icon.png", Png(24, 51, 122, 139)));
-            WriteMod("07-no-icon.jar", "fabric.mod.json",
+            WriteMod("00-no-icon.jar", "fabric.mod.json",
                 "{\"icon\":{\"128\":\"../outside.png\",\"96\":\"https://example.invalid/icon.png\"}}", 0,
                 ("../outside.png", Png(40, 0, 0, 0)), ("icon.png", new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }));
             File.WriteAllText(Path.Combine(mods, "08-broken.jar"), "Invalid JAR fixture");

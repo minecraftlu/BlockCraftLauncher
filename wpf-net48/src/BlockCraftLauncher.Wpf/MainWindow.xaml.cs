@@ -1247,13 +1247,17 @@ namespace BlockCraftLauncher.Wpf
                         (item.Icon?.PixelWidth ?? 0) != expectedWidth || (item.Icon != null && !item.Icon.IsFrozen))
                         throw new InvalidOperationException("本地模组图片或停用状态读取错误：" + item.Name);
 
-                    var row = (FrameworkElement)localResourceList.ItemTemplate.LoadContent();
-                    row.DataContext = item;
-                    var thumbnail = (Image)row.FindName("LocalModThumbnail");
-                    var fallback = (FrameworkElement)row.FindName("LocalModFallback");
+                    var template = localResourceList.ItemTemplate;
+                    var row = new ContentPresenter { Content = item, ContentTemplate = template };
+                    row.Measure(new Size(400, 70));
+                    row.Arrange(new Rect(0, 0, 400, 70));
+                    var thumbnail = template.FindName("LocalModThumbnail", row) as Image;
+                    var fallback = template.FindName("LocalModFallback", row) as FrameworkElement;
                     if (thumbnail == null || fallback == null || thumbnail.Source != item.Icon ||
                         fallback.Visibility != (expectedWidth == 0 ? Visibility.Visible : Visibility.Collapsed))
-                        throw new InvalidOperationException("本地模组列表图片或默认图标未正确显示：" + item.Name);
+                        throw new InvalidOperationException("本地模组列表图片或默认图标未正确显示：" + item.Name +
+                            " · 缩略图绑定=" + (thumbnail != null && thumbnail.Source == item.Icon) +
+                            " · 默认图标=" + fallback?.Visibility);
                 }
                 ArrangeLayoutProbe(1080, 680, "07-installed-mod-icons");
             }
