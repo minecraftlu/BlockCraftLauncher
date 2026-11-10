@@ -14,6 +14,8 @@ The application may make requests to external services for features including:
 - **Launcher releases:** GitHub Releases for update checks and release file downloads.
 - **Online skin search (optional, when selected):** The player name or UUID entered for player skin lookup is sent to public Mojang/Minecraft services (`api.minecraftservices.com`, `api.mojang.com`, `sessionserver.mojang.com`); skin PNGs are fetched from `textures.minecraft.net`. If the user chooses the community keyword search mode, the query is sent to `dpplugins.com`, and selecting a result requests its public HTTPS skin image URL. These third-party providers may receive network metadata such as your IP address. Search is not required to use the offline editor.
 
+- **Freely licensed skin gallery (optional):** When users search or browse the Mosaicary catalog, their search words, category, selected arm model, page and sorting preferences are requested from `mosaicary.com`. The launcher fetches limited-size PNG render thumbnails and the selected skin texture from the same host. Results are filtered for creator-declared open licenses by default; no account token is sent. The external catalog may collect standard request metadata such as IP address. No background bulk harvesting is performed.
+
 These services have their own privacy policies. The availability of mirror services and each provider's handling of network metadata and credentials is outside the project's direct control.
 
 ## Local data and choices
