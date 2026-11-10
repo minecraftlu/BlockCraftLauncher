@@ -25,7 +25,8 @@ assert 'package-windows.ps1' in script
 assert '-p:PlatformTarget=x64' in script
 assert 'windows-2022' in workflow and 'microsoft/setup-msbuild@v2' in workflow
 assert 'upload-artifact@v4' in workflow and 'build-windows.bat' in workflow
-assert 'Get-FileHash' in packager and 'Compress-Archive' in packager
+assert 'Get-FileHash' in packager and 'CreateEntryFromFile' in packager
+assert """.Replace('\\', '/')""" in packager
 assert 'BlockCraftLauncher.Wpf.exe' in packager
 assert 'CmlLib.Core.Commons.dll' in packager
 assert 'SHA256SUMS.txt' in packager
