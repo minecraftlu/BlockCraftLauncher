@@ -56,6 +56,12 @@ jobs:
           RELEASE_EXE: BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe
         run: |
           $ErrorActionPreference = 'Stop'
+          $files = @($env:RELEASE_EXE, $env:RELEASE_ZIP)
+          $sums = foreach ($file in $files) {
+            $hash = (Get-FileHash -LiteralPath (Join-Path 'dist' $file) -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $file"
+          }
+          $sums | Set-Content -LiteralPath 'dist/RELEASE-SHA256SUMS.txt' -Encoding ASCII
           & ./tests/check_v0936_promotion.ps1 -Phase Preflight
           if ($LASTEXITCODE -ne 0) { throw 'Stable promotion preflight failed' }
 
