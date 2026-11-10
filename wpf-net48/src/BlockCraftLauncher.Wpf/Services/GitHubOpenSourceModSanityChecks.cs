@@ -89,6 +89,14 @@ namespace BlockCraftLauncher.Wpf.Services
                 page.Hits[0].CategoryLabel.Contains("MIT") &&
                 page.Hits[0].IconUrl == "https://avatars.githubusercontent.com/u/123456?v=4",
                 "GitHub 的来源、许可及作者头像需清晰标注");
+            Require(GitHubOpenSourceModClient.RetryableDownloadStatus(408) &&
+                GitHubOpenSourceModClient.RetryableDownloadStatus(429) &&
+                GitHubOpenSourceModClient.RetryableDownloadStatus(502) &&
+                !GitHubOpenSourceModClient.RetryableDownloadStatus(400) &&
+                !GitHubOpenSourceModClient.RetryableDownloadStatus(401) &&
+                !GitHubOpenSourceModClient.RetryableDownloadStatus(403) &&
+                !GitHubOpenSourceModClient.RetryableDownloadStatus(404),
+                "临时网络故障可重试，永久拒绝下载不得假装能成功");
             Require(GitHubOpenSourceModClient.TrustedAuthorAvatar(
                     "https://avatars.githubusercontent.com/u/123?v=4") != null &&
                 GitHubOpenSourceModClient.TrustedAuthorAvatar(
