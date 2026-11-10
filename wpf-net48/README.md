@@ -72,3 +72,8 @@ v0.9.35 仍为正式版。预览通道内已安装 RC1 的用户可以更新到 
 目录状态属于缓存，服务器是否能加入、正版账号要求和白名单由目标服务器决定。公开目录搜索为可选联网功能，不发送微软账号令牌；没有自动网络扫描。详细说明见 [RC5 服务器查找说明](docs/SERVER_DISCOVERY_RC5.md)。
 
 此功能只随 GitHub 预览版 RC5 发布。稳定版 v0.9.35 保持不变。
+### v0.9.36 正式版发布准备（未发布）
+
+RC5 已通过 [Windows 受控 CI](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42824167368)，用户已反馈功能在自己的电脑上成功。现正为 v0.9.36 稳定版检查正式 ZIP、单 EXE、SHA-256、从 v0.9.35 直接升级的兼容性及真实 WPF 窗口重启。
+
+**目前最新公开稳定版仍是 v0.9.35；v0.9.36 正式版还没有发行。** 详细验收和手动发布门禁请参见 [v0.9.36 发布准备清单](docs/V0936_STABLE_RELEASE_READINESS.md)。原 RC1–RC5 预览版全部保留，不得直接重标记为正式版；SignPath Foundation 数字签名审批仍未完成。
