@@ -1212,6 +1212,8 @@ namespace BlockCraftLauncher.Wpf
                 !sidebarButtons.ContainsKey("多人联机") ||
                 !sidebarButtons.ContainsKey("局域网"))
                 throw new InvalidOperationException("服务器查找搜索、筛选、分页或入口缺失");
+            ArrangeLayoutProbe(1080, 680, "06-server-discovery");
+            ArrangeLayoutProbe(850, 560, "06-server-discovery-narrow");
             Navigate("局域网");
             if (lanWorldList?.ItemTemplate == null)
                 throw new InvalidOperationException("局域网列表缺少行布局模板");
