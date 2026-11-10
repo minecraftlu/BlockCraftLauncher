@@ -1,4 +1,4 @@
-name: Publish verified v0.9.34 WPF preview
+name: Verify public v0.9.34 WPF preview
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 
 permissions:
   actions: read
-  contents: write
+  contents: read
 
 concurrency:
   group: release-v0934-wpf-preview
@@ -144,11 +144,11 @@ jobs:
                       using (var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(110)))
                       {
                           LauncherUpdateOffer offer = null;
-                          for (int attempt = 0; attempt < 4; attempt++)
+                          for (int attempt = 0; attempt < 12; attempt++)
                           {
                               offer = updater.CheckAsync(deadline.Token).GetAwaiter().GetResult();
                               if (offer != null && offer.Tag == tag) break;
-                              Thread.Sleep(3000);
+                              Thread.Sleep(4000);
                           }
                           if (offer == null || offer.Tag != tag)
                               throw new InvalidOperationException("The public preview feed did not offer " + tag);
@@ -192,19 +192,27 @@ jobs:
             Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "BCL_OLD_SINGLE=$oldSingle" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Publish the checked packages as a prerelease
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify the already published prerelease metadata
         run: |
           $ErrorActionPreference = 'Stop'
-          $dist = Join-Path $env:RUNNER_TEMP 'bcl-candidate'
-          $files = @($env:BCL_SINGLE, $env:BCL_ZIP, 'RELEASE-SHA256SUMS.txt', "$env:BCL_SINGLE.sha256") |
-            ForEach-Object { Join-Path $dist $_ }
-          $options = @('--repo', $env:GITHUB_REPOSITORY, '--prerelease', '--latest=false',
-            '--target', $env:BCL_SOURCE, '--title', "BlockCraft Launcher $env:BCL_TAG 预览版",
-            '--notes-file', (Join-Path $dist 'RELEASE-NOTES.txt'))
-          gh release create $env:BCL_TAG @files @options
-          if ($LASTEXITCODE -ne 0) { throw 'GitHub prerelease publication failed' }
+          $api = "https://api.github.com/repos/$env:GITHUB_REPOSITORY"
+          $headers = @{ 'User-Agent' = 'BlockCraftLauncher-release-verification'; 'Cache-Control' = 'no-cache' }
+          $release = Invoke-RestMethod "$api/releases/tags/$env:BCL_TAG" -Headers $headers
+          $tag = Invoke-RestMethod "$api/git/ref/tags/$env:BCL_TAG" -Headers $headers
+          if ($release.draft -or -not $release.prerelease -or $tag.object.sha -ne $env:BCL_SOURCE) {
+            throw 'Public release channel or revision does not match the verified candidate'
+          }
+          foreach ($expected in @(
+            @{ Name = $env:BCL_SINGLE; Sha256 = $env:BCL_SINGLE_SHA },
+            @{ Name = $env:BCL_ZIP; Sha256 = $env:BCL_ZIP_SHA }
+          )) {
+            $asset = @($release.assets | Where-Object { $_.name -eq $expected.Name })
+            if ($asset.Count -ne 1 -or $asset[0].state -ne 'uploaded' -or
+                $asset[0].digest -ne ('sha256:' + $expected.Sha256)) {
+              throw "Public asset does not match the tested package: $($expected.Name)"
+            }
+          }
+          Write-Host "PASS: public prerelease $env:BCL_TAG points to the tested commit and packages"
 
       - name: Verify public updates with both v0.9.33 packages
         run: |
