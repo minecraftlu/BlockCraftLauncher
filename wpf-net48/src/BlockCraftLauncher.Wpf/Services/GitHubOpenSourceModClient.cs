@@ -59,6 +59,9 @@ namespace BlockCraftLauncher.Wpf.Services
         // GitHub public search exposes the repo owner's avatar, not a
         // verified screenshot of the mod. Use it as an explicitly labelled
         // fallback rather than leaving all GitHub search cards blank.
+        internal static bool RetryableDownloadStatus(int status) =>
+            status == 408 || status == 429 || status >= 500 && status <= 599;
+
         internal static string TrustedAuthorAvatar(string url)
         {
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
@@ -383,7 +386,7 @@ namespace BlockCraftLauncher.Wpf.Services
                             client, request, TimeSpan.FromSeconds(15), ct).ConfigureAwait(false))
                         {
                             int status = (int)response.StatusCode;
-                            bool temporaryFailure = status == 408 || status == 429 || status >= 500;
+                            bool temporaryFailure = RetryableDownloadStatus(status);
                             if (!response.IsSuccessStatusCode && !temporaryFailure)
                                 throw new InvalidDataException("GitHub Releases 拒绝此文件（HTTP " +
                                     status + "）。可能已下架或作者禁止下载，请查看项目页面");
