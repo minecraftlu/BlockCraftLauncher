@@ -141,6 +141,11 @@ namespace BlockCraftLauncher.Wpf.Services
                 .PlanAsync("LONG", "1.21.1", "fabric", CancellationToken.None);
             Require(longPlan.Count == 1 && longPlan[0].VersionId == "vGood",
                 "source-only compatible version skipped for installable release");
+            var neo = Version("NEO", "vNeo", "neo.jar", loader: "neoforge");
+            var neoPlan = await new ModrinthDependencyPlanner(Fixture(neo))
+                .PlanAsync("NEO", "1.21.1", "NeoForge", CancellationToken.None);
+            Require(neoPlan.Count == 1 && neoPlan[0].Filename == "neo.jar",
+                "NeoForge loader casing normalized for Modrinth version filters");
 
             var mismatched = Version("B", "vB", "B.jar",
                 minecraft: "1.20.1");
