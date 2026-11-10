@@ -28,9 +28,10 @@ GitHub Actions 中的 **WPF net48 (Windows build)** 工作流会在 Windows 上�
 
 ### 代码签名与安全说明
 
-- [Code signing policy / 代码签名政策](docs/CODE_SIGNING_POLICY.md) — 目前尚未获得 SignPath Foundation 审核批准，正式版 EXE 暂不宣称经过数字签名。
+- [免费发布签名与验证](docs/FREE_RELEASE_SIGNING.md) — 新正式版提供 Sigstore/Cosign 签名包、GitHub 来源证明及 SHA-256 校验；**不是** Windows Authenticode，不能消除未知发布者提示。
+- [代码签名政策](docs/CODE_SIGNING_POLICY.md) — SignPath Foundation 申请因项目人气不足而被拒绝（维护者反馈），并无受信任的 Windows 发行者证书。
 - [Privacy and network activity / 隐私与联网说明](docs/PRIVACY.md) — 说明微软登录、游戏下载、模组管理及启动器更新相关联网服务。
-- 开发者显示昵称为 **晓银**，不是 Windows 证书中的法定签名主体。若 SignPath Foundation 未来审核通过，Windows 的签名发布者将显示 **SignPath Foundation**。
+- 开发者显示昵称为 **晓银**，不是 Windows 证书中的法定签名主体。Sigstore 来源校验不会让 Windows 将此昵称显示为已验证发行者。
 - 本项目的 WPF 源码使用当前目录的 [MIT License](LICENSE)；不代表仓库里其他文件已自动适用相同许可。
 
 
@@ -76,4 +77,4 @@ v0.9.35 仍为正式版。预览通道内已安装 RC1 的用户可以更新到 
 
 RC5 已通过 [Windows 受控 CI](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42824167368)，用户已反馈功能在自己的电脑上成功。现正为 v0.9.36 稳定版检查正式 ZIP、单 EXE、SHA-256、从 v0.9.35 直接升级的兼容性及真实 WPF 窗口重启。
 
-**目前最新公开稳定版仍是 v0.9.35；v0.9.36 正式版还没有发行。** 详细验收和手动发布门禁请参见 [v0.9.36 发布准备清单](docs/V0936_STABLE_RELEASE_READINESS.md)。原 RC1–RC5 预览版全部保留，不得直接重标记为正式版；SignPath Foundation 数字签名审批仍未完成。
+**目前最新公开稳定版仍是 v0.9.35；v0.9.36 正式版还没有发行。** 详细验收和手动发布门禁请参见 [v0.9.36 发布准备清单](docs/V0936_STABLE_RELEASE_READINESS.md)。原 RC1–RC5 预览版全部保留，不得直接重标记为正式版；SignPath Foundation 申请已因人气过低被拒绝；新免费的 Sigstore 签名方案不会改变 Windows 未知发布者提示。
