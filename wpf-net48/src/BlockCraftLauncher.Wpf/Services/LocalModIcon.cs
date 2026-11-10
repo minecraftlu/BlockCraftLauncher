@@ -20,7 +20,19 @@ namespace BlockCraftLauncher.Wpf.Services
         const int ImageEdgeLimit = 2048;
         const int ThumbnailEdge = 96;
         static readonly byte[] PngSignature = { 137, 80, 78, 71, 13, 10, 26, 10 };
-        static readonly string[] CommonIcons = { "icon.png", "logo.png", "mod_icon.png", "pack.png" };
+        static readonly string[] CommonIcons = { "icon.png", "logo.png", "mod_icon.png", "pack.png", "modicon.png" };
+        const int MaxArchiveEntries = 50000;
+        const int CacheSize = 160;
+        static readonly object CacheLock = new object();
+        sealed class IconCacheEntry
+        {
+            internal long FileSize;
+            internal DateTime ModifiedUtc;
+            internal BitmapSource Thumbnail;
+        }
+        static readonly Dictionary<string, IconCacheEntry> Cache =
+            new Dictionary<string, IconCacheEntry>(StringComparer.OrdinalIgnoreCase);
+        static readonly Queue<string> CacheOrder = new Queue<string>();
         // Consume multiline TOML values before looking for single-line mod fields.
         static readonly Regex ForgeFields = new Regex(
             @"^[ \t]*(?:[A-Za-z0-9_.-]+[ \t]*=[ \t]*(?:'{3}[\s\S]*?'{3}|""{3}[\s\S]*?""{3})|" +
@@ -31,9 +43,58 @@ namespace BlockCraftLauncher.Wpf.Services
         {
             try
             {
-                using (var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))
+                var info = new FileInfo(path);
+                if (!info.Exists) return null;
+                string key = info.FullName;
+                lock (CacheLock)
+                {
+                    if (Cache.TryGetValue(key, out var entry) &&
+                        entry.FileSize == info.Length && entry.ModifiedUtc == info.LastWriteTimeUtc)
+                        return entry.Thumbnail;
+                }
+
+                BitmapSource result = ReadUncached(key);
+                lock (CacheLock)
+                {
+                    if (!Cache.ContainsKey(key)) CacheOrder.Enqueue(key);
+                    Cache[key] = new IconCacheEntry {
+                        FileSize = info.Length, ModifiedUtc = info.LastWriteTimeUtc,
+                        Thumbnail = result
+                    };
+                    while (CacheOrder.Count > CacheSize)
+                        Cache.Remove(CacheOrder.Dequeue());
+                }
+                return result;
+            }
+            catch (Exception error) when (error is IOException ||
+                error is UnauthorizedAccessException || error is ArgumentException)
+            {
+                return null;
+            }
+        }
+
+        static BitmapSource ReadUncached(string path)
+        {
+            try
+            {
+                using (var file = new FileStream(path, FileMode.Open,
+                    FileAccess.Read, FileShare.Read | FileShare.Delete))
                 using (var jar = new ZipArchive(file, ZipArchiveMode.Read))
                 {
+                    if (jar.Entries.Count > MaxArchiveEntries) return null;
+                    // ZIP entries are case sensitive, unlike typical Windows
+                    // paths. Some Forge/Fabric JARs declare icon paths with
+                    // different casing; search once using a bounded index.
+                    var images = jar.Entries
+                        .Where(entry => entry.Length > 0 &&
+                            entry.Length <= ImageLimit &&
+                            (entry.FullName.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+                             entry.FullName.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                             entry.FullName.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)))
+                        .Where(entry => ArchivePath(entry.FullName) != null)
+                        .GroupBy(entry => entry.FullName, StringComparer.OrdinalIgnoreCase)
+                        .ToDictionary(group => group.Key, group => group.First(),
+                            StringComparer.OrdinalIgnoreCase);
                     var declared = new List<string>();
                     var modIds = new List<string>();
                     var fabric = ReadJson(jar, "fabric.mod.json");
@@ -55,14 +116,36 @@ namespace BlockCraftLauncher.Wpf.Services
                         modIds.Add(Field(mod, "modid") as string);
                     }
 
-                    var conventional = modIds.Where(IsModId).Distinct(StringComparer.Ordinal).Take(8)
-                        .SelectMany(id => new[] { "assets/" + id + "/icon.png", "assets/" + id + "/logo.png",
-                            id + "_icon.png", id + "_logo.png", id + ".png" });
+                    var conventional = modIds.Where(IsModId).Distinct(StringComparer.OrdinalIgnoreCase).Take(8)
+                        .SelectMany(id => new[] {
+                            "assets/" + id + "/icon.png", "assets/" + id + "/logo.png",
+                            "assets/" + id + "/textures/gui/icon.png",
+                            "assets/" + id + "/textures/gui/logo.png",
+                            "assets/" + id + "/textures/icon.png",
+                            id + "_icon.png", id + "_logo.png", id + ".png"
+                        });
                     var candidates = declared.Take(24).Concat(conventional).Concat(CommonIcons)
-                        .Select(ArchivePath).Where(name => name != null).Distinct(StringComparer.Ordinal);
+                        .Select(ArchivePath).Where(name => name != null)
+                        .Distinct(StringComparer.OrdinalIgnoreCase);
                     foreach (string candidate in candidates)
                     {
-                        var icon = ReadImage(jar.GetEntry(candidate));
+                        if (!images.TryGetValue(candidate, out var entry)) continue;
+                        var icon = ReadImage(entry);
+                        if (icon != null) return icon;
+                    }
+
+                    // Some valid mods omit an explicit metadata icon but ship
+                    // one within their own assets tree. Never use unrelated
+                    // screenshots, textures, or icons of bundled dependencies.
+                    var knownIds = modIds.Where(IsModId).ToArray();
+                    foreach (var entry in images.Values
+                        .Where(e => knownIds.Any(id => e.FullName.StartsWith(
+                            "assets/" + id + "/", StringComparison.OrdinalIgnoreCase)) &&
+                            CommonIcons.Contains(Path.GetFileName(e.FullName),
+                                StringComparer.OrdinalIgnoreCase))
+                        .OrderBy(e => e.FullName.Length).Take(12))
+                    {
+                        var icon = ReadImage(entry);
                         if (icon != null) return icon;
                     }
                 }
