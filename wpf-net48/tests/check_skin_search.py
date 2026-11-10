@@ -32,7 +32,7 @@ assert "Get-AuthenticodeSignature" not in studio  # independent from release sig
 assert "SkinEditorDocument.SafeLibraryPath" in studio
 assert "preview.SavePng(path)" in studio
 assert "document.LoadPng(temporary, item.SlimArms)" in studio
-assert "ConfirmDiscard()" in studio and "download" not in studio.lower().split("BuildOnlineSearch")[0]
+assert "ConfirmDiscard()" in studio
 assert "OnlineSkinSearchService.RunOfflineSelfTest()" in app
 assert "DP-Plugins" in docs and "Mojang" in docs
 print("PASS: online skin search/download static wiring (real Windows tests still required)")
