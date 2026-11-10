@@ -29,6 +29,17 @@ namespace BlockCraftLauncher.Wpf.Services
             new ConcurrentDictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
         internal static readonly TimeSpan HeaderTimeout = TimeSpan.FromSeconds(10);
         internal static readonly TimeSpan TransferIdleTimeout = TimeSpan.FromSeconds(25);
+        internal static readonly TimeSpan AlternateRouteHeaderTimeout = TimeSpan.FromSeconds(6);
+
+        // When a known, explicitly allowed backup route exists, do not spend
+        // the full 10-second header timeout on an unreachable first endpoint.
+        // Never truncate the timeout for a single-source request, and preserve
+        // deliberately shorter test/user deadlines.
+        internal static TimeSpan FirstRouteHeaderTimeout(TimeSpan original, bool hasAlternative)
+        {
+            return hasAlternative && original > AlternateRouteHeaderTimeout
+                ? AlternateRouteHeaderTimeout : original;
+        }
         const int MaxMetadataBytes = 12 * 1024 * 1024;
         const long MaxFileBytes = 4L * 1024 * 1024 * 1024;
 
@@ -250,6 +261,22 @@ namespace BlockCraftLauncher.Wpf.Services
         internal async Task<T> GetMetadataWithFallbackAsync<T>(string officialUrl, string networkMode,
             Func<string, T> parse, CancellationToken ct)
         {
+            ct.ThrowIfCancellationRequested();
+            string cacheKey = PublicSearchCache.CacheKey(
+                officialUrl, NormalizeMode(networkMode), proxy, mcimEnabled);
+            if (PublicSearchCache.TryGet(cacheKey, out var cached))
+            {
+                try { return parse(cached); }
+                catch (Exception error) when (error is InvalidDataException ||
+                    error is ArgumentException || error is InvalidOperationException ||
+                    error is XmlException)
+                {
+                    // A parser change must not turn a stale cache value into a
+                    // false success. Re-fetch validated provider metadata.
+                    PublicSearchCache.Remove(cacheKey);
+                }
+            }
+
             var routes = Candidates(officialUrl, networkMode);
             var retryable = new HashSet<string>(routes, StringComparer.Ordinal);
             Exception last = null;
@@ -263,7 +290,8 @@ namespace BlockCraftLauncher.Wpf.Services
                     {
                         using (var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct))
                         {
-                            deadline.CancelAfter(requestTimeout);
+                            deadline.CancelAfter(FirstRouteHeaderTimeout(requestTimeout,
+                                routes.Count > 1 && string.Equals(url, routes[0], StringComparison.Ordinal)));
                             using (var request = new HttpRequestMessage(HttpMethod.Get, url))
                             using (var response = await http.SendAsync(request,
                                 HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false))
@@ -272,8 +300,10 @@ namespace BlockCraftLauncher.Wpf.Services
                                 CheckStatus(response);
                                 await CopyBodyAsync(response, memory, MaxMetadataBytes, 0, null,
                                     null, requestTimeout, deadline.Token).ConfigureAwait(false);
-                                var result = parse(Encoding.UTF8.GetString(memory.ToArray()).TrimStart('\uFEFF'));
+                                string body = Encoding.UTF8.GetString(memory.ToArray()).TrimStart('\uFEFF');
+                                var result = parse(body);
                                 RecordRoute(officialUrl, url, networkMode, routes.Count);
+                                PublicSearchCache.Store(cacheKey, body);
                                 return result;
                             }
                         }
@@ -450,7 +480,7 @@ namespace BlockCraftLauncher.Wpf.Services
                         {
                             if (offset > 0) request.Headers.Range = new RangeHeaderValue(offset, null);
                             using (var response = await SendWithHeaderTimeoutAsync(http, request,
-                                requestTimeout, ct).ConfigureAwait(false))
+                                FirstRouteHeaderTimeout(requestTimeout, hasAlternative), ct).ConfigureAwait(false))
                             {
                                 if (offset > 0 && response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
                                 {

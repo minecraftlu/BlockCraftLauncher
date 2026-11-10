@@ -69,6 +69,14 @@ namespace BlockCraftLauncher.Wpf.Services
                 "大陆与海外设置保留相反的优先顺序及备用来源");
             Require(NetworkDownloader.Routes(Official, "official").SequenceEqual(new[] { Official }),
                 "仅官方源不会访问镜像");
+            Require(NetworkDownloader.FirstRouteHeaderTimeout(
+                    NetworkDownloader.HeaderTimeout, true) ==
+                    NetworkDownloader.AlternateRouteHeaderTimeout &&
+                NetworkDownloader.FirstRouteHeaderTimeout(
+                    NetworkDownloader.HeaderTimeout, false) ==
+                    NetworkDownloader.HeaderTimeout &&
+                NetworkDownloader.FirstRouteHeaderTimeout(ShortDeadline, true) == ShortDeadline,
+                "双线路首次连接 6 秒内自动回退，单线路和更短超时保持不变");
             Require(NetworkDownloader.TryNormalizeProxy("127.0.0.1:7890", out var proxy) &&
                 proxy == "http://127.0.0.1:7890" &&
                 !NetworkDownloader.TryNormalizeProxy("http://user:password@localhost:7890/path", out _),
@@ -151,8 +159,59 @@ namespace BlockCraftLauncher.Wpf.Services
                 }
             }
 
+            await VerifyPublicSearchCacheAsync().ConfigureAwait(false);
             await VerifyFilesAsync().ConfigureAwait(false);
             VerifyLoaderCatalogs();
+        }
+
+        static async Task VerifyPublicSearchCacheAsync()
+        {
+            const string endpoint = "https://api.modrinth.com/v2/search?limit=20&query=regional-cache-selftest";
+            string standard = PublicSearchCache.CacheKey(endpoint, "official", "", false);
+            string regional = PublicSearchCache.CacheKey(endpoint, "china", "", true);
+            Require(standard != null && regional != null && standard != regional &&
+                PublicSearchCache.CacheKey(endpoint, "official", "http://127.0.0.1:7890", false) != standard,
+                "资源缓存必须按线路、代理与 MCIM 选项隔离");
+            Require(PublicSearchCache.CacheKey(
+                    "https://login.live.com/oauth20_authorize.srf", "auto", "", true) == null &&
+                PublicSearchCache.CacheKey(
+                    "https://api.minecraftservices.com/minecraft/profile", "auto", "", true) == null &&
+                PublicSearchCache.CacheKey(
+                    "https://api.modrinth.com.evil.invalid/v2/search", "auto", "", true) == null &&
+                PublicSearchCache.CacheKey(
+                    "http://api.modrinth.com/v2/search", "auto", "", true) == null,
+                "登录令牌、伪造域名和不安全 HTTP 绝不能进入搜索缓存");
+            Require(PublicSearchCache.CacheKey(
+                    "https://mosaicary.com/api/skins?source=published", "skin", "", false) != null &&
+                PublicSearchCache.CacheKey(
+                    "https://dpplugins.com/api/skins?search=test", "skin", "", false) != null &&
+                PublicSearchCache.CacheKey(
+                    "https://sessionserver.mojang.com/session/minecraft/profile/test", "skin", "", false) == null,
+                "只缓存公开皮肤目录，不缓存玩家账号资料");
+
+            const string payload = "{\"hits\":[],\"total_hits\":0}";
+            var handler = new ScriptedHandler((request, token) => Json(payload));
+            using (var downloader = new NetworkDownloader(
+                new LauncherConfig { NetworkMode = "official" }, handler))
+            {
+                var first = await downloader.GetMetadataWithFallbackAsync(endpoint, "official",
+                    body => ModrinthClient.ParseSearchResponse(body, "resourcepack"),
+                    CancellationToken.None).ConfigureAwait(false);
+                var second = await downloader.GetMetadataWithFallbackAsync(endpoint, "official",
+                    body => ModrinthClient.ParseSearchResponse(body, "resourcepack"),
+                    CancellationToken.None).ConfigureAwait(false);
+                Require(first.Hits.Count == 0 && second.TotalHits == 0 && handler.Requests.Count == 1,
+                    "重复查询资源包只请求网络一次，缓存回放时仍重新解析");
+                Require(!ReferenceEquals(first, second),
+                    "不共享可变搜索结果，避免跨页修改互相影响");
+            }
+            PublicSearchCache.Remove(standard);
+            PublicSearchCache.Store(standard, "temporary", TimeSpan.Zero);
+            Require(!PublicSearchCache.TryGet(standard, out _),
+                "缓存到期后必须重新联网");
+            PublicSearchCache.Store(standard, new string('x', 600 * 1024));
+            Require(!PublicSearchCache.TryGet(standard, out _),
+                "拒绝缓存超大响应占用过多内存");
         }
 
         static async Task VerifyFilesAsync()
