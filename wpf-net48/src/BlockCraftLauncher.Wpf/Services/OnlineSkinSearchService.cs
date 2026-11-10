@@ -247,6 +247,9 @@ namespace BlockCraftLauncher.Wpf.Services
                     Name = Str(session, "name").Length > 0 ?
                         Str(session, "name") : fallbackName,
                     Source = "Mojang 玩家",
+                    Author = fallbackName,
+                    License = "",
+                    Description = "该玩家当前公开的 Minecraft Java 皮肤；未声明自由使用许可",
                     TextureUrl = CanonicalMojangTexture(Str(skin, "url")),
                     SlimArms = Str(Object(skin, "metadata"), "model")
                         .Equals("slim", StringComparison.OrdinalIgnoreCase),
@@ -446,8 +449,8 @@ namespace BlockCraftLauncher.Wpf.Services
             string text, CancellationToken ct)
         {
             string query = (text ?? "").Trim();
-            if (query.Length < 2 || query.Length > 60)
-                throw new ArgumentException("请输入 2～60 个字符搜索社区公开皮肤");
+            if (query.Length > 60)
+                throw new ArgumentException("社区皮肤关键词不得超过 60 个字符");
             var root = await GetJson(new Uri("https://dpplugins.com/api/skins?search=" +
                 Uri.EscapeDataString(query)), ct).ConfigureAwait(false);
             if (!root.TryGetValue("skins", out var value) || !(value is object[] skins))
@@ -464,16 +467,26 @@ namespace BlockCraftLauncher.Wpf.Services
                     string owner = Str(Object(skin, "owner"), "username");
                     string license = Str(skin, "license");
                     var normalized = SafePublicSkinUri(url).AbsoluteUri;
+                    string slug = Short(Str(skin, "slug"), 100);
+                    string page = Regex.IsMatch(slug, @"^[a-zA-Z0-9_-]{1,100}$") ?
+                        "https://dpplugins.com/skins/" + slug : "https://dpplugins.com";
                     result.Add(new OnlineSkinEntry
                     {
-                        Name = name.Length > 70 ? name.Substring(0, 70) : name,
-                        Source = "社区皮肤",
+                        Name = Short(name, 70),
+                        Description = Short(Str(skin, "description"), 130),
+                        Source = "DP-Plugins",
+                        Author = Short(owner, 70),
+                        License = Short(license, 48),
+                        Category = "community",
+                        TagsLabel = JoinTags(skin),
+                        DetailUrl = page,
                         TextureUrl = normalized,
                         SlimArms = Str(skin, "model").Equals(
                             "slim", StringComparison.OrdinalIgnoreCase),
                         Attribution = "来源：DP-Plugins" +
                             (owner.Length > 0 ? " · 作者：" + owner : "") +
-                            (license.Length > 0 ? " · 许可：" + license : "")
+                            " · 许可：" + (license.Length > 0 ? license : "未声明") +
+                            " · 详情：" + page
                     });
                 }
                 catch (InvalidDataException)
@@ -482,6 +495,25 @@ namespace BlockCraftLauncher.Wpf.Services
                 }
             }
             return result;
+        }
+
+        // Listing thumbnails do not trigger skin-file downloads. For the
+        // selected preview, Mosaicary requests ?for=view; the explicit Save
+        // and Use actions call DownloadPngAsync without that suffix.
+        public static async Task<byte[]> PreviewPngAsync(
+            OnlineSkinEntry skin, CancellationToken ct)
+        {
+            if (skin == null) throw new ArgumentNullException(nameof(skin));
+            if (skin.Source == "Mosaicary" &&
+                Regex.IsMatch(skin.Id ?? "", @"^[a-zA-Z0-9]{12}$"))
+            {
+                byte[] preview = await GetBytes(new Uri(
+                    "https://mosaicary.com/api/skins/" + skin.Id + ".png?for=view"),
+                    MaxPngBytes, ct).ConfigureAwait(false);
+                VerifyPng(preview);
+                return preview;
+            }
+            return await DownloadPngAsync(skin, ct).ConfigureAwait(false);
         }
 
         public static async Task<byte[]> DownloadPngAsync(
@@ -518,6 +550,31 @@ namespace BlockCraftLauncher.Wpf.Services
             {
                 if (!value) throw new InvalidOperationException("在线皮肤离线自检失败：" + why);
             }
+            Require(IsFreeLicense("cc0") && IsFreeLicense("cc-by") &&
+                IsFreeLicense("cc-by-sa-4.0") && !IsFreeLicense("cc-by-nc") &&
+                !IsFreeLicense("arr") && !IsFreeLicense(null),
+                "禁止将未授权和非商业许可皮肤伪装为开源");
+            var sample = new Dictionary<string, object> {
+                ["page"] = 1, ["pages"] = 3, ["total"] = 3,
+                ["skins"] = new object[] {
+                    new Dictionary<string, object> {
+                        ["id"] = "ABCDef012345", ["name"] = "Open hood",
+                        ["width"] = 64, ["height"] = 64, ["png"] = "https://mosaicary.com/",
+                        ["license"] = "cc-by", ["arms"] = "slim",
+                        ["publisher"] = new Dictionary<string, object> { ["name"] = "Artist" }
+                    },
+                    new Dictionary<string, object> {
+                        ["id"] = "ABCDef012346", ["name"] = "Restricted",
+                        ["width"] = 64, ["height"] = 64, ["png"] = "https://mosaicary.com/",
+                        ["license"] = "arr"
+                    }
+                }
+            };
+            var catalog = ParseMosaicaryPage(sample, 1, true);
+            Require(catalog.TotalPages == 3 && catalog.Entries.Count == 1 &&
+                catalog.Entries[0].OpenLicense && catalog.Entries[0].SlimArms &&
+                catalog.Entries[0].TextureUrl.Contains("/ABCDef012345.png"),
+                "Mosaicary 分页、许可过滤、可信主机、模型及作者");
             Require(ValidPlayerInput("jeb_") && ValidPlayerInput(
                 "853c80ef3c3749fdaa49938b674adae6"), "玩家名和 UUID");
             Require(!ValidPlayerInput("../secret") && !ValidPlayerInput("bad?"),
