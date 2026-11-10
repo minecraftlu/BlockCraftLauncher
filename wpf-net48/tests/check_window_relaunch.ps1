@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $launchers = @(
     (Join-Path $root 'src\BlockCraftLauncher.Wpf\bin\Release\net48\BlockCraftLauncher.Wpf.exe'),
-    (Join-Path $root 'dist\BlockCraftLauncher-v0.9.34-WPF-OneFile-Windows-x64.exe')
+    (Join-Path $root 'dist\BlockCraftLauncher-v0.9.35-WPF-OneFile-Windows-x64.exe')
 )
 foreach ($exe in $launchers) {
     if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {

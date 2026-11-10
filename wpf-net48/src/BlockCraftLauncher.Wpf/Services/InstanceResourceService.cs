@@ -1,16 +1,31 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Windows.Media.Imaging;
 using BlockCraftLauncher.Wpf.Models;
 
 namespace BlockCraftLauncher.Wpf.Services
 {
-    public sealed class LocalResourceItem
+    public sealed class LocalResourceItem : INotifyPropertyChanged
     {
+        BitmapSource icon;
         public string Name { get; set; }
         public string FullPath { get; set; }
         public bool Disabled { get; set; }
+        public bool IsMod { get; set; }
+        public BitmapSource Icon
+        {
+            get => icon;
+            internal set
+            {
+                if (icon == value) return;
+                icon = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Icon)));
+            }
+        }
+        public event PropertyChangedEventHandler PropertyChanged;
         public override string ToString() => (Disabled ? "[已停用] " : "") + Name;
     }
     /// <summary>Local, explicit resource management. Never auto-deletes arbitrary jars.</summary>
@@ -34,7 +49,8 @@ namespace BlockCraftLauncher.Wpf.Services
         {
             var folder = Folder(profile, kind);
             if (!Directory.Exists(folder)) return new List<LocalResourceItem>();
-            string extension = kind == "模组" ? ".jar" : ".zip";
+            bool isMod = kind == "模组";
+            string extension = isMod ? ".jar" : ".zip";
             return Directory.EnumerateFiles(folder, "*", SearchOption.TopDirectoryOnly)
                 .Where(x => x.EndsWith(extension, StringComparison.OrdinalIgnoreCase) ||
                     x.EndsWith(extension + ".disabled", StringComparison.OrdinalIgnoreCase))
@@ -42,7 +58,8 @@ namespace BlockCraftLauncher.Wpf.Services
                 {
                     Name = Path.GetFileName(x),
                     FullPath = x,
-                    Disabled = x.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase)
+                    Disabled = x.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase),
+                    IsMod = isMod
                 })
                 .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList();
         }

@@ -31,7 +31,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 InnerHandler = NetworkDownloader.CreateHttpHandler(settings)
             };
             var http = new HttpClient(handler) { Timeout = GameDownloadTimeout };
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher-WPF/0.9.34");
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher-WPF/0.9.35");
             var files = new NetworkDownloader(settings);
             var parameters = MinecraftLauncherParameters.CreateDefault(path, http);
             int parallel = Math.Max(2, Math.Min(32, settings.DownloadThreads));

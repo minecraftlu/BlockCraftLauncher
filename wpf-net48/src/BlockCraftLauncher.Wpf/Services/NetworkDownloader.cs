@@ -53,7 +53,7 @@ namespace BlockCraftLauncher.Wpf.Services
             this.requestTimeout = requestTimeout ?? HeaderTimeout;
             this.idleTimeout = idleTimeout ?? TransferIdleTimeout;
             http = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher-WPF/0.9.34");
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher-WPF/0.9.35");
             attempts = Math.Max(1, Math.Min(6, settings.DownloadRetries));
         }
 
