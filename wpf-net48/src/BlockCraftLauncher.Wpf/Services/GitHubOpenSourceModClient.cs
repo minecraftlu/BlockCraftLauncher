@@ -226,7 +226,7 @@ namespace BlockCraftLauncher.Wpf.Services
             return available[0];
         }
 
-        static void ValidateJar(string file, string loader)
+        internal static void ValidateJar(string file, string loader)
         {
             using (var zip = ZipFile.OpenRead(file))
             {
@@ -286,7 +286,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 temporary = Path.Combine(mods, ".blockcraft-github-" +
                     Guid.NewGuid().ToString("N") + ".part");
                 using (var client = new HttpClient(NetworkDownloader.CreateHttpHandler(settings))
-                    { Timeout = Timeout.FromMinutes(6) })
+                    { Timeout = TimeSpan.FromMinutes(6) })
                 using (var response = await client.GetAsync(asset.DownloadUrl,
                     HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false))
                 {
