@@ -18,6 +18,8 @@ GitHub Actions 中的 **WPF net48 (Windows build)** 工作流会在 Windows 上�
 
 ### Windows 代码签名
 
+启动器的「关于」页和 EXE 文件详细信息署名为 **晓银**。
+
 Windows 安全提示中的已验证发行者取自受信任的 Authenticode 签名证书。
 
 在签名用的 Windows 机器上安装 Windows SDK 签名工具，并在当前用户的个人证书存储中配置可访问签名密钥的代码签名证书。从 `wpf-net48` 运行以下命令。
