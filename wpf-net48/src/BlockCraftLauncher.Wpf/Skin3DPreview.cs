@@ -81,9 +81,7 @@ namespace BlockCraftLauncher.Wpf
                     return;
                 }
                 var point = e.GetPosition(interaction);
-                yaw.Angle = (yaw.Angle + (point.X - previousMouse.X) * 0.75) % 360.0;
-                pitch.Angle = Math.Max(-55, Math.Min(55,
-                    pitch.Angle + (point.Y - previousMouse.Y) * 0.55));
+                RotateBy(point.X - previousMouse.X, point.Y - previousMouse.Y);
                 previousMouse = point;
                 e.Handled = true;
             };
@@ -95,12 +93,29 @@ namespace BlockCraftLauncher.Wpf
             interaction.LostMouseCapture += (sender, e) => dragging = false;
             interaction.MouseWheel += (sender, e) =>
             {
-                distance = Math.Max(44, Math.Min(92, distance - e.Delta / 120.0 * 4));
-                UpdateCamera();
+                ZoomByWheelDelta(e.Delta);
                 e.Handled = true;
             };
             Unloaded += (sender, e) => StopDrag();
         }
+
+        internal void RotateBy(double deltaX, double deltaY)
+        {
+            if (double.IsNaN(deltaX) || double.IsInfinity(deltaX) ||
+                double.IsNaN(deltaY) || double.IsInfinity(deltaY))
+                return;
+            yaw.Angle = (yaw.Angle + deltaX * 0.75) % 360.0;
+            pitch.Angle = Math.Max(-55, Math.Min(55, pitch.Angle + deltaY * 0.55));
+        }
+
+        internal void ZoomByWheelDelta(int delta)
+        {
+            distance = Math.Max(44, Math.Min(92, distance - delta / 120.0 * 4));
+            UpdateCamera();
+        }
+
+        internal double Pitch => pitch.Angle;
+        internal double CameraDistance => distance;
 
         void StopDrag()
         {
