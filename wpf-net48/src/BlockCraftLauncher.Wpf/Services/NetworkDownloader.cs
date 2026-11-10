@@ -250,6 +250,22 @@ namespace BlockCraftLauncher.Wpf.Services
         internal async Task<T> GetMetadataWithFallbackAsync<T>(string officialUrl, string networkMode,
             Func<string, T> parse, CancellationToken ct)
         {
+            ct.ThrowIfCancellationRequested();
+            string cacheKey = PublicSearchCache.CacheKey(
+                officialUrl, NormalizeMode(networkMode), proxy, mcimEnabled);
+            if (PublicSearchCache.TryGet(cacheKey, out var cached))
+            {
+                try { return parse(cached); }
+                catch (Exception error) when (error is InvalidDataException ||
+                    error is ArgumentException || error is InvalidOperationException ||
+                    error is XmlException)
+                {
+                    // A parser change must not turn a stale cache value into a
+                    // false success. Re-fetch validated provider metadata.
+                    PublicSearchCache.Remove(cacheKey);
+                }
+            }
+
             var routes = Candidates(officialUrl, networkMode);
             var retryable = new HashSet<string>(routes, StringComparer.Ordinal);
             Exception last = null;
@@ -272,8 +288,10 @@ namespace BlockCraftLauncher.Wpf.Services
                                 CheckStatus(response);
                                 await CopyBodyAsync(response, memory, MaxMetadataBytes, 0, null,
                                     null, requestTimeout, deadline.Token).ConfigureAwait(false);
-                                var result = parse(Encoding.UTF8.GetString(memory.ToArray()).TrimStart('\uFEFF'));
+                                string body = Encoding.UTF8.GetString(memory.ToArray()).TrimStart('\uFEFF');
+                                var result = parse(body);
                                 RecordRoute(officialUrl, url, networkMode, routes.Count);
+                                PublicSearchCache.Store(cacheKey, body);
                                 return result;
                             }
                         }
