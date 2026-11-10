@@ -78,6 +78,17 @@ namespace BlockCraftLauncher.Wpf
         ListBox localResourceList, serverList, lanWorldList;
         CancellationTokenSource localModIconLoad;
         TextBox serverName, serverAddress;
+        TextBox serverFinderQuery, serverFinderVersion;
+        ComboBox serverFinderProvider, serverFinderSort;
+        CheckBox serverFinderOnlineOnly;
+        ListBox serverFinderResults;
+        TextBlock serverFinderStatus, serverFinderDetails;
+        Button serverFinderSearchButton, serverFinderPrevButton, serverFinderNextButton;
+        Button serverFinderFavoriteButton, serverFinderJoinButton, serverFinderCopyButton;
+        Button serverFinderSourceButton;
+        CancellationTokenSource serverFinderCancellation;
+        int serverFinderPage = 1, serverFinderPages = 1;
+        bool serverFinderSearching;
         TextBox packSearchQuery;
         ComboBox packVersionFilter, packSortMode;
         ListBox packSearchResults;
@@ -311,7 +322,8 @@ namespace BlockCraftLauncher.Wpf
                 case "皮肤 DIY": return "皮肤 DIY";
                 case "皮肤下载": return "皮肤";
                 case "设置": return "启动设置";
-                case "多人联机": return "服务器";
+                case "多人联机": return "服务器收藏";
+                case "查找服务器": return "查找服务器";
                 default: return page;
             }
         }
@@ -335,6 +347,7 @@ namespace BlockCraftLauncher.Wpf
                 case "皮肤 DIY": return "\uE70F";
                 case "皮肤下载": return "\uE8B7";
                 case "多人联机":
+                case "查找服务器":
                 case "局域网": return "\uE902";
                 case "启动器更新":
                 case "更新设置": return "\uE777";
@@ -366,6 +379,7 @@ namespace BlockCraftLauncher.Wpf
                 case "CurseForge":
                     return NavigationSection.Download;
                 case "多人联机":
+                case "查找服务器":
                 case "局域网":
                     return NavigationSection.Multiplayer;
                 case "设置":
@@ -398,7 +412,7 @@ namespace BlockCraftLauncher.Wpf
                     AddNavSection("任务", "下载管理");
                     break;
                 case NavigationSection.Multiplayer:
-                    AddNavSection("Minecraft Java", "多人联机", "局域网");
+                    AddNavSection("Minecraft Java", "多人联机", "查找服务器", "局域网");
                     break;
                 case NavigationSection.Settings:
                     AddNavSection("启动器设置", "设置", "下载设置", "个性化", "更新设置");
@@ -519,6 +533,9 @@ namespace BlockCraftLauncher.Wpf
             cfSearchCancellation = null;
             packSearchCancellation?.Cancel();
             packSearchCancellation = null;
+            serverFinderCancellation?.Cancel();
+            serverFinderCancellation = null;
+            serverFinderSearching = false;
             ClearDetails();
             detailTrigger = null;
             currentPage = page;
@@ -561,6 +578,7 @@ namespace BlockCraftLauncher.Wpf
                     break;
                 case "模组更新": PageHost.Content = BuildModUpdates(); break;
                 case "多人联机": PageHost.Content = BuildMultiplayer(); break;
+                case "查找服务器": PageHost.Content = BuildServerFinder(); break;
                 case "局域网": PageHost.Content = BuildLanWorlds(); break;
                 case "启动器更新": PageHost.Content = BuildLauncherUpdates(); break;
                 case "设置":
@@ -1181,8 +1199,21 @@ namespace BlockCraftLauncher.Wpf
                 throw new InvalidOperationException("下载任务搜索、筛选或进度布局不完整");
 
             Navigate("多人联机");
-            if (serverList?.ItemTemplate == null || sidebarButtons.Count != 2)
+            if (serverList?.ItemTemplate == null || sidebarButtons.Count != 3 ||
+                !sidebarButtons.ContainsKey("查找服务器"))
                 throw new InvalidOperationException("服务器列表或联机导航缺失");
+            Navigate("查找服务器");
+            if (serverFinderResults?.ItemTemplate == null ||
+                serverFinderSourceButton == null || serverFinderSearchButton == null ||
+                serverFinderQuery == null || serverFinderProvider == null ||
+                serverFinderVersion == null || serverFinderSort == null ||
+                serverFinderOnlineOnly == null || serverFinderPrevButton == null ||
+                serverFinderNextButton == null ||
+                !sidebarButtons.ContainsKey("多人联机") ||
+                !sidebarButtons.ContainsKey("局域网"))
+                throw new InvalidOperationException("服务器查找搜索、筛选、分页或入口缺失");
+            ArrangeLayoutProbe(1080, 680, "06-server-discovery");
+            ArrangeLayoutProbe(850, 560, "06-server-discovery-narrow");
             Navigate("局域网");
             if (lanWorldList?.ItemTemplate == null)
                 throw new InvalidOperationException("局域网列表缺少行布局模板");
@@ -2388,6 +2419,7 @@ namespace BlockCraftLauncher.Wpf
             var form = Card(Col(Txt("服务器信息", 16, true),
                 SearchFields(("名称", serverName), ("地址", serverAddress)),
                 Row(Btn("加入服务器", async () => await JoinServerAsync(), true),
+                    Btn("查找服务器", () => Navigate("查找服务器")),
                     Btn("保存收藏", SaveServer),
                     Btn("检测连接", async () => await CheckServerAsync()),
                     Btn("启动当前版本", async () => await LaunchAsync()))));
@@ -2402,6 +2434,261 @@ namespace BlockCraftLauncher.Wpf
             RefreshServers();
             return Col(PageHeading("服务器", "使用当前 Minecraft Java 版本加入服务器。"),
                 saved, form);
+        }
+
+        UIElement BuildServerFinder()
+        {
+            serverFinderPage = 1;
+            serverFinderPages = 1;
+            serverFinderQuery = new TextBox { MaxLength = 80 };
+            serverFinderVersion = new TextBox { MaxLength = 18 };
+            serverFinderProvider = new ComboBox
+            {
+                ItemsSource = new[] { "全部来源", "MC Monitor",
+                    "minecraftserve.rs", "MSID" },
+                SelectedIndex = 0
+            };
+            serverFinderSort = new ComboBox
+            {
+                ItemsSource = new[] { "综合推荐", "在线人数", "最新收录" },
+                SelectedIndex = 0
+            };
+            serverFinderOnlineOnly = new CheckBox
+            {
+                Content = "仅显示目录标记为在线的 Java 服务器",
+                IsChecked = true,
+                Margin = new Thickness(0, 4, 0, 8)
+            };
+            ApplySearchInputStyle(serverFinderQuery, "名称、IP 或描述关键词（2～80 字），留空浏览服务器");
+            ApplySearchInputStyle(serverFinderVersion, "Minecraft Java 版本，例如 1.21、1.20.1；留空不限");
+            ApplySearchInputStyle(serverFinderProvider, "全部来源 / MC Monitor / minecraftserve.rs / MSID");
+            ApplySearchInputStyle(serverFinderSort, "按综合推荐、玩家人数或新收录排序");
+            serverFinderQuery.KeyDown += async (sender, e) =>
+            {
+                if (e.Key == System.Windows.Input.Key.Enter)
+                {
+                    e.Handled = true;
+                    await SearchServersAsync(1);
+                }
+            };
+            serverFinderSearchButton = Btn("搜索服务器", async () =>
+                await SearchServersAsync(1), true);
+            var form = SearchCard(Col(
+                Txt("服务器查找", 16, true),
+                Txt("通过公开服务器目录查找 Minecraft Java 联机服务器，支持版本、来源、人数和状态筛选。", 12, false, true),
+                SearchFields(("名称 / IP", serverFinderQuery), ("来源", serverFinderProvider),
+                    ("游戏版本", serverFinderVersion), ("排序", serverFinderSort)),
+                serverFinderOnlineOnly,
+                Row(serverFinderSearchButton, Btn("清除筛选", () =>
+                {
+                    serverFinderQuery.Clear();
+                    serverFinderVersion.Clear();
+                    serverFinderProvider.SelectedIndex = 0;
+                    serverFinderSort.SelectedIndex = 0;
+                    serverFinderOnlineOnly.IsChecked = true;
+                    serverFinderStatus.Text = "已清除筛选，点击“搜索服务器”浏览公开目录。";
+                }), Btn("我的服务器收藏", () => Navigate("多人联机"))),
+                Txt("目录信息可能延迟；服务器由第三方运营，不代表启动器官方推荐。仅列出 Java 或可使用 Java 加入的公开服务器。",
+                    12, false, true)));
+            serverFinderResults = new ListBox
+            {
+                MinHeight = 290, MaxHeight = 490,
+                ItemTemplate = (DataTemplate)FindResource("PublicServerResultTemplate")
+            };
+            serverFinderStatus = Txt("输入关键词并点击搜索，或留空浏览。不会自动联网。",
+                12, false, true);
+            serverFinderDetails = Txt("请选择一个结果查看地址、版本、玩家人数和来源。",
+                12, false, true);
+            serverFinderDetails.TextWrapping = TextWrapping.Wrap;
+            serverFinderResults.SelectionChanged += (sender, args) =>
+                RefreshServerFinderSelection();
+            serverFinderPrevButton = Btn("上一页", async () =>
+                await SearchServersAsync(serverFinderPage - 1));
+            serverFinderNextButton = Btn("下一页", async () =>
+                await SearchServersAsync(serverFinderPage + 1));
+            serverFinderPrevButton.IsEnabled = false;
+            serverFinderNextButton.IsEnabled = false;
+            serverFinderFavoriteButton = Btn("加入收藏", SaveDiscoveredServer, true);
+            serverFinderJoinButton = Btn("直接连接", async () =>
+                await JoinDiscoveredServerAsync());
+            serverFinderCopyButton = Btn("复制服务器地址", CopyDiscoveredServer);
+            serverFinderSourceButton = Btn("查看来源网站", OpenDiscoveredSource);
+            serverFinderFavoriteButton.IsEnabled = serverFinderJoinButton.IsEnabled =
+                serverFinderCopyButton.IsEnabled = serverFinderSourceButton.IsEnabled = false;
+
+            var results = ResultsCard(Col(Txt("发现的服务器", 16, true),
+                serverFinderStatus, serverFinderResults,
+                Row(serverFinderPrevButton, serverFinderNextButton)));
+            var actions = Card(Col(Txt("服务器详情", 16, true), serverFinderDetails,
+                Row(serverFinderFavoriteButton, serverFinderJoinButton,
+                    serverFinderCopyButton, serverFinderSourceButton),
+                Txt("直接连接需要已安装 Minecraft Java 实例。目录记录不保证实时可连接，版本与账号权限以目标服务器为准。",
+                    12, false, true)));
+            return Col(PageHeading("查找服务器",
+                "搜索公开 Minecraft Java 服务器，收藏喜欢的服务器或使用当前实例加入。"),
+                form, results, actions,
+                Card(Col(Txt("数据来源", 14, true),
+                    Txt("服务器资料来自 MC Monitor、minecraftserve.rs、minecraftserver.id（MSID）。不发送微软登录令牌。数据缓存至少 60 秒，失败可切换来源，内容以第三方为准。",
+                        12, false, true))));
+        }
+
+        void RefreshServerFinderSelection()
+        {
+            var hit = serverFinderResults?.SelectedItem as PublicServerHit;
+            bool available = hit != null;
+            if (serverFinderFavoriteButton != null)
+                serverFinderFavoriteButton.IsEnabled = available;
+            if (serverFinderJoinButton != null)
+                serverFinderJoinButton.IsEnabled = available;
+            if (serverFinderCopyButton != null)
+                serverFinderCopyButton.IsEnabled = available;
+            if (serverFinderSourceButton != null)
+                serverFinderSourceButton.IsEnabled = available;
+            if (serverFinderDetails == null) return;
+            serverFinderDetails.Text = hit == null ?
+                "请选择一个结果查看服务器详情。" :
+                hit.Name + "\n地址：" + hit.Address +
+                "\n" + hit.StatusLabel + " · " + hit.PlayerLabel +
+                "\n" + hit.VersionLabel +
+                "\n分类：" + (string.IsNullOrWhiteSpace(hit.Tags) ? "未标注" : hit.Tags) +
+                "\n介绍：" + hit.Summary +
+                "\n来源：" + hit.Source +
+                "\n状态是目录缓存，不代表刚刚完成实时检测。";
+        }
+
+        async Task SearchServersAsync(int page)
+        {
+            if (serverFinderSearching || page < 1 || page > 200) return;
+            string query = serverFinderQuery.Text.Trim();
+            string version = serverFinderVersion.Text.Trim();
+            string provider = Convert.ToString(serverFinderProvider.SelectedItem);
+            string sort = serverFinderSort.SelectedIndex == 1 ? "players" :
+                serverFinderSort.SelectedIndex == 2 ? "newest" : "score";
+            bool onlineOnly = serverFinderOnlineOnly.IsChecked == true;
+            serverFinderCancellation?.Cancel();
+            var cancel = new CancellationTokenSource();
+            serverFinderCancellation = cancel;
+            serverFinderSearching = true;
+            serverFinderSearchButton.IsEnabled = false;
+            serverFinderPrevButton.IsEnabled = serverFinderNextButton.IsEnabled = false;
+            serverFinderStatus.Text = "正在从公开服务器目录加载信息...";
+            try
+            {
+                var found = await PublicServerDirectoryService.SearchAsync(
+                    provider, query, version, sort, onlineOnly, page, cancel.Token);
+                if (cancel.IsCancellationRequested || currentPage != "查找服务器")
+                    return;
+                serverFinderPage = page;
+                serverFinderPages = found.Pages;
+                serverFinderResults.ItemsSource = found.Servers;
+                serverFinderResults.SelectedIndex = found.Servers.Count > 0 ? 0 : -1;
+                serverFinderStatus.Text = "第 " + page + " / " + found.Pages +
+                    " 页 · 本页 " + found.Servers.Count + " 个服务器" +
+                    (provider != "全部来源" ? " · 目录记录 " + found.Total : "") +
+                    (found.Warning.Length > 0 ? "\n部分来源失败：" + found.Warning : "") +
+                    "\n数据为目录缓存，搜索结果不代表实时可连接。";
+                serverFinderPrevButton.IsEnabled = page > 1;
+                serverFinderNextButton.IsEnabled = page < found.Pages;
+                Status("服务器查找完成：" + found.Servers.Count + " 个结果");
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                if (!cancel.IsCancellationRequested && currentPage == "查找服务器")
+                    serverFinderStatus.Text = "查找服务器失败：" +
+                        ex.GetBaseException().Message +
+                        "。请检查网络、缩短关键词、切换来源后再试。";
+            }
+            finally
+            {
+                if (ReferenceEquals(serverFinderCancellation, cancel))
+                {
+                    serverFinderSearching = false;
+                    serverFinderSearchButton.IsEnabled = true;
+                }
+                cancel.Dispose();
+            }
+        }
+
+        void SaveDiscoveredServer()
+        {
+            var hit = serverFinderResults?.SelectedItem as PublicServerHit;
+            if (hit == null) return;
+            try
+            {
+                MultiplayerService.ParseAddress(hit.Address);
+                var saved = multiplayer.Load();
+                var existing = saved.FirstOrDefault(x =>
+                    x.Address.Equals(hit.Address, StringComparison.OrdinalIgnoreCase));
+                if (existing == null)
+                    saved.Add(new ServerEntry { Name = hit.Name, Address = hit.Address });
+                else
+                    existing.Name = hit.Name;
+                multiplayer.Save(saved);
+                Status("服务器已加入收藏：" + hit.Name);
+                serverFinderStatus.Text = "已收藏：" + hit.Name +
+                    "。可在「联机 → 服务器收藏」管理和连接。";
+            }
+            catch (Exception ex) { ShowError("收藏服务器失败", ex); }
+        }
+
+        void CopyDiscoveredServer()
+        {
+            var hit = serverFinderResults?.SelectedItem as PublicServerHit;
+            if (hit == null) return;
+            try
+            {
+                MultiplayerService.ParseAddress(hit.Address);
+                Clipboard.SetText(hit.Address);
+                Status("已复制服务器地址：" + hit.Address);
+            }
+            catch (Exception ex) { ShowError("复制服务器地址失败", ex); }
+        }
+
+        void OpenDiscoveredSource()
+        {
+            var hit = serverFinderResults?.SelectedItem as PublicServerHit;
+            if (hit == null || !Uri.TryCreate(hit.SourceUrl, UriKind.Absolute, out Uri uri) ||
+                uri.Scheme != "https" || !uri.IsDefaultPort ||
+                !(uri.Host == "www.mc-monitor.app" || uri.Host == "minecraftserve.rs" ||
+                    uri.Host == "minecraftserver.id"))
+                return;
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                uri.AbsoluteUri) { UseShellExecute = true }); }
+            catch (Exception ex) { ShowError("打开服务器目录网站失败", ex); }
+        }
+
+        async Task JoinDiscoveredServerAsync()
+        {
+            var hit = serverFinderResults?.SelectedItem as PublicServerHit;
+            if (hit == null) return;
+            if (activeProfile == null)
+            {
+                MessageBox.Show("请先安装并选择 Minecraft Java 游戏实例。");
+                return;
+            }
+            try
+            {
+                MultiplayerService.ParseAddress(hit.Address);
+                string installed = activeProfile.BaseVersion ?? "";
+                bool possiblyIncompatible = hit.Version.Length > 0 && installed.Length > 0 &&
+                    hit.Version.IndexOf(installed, StringComparison.OrdinalIgnoreCase) < 0;
+                if (possiblyIncompatible || hit.Online != true)
+                {
+                    if (MessageBox.Show(
+                        "服务器：" + hit.Name + "\n地址：" + hit.Address +
+                        "\n目录版本：" + hit.Version +
+                        "\n当前游戏版本：" + installed + "\n" +
+                        (hit.Online != true ? "目录中并未确认在线。\n" : "") +
+                        "目录信息可能滞后，且可能需要正版账号或白名单。" +
+                        "\n\n仍要尝试启动并连接吗？",
+                        "确认服务器连接", MessageBoxButton.YesNo,
+                        MessageBoxImage.Question) != MessageBoxResult.Yes)
+                        return;
+                }
+                await LaunchAsync(hit.Address);
+            }
+            catch (Exception ex) { ShowError("加入发现的服务器失败", ex); }
         }
 
         UIElement BuildLanWorlds()
