@@ -35,7 +35,8 @@ jobs:
             'check_pcl_downloads.py',
             'check_download_bindings.py',
             'check_auth_recovery.py',
-            'check_pcl_unified_ui.py'
+            'check_pcl_unified_ui.py',
+            'check_skin_search.py'
           )) {
             python "tests/$check"
             if ($LASTEXITCODE -ne 0) { throw "Static check failed: $check (exit $LASTEXITCODE)" }
