@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -3421,12 +3420,10 @@ namespace BlockCraftLauncher.Wpf
         }
         UIElement BuildAbout()
         {
-            string publisher = typeof(MainWindow).Assembly.GetCustomAttribute<AssemblyCompanyAttribute>().Company;
             return Col(PageHeading("关于", "BlockCraft Launcher  ·  Minecraft Java 启动器"),
                 Card(Col(Txt(LauncherAutoUpdateService.CurrentTag, 17, true),
                     Txt("Windows x64  ·  .NET Framework 4.8  ·  " +
                         LauncherAutoUpdateService.BuildChannelLabel, 12, false, true),
-                    Txt("发行者  ·  " + publisher, 12, false, true),
                     Row(Btn("检查更新", () => Navigate("启动器更新")),
                         Btn("查看发布记录", () => LauncherReleaseService.OpenOfficialRelease(
                             "https://github.com/minecraftlu/BlockCraftLauncher/releases"))))),
