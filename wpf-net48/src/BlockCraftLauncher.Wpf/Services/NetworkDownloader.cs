@@ -288,24 +288,25 @@ namespace BlockCraftLauncher.Wpf.Services
                     ct.ThrowIfCancellationRequested();
                     try
                     {
-                        using (var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct))
+                        // Bound only the connection/response headers here. Metadata
+                        // may stream for longer on slow mainland connections:
+                        // give the body a separate inactivity timeout, rather
+                        // than cancelling healthy downloads at the header deadline.
+                        using (var request = new HttpRequestMessage(HttpMethod.Get, url))
+                        using (var response = await SendWithHeaderTimeoutAsync(http, request,
+                            FirstRouteHeaderTimeout(requestTimeout,
+                                routes.Count > 1 && string.Equals(url, routes[0],
+                                    StringComparison.Ordinal)), ct).ConfigureAwait(false))
+                        using (var memory = new MemoryStream())
                         {
-                            deadline.CancelAfter(FirstRouteHeaderTimeout(requestTimeout,
-                                routes.Count > 1 && string.Equals(url, routes[0], StringComparison.Ordinal)));
-                            using (var request = new HttpRequestMessage(HttpMethod.Get, url))
-                            using (var response = await http.SendAsync(request,
-                                HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false))
-                            using (var memory = new MemoryStream())
-                            {
-                                CheckStatus(response);
-                                await CopyBodyAsync(response, memory, MaxMetadataBytes, 0, null,
-                                    null, requestTimeout, deadline.Token).ConfigureAwait(false);
-                                string body = Encoding.UTF8.GetString(memory.ToArray()).TrimStart('\uFEFF');
-                                var result = parse(body);
-                                RecordRoute(officialUrl, url, networkMode, routes.Count);
-                                PublicSearchCache.Store(cacheKey, body);
-                                return result;
-                            }
+                            CheckStatus(response);
+                            await CopyBodyAsync(response, memory, MaxMetadataBytes, 0, null,
+                                null, idleTimeout, ct).ConfigureAwait(false);
+                            string body = Encoding.UTF8.GetString(memory.ToArray()).TrimStart('\uFEFF');
+                            var result = parse(body);
+                            RecordRoute(officialUrl, url, networkMode, routes.Count);
+                            PublicSearchCache.Store(cacheKey, body);
+                            return result;
                         }
                     }
                     catch (Exception ex) when (ex is IOException || ex is InvalidDataException ||
