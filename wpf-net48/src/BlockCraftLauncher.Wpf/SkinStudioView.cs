@@ -38,6 +38,8 @@ namespace BlockCraftLauncher.Wpf
         readonly Image texture = new Image();
         readonly Image front = new Image();
         readonly Image back = new Image();
+        readonly Skin3DPreview editor3D = new Skin3DPreview();
+        readonly Skin3DPreview online3D = new Skin3DPreview();
         readonly Grid paintingSurface = new Grid();
         readonly Canvas guideCanvas = new Canvas { IsHitTestVisible = false };
         readonly ComboBox tool = new ComboBox();
@@ -508,8 +510,13 @@ namespace BlockCraftLauncher.Wpf
             onlineSaveButton.IsEnabled = onlineEditButton.IsEnabled = false;
             onlineDetailButton = ActionButton("查看原作者与许可证", OpenOnlineSource);
             onlineDetailButton.IsEnabled = false;
-            var selected = Column(Label("皮肤详情", 16, true),
-                onlinePreview, onlineAttribution, onlineSaveButton,
+            online3D.Height = 232;
+            var selected = Column(Label("皮肤详情 · 360° 预览", 16, true),
+                online3D,
+                Row(ActionButton("重置视角", online3D.ResetView)),
+                Label("按住鼠标左键旋转 · 滚轮缩放"),
+                Label("正面平面参考"), onlinePreview,
+                onlineAttribution, onlineSaveButton,
                 onlineEditButton, onlineDetailButton);
             var layout = new Grid();
             layout.ColumnDefinitions.Add(new ColumnDefinition {
@@ -754,6 +761,7 @@ namespace BlockCraftLauncher.Wpf
             onlineDetailButton.IsEnabled = item != null &&
                 !string.IsNullOrWhiteSpace(item.DetailUrl);
             onlinePreview.Source = null;
+            online3D.SetSkin(null, false, true);
             if (item == null) return;
             onlineAttribution.Text = item.Name + "\n" + item.Attribution +
                 "\n" + item.ModelLabel + "\n" + item.LicenseLabel;
@@ -765,6 +773,7 @@ namespace BlockCraftLauncher.Wpf
                     !ReferenceEquals(onlineResults.SelectedItem, item)) return;
                 var preview = DecodeOnlineSkin(png, item.SlimArms);
                 onlinePreview.Source = preview.AvatarImage(false, true);
+                online3D.SetSkin(preview.TextureImage(), item.SlimArms, true);
                 selectedOnlineSkin = item;
                 selectedOnlinePng = png;
                 onlineSaveButton.IsEnabled = onlineEditButton.IsEnabled = item.CanDownload;
@@ -918,7 +927,14 @@ namespace BlockCraftLauncher.Wpf
             }
             leftPanel.Children.Add(PreviewFrame(front));
             rightPanel.Children.Add(PreviewFrame(back));
-            return Row(leftPanel, rightPanel);
+            editor3D.Height = 246;
+            return Column(
+                Label("360° 立体预览 · 皮肤实时同步", 12, true),
+                editor3D,
+                Row(ActionButton("重置视角", editor3D.ResetView)),
+                Label("左键拖动旋转 · 滚轮缩放"),
+                Row(leftPanel, rightPanel));
+
         }
 
         static Border PreviewFrame(Image image)
@@ -1018,7 +1034,9 @@ namespace BlockCraftLauncher.Wpf
 
         void RefreshImages()
         {
-            texture.Source = document.TextureImage();
+            var atlas = document.TextureImage();
+            texture.Source = atlas;
+            editor3D.SetSkin(atlas, document.SlimArms, showOuter.IsChecked != false);
             front.Source = document.AvatarImage(false, showOuter.IsChecked != false);
             back.Source = document.AvatarImage(true, showOuter.IsChecked != false);
             info.Text = (document.Dirty ? "● 未保存的修改" : "✓ 已保存") +
@@ -1476,8 +1494,10 @@ namespace BlockCraftLauncher.Wpf
                 editorPage == null || downloadPage == null ||
                 editorPage.Visibility != (downloadMode ? Visibility.Collapsed : Visibility.Visible) ||
                 downloadPage.Visibility != (downloadMode ? Visibility.Visible : Visibility.Collapsed) ||
-                document.TextureImage().PixelWidth != 64)
-                throw new InvalidOperationException("皮肤 DIY 工具、贴图、图层或预览窗口未初始化");
+                document.TextureImage().PixelWidth != 64 ||
+                editor3D.PartCount != 12 || online3D == null)
+                throw new InvalidOperationException("皮肤 DIY 工具、贴图、图层或 360° 预览窗口未初始化");
+            Skin3DPreview.VerifyGeometry();
             int before = guideCanvas.Children.Count;
             layer.SelectedIndex = 1;
             if (guideCanvas.Children.Count < 12)
