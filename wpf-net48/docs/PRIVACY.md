@@ -12,6 +12,7 @@ The application may make requests to external services for features including:
 - **Minecraft game resources:** game manifests, libraries, runtime and asset downloads from Minecraft/Mojang/Microsoft-related services and configured mirrors.
 - **Mod / resource discovery:** Modrinth, CurseForge and other selected providers or mirrors, depending on enabled features.
 - **Launcher releases:** GitHub Releases for update checks and release file downloads.
+- **Online skin search (optional, when selected):** The player name or UUID entered for player skin lookup is sent to public Mojang/Minecraft services (`api.minecraftservices.com`, `api.mojang.com`, `sessionserver.mojang.com`); skin PNGs are fetched from `textures.minecraft.net`. If the user chooses the community keyword search mode, the query is sent to `dpplugins.com`, and selecting a result requests its public HTTPS skin image URL. These third-party providers may receive network metadata such as your IP address. Search is not required to use the offline editor.
 
 These services have their own privacy policies. The availability of mirror services and each provider's handling of network metadata and credentials is outside the project's direct control.
 
