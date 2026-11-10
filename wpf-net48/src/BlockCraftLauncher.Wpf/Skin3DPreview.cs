@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -222,14 +223,107 @@ namespace BlockCraftLauncher.Wpf
                 // Outer clothes float slightly above base to avoid z-fighting.
                 double extra = region.Overlay ?
                     (region.Part == "头部" ? 0.75 : 0.55) : 0;
-                var part = BuildPart(region, x, y,
-                    region.Width + extra, region.Height + extra,
-                    region.Depth + extra, normalized, pixels, out int visible);
+                // The base body must be visible on GPUs where WPF's
+                // 3D ImageBrush atlas sampling fails: render each base texel
+                // using a solid-color geometry instead of a texture sampler.
+                // Outer clothing still uses the face-cropped texture path.
+                var part = region.Overlay ?
+                    BuildPart(region, x, y,
+                        region.Width + extra, region.Height + extra,
+                        region.Depth + extra, normalized, pixels, out int visibleOuter) :
+                    BuildPixelPart(region, x, y,
+                        region.Width, region.Height, region.Depth,
+                        pixels, out int visibleBase);
+                int visible = region.Overlay ? visibleOuter : visibleBase;
                 if (region.Overlay) VisibleOuterQuads += visible;
                 // Keep exactly six base groups + six outer groups for the
                 // existing skin editor UI selftest and outer-layer switch.
                 parts.Children.Add(part);
             }
+        }
+
+        /// <summary>
+        /// GPU-independent base renderer: direct pixel-colored quads, grouped
+        /// by exact ARGB color. It never invokes ImageBrush, so the opaque
+        /// skin silhouette cannot disappear from atlas texture sampling.
+        /// </summary>
+        static void AddPixelFace(Model3DGroup part, byte[] pixels,
+            Point3D tl, Point3D bl, Point3D br, Point3D tr,
+            int u, int v, int width, int height, ref int quadCount)
+        {
+            var meshes = new Dictionary<uint, MeshGeometry3D>();
+            for (int py = 0; py < height; py++)
+                for (int px = 0; px < width; px++)
+                {
+                    int i = ((v + py) * AtlasSize + u + px) * 4;
+                    byte b = pixels[i], g = pixels[i + 1];
+                    byte r = pixels[i + 2], a = pixels[i + 3];
+                    if (a == 0) continue;
+                    uint color = ((uint)a << 24) | ((uint)r << 16) |
+                        ((uint)g << 8) | b;
+                    if (!meshes.TryGetValue(color, out var mesh))
+                    {
+                        mesh = new MeshGeometry3D();
+                        meshes[color] = mesh;
+                    }
+                    double x0 = px / (double)width, x1 = (px + 1.0) / width;
+                    double y0 = py / (double)height, y1 = (py + 1.0) / height;
+                    Quad(mesh,
+                        OnFace(tl, bl, br, tr, x0, y0),
+                        OnFace(tl, bl, br, tr, x0, y1),
+                        OnFace(tl, bl, br, tr, x1, y1),
+                        OnFace(tl, bl, br, tr, x1, y0),
+                        0, 0, 1, 1);
+                    quadCount++;
+                }
+            foreach (var entry in meshes)
+            {
+                uint key = entry.Key;
+                var color = Color.FromArgb(
+                    (byte)(key >> 24), (byte)(key >> 16),
+                    (byte)(key >> 8), (byte)key);
+                var brush = new SolidColorBrush(color);
+                brush.Freeze();
+                part.Children.Add(new GeometryModel3D(entry.Value,
+                    new DiffuseMaterial(brush)));
+            }
+        }
+
+        static Model3DGroup BuildPixelPart(SkinUvRegion uv,
+            double x, double y, double width, double height, double depth,
+            byte[] pixels, out int quads)
+        {
+            double left = x - width / 2, right = x + width / 2;
+            double bottom = y - height / 2, top = y + height / 2;
+            double near = depth / 2, far = -depth / 2;
+            int u = uv.U, v = uv.V, w = uv.Width, h = uv.Height, d = uv.Depth;
+            var result = new Model3DGroup();
+            quads = 0;
+            AddPixelFace(result, pixels,
+                P(left, top, near), P(left, bottom, near),
+                P(right, bottom, near), P(right, top, near),
+                u + d, v + d, w, h, ref quads);
+            AddPixelFace(result, pixels,
+                P(right, top, far), P(right, bottom, far),
+                P(left, bottom, far), P(left, top, far),
+                u + 2 * d + w, v + d, w, h, ref quads);
+            AddPixelFace(result, pixels,
+                P(left, top, far), P(left, bottom, far),
+                P(left, bottom, near), P(left, top, near),
+                u, v + d, d, h, ref quads);
+            AddPixelFace(result, pixels,
+                P(right, top, near), P(right, bottom, near),
+                P(right, bottom, far), P(right, top, far),
+                u + d + w, v + d, d, h, ref quads);
+            AddPixelFace(result, pixels,
+                P(left, top, far), P(left, top, near),
+                P(right, top, near), P(right, top, far),
+                u + d, v, w, d, ref quads);
+            AddPixelFace(result, pixels,
+                P(left, bottom, near), P(left, bottom, far),
+                P(right, bottom, far), P(right, bottom, near),
+                u + d + w, v, w, d, ref quads);
+            return result;
         }
 
         static Point3D P(double x, double y, double z) => new Point3D(x, y, z);
@@ -429,6 +523,14 @@ namespace BlockCraftLauncher.Wpf
                 FirstPixel(headTexture) != doc.Pixel(8, 8) ||
                 FirstPixel(headTexture).A == 0)
                 throw new InvalidOperationException("皮肤正面纹理错用了透明图集或 UV 区域");
+            var solidHead = BuildPixelPart(head, 0, 28, 8, 8, 8,
+                all, out int pixelsDrawn);
+            if (pixelsDrawn != 384 || solidHead.Children.Count < 6 ||
+                !solidHead.Children.Cast<GeometryModel3D>().Any(face =>
+                    ((DiffuseMaterial)face.Material).Brush is SolidColorBrush color &&
+                    color.Color == doc.Pixel(8, 8)))
+                throw new InvalidOperationException(
+                    "兼容渲染必须把头部所有基础像素变成不依赖贴图的彩色面片");
         }
     }
 }
