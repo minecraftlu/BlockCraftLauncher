@@ -180,6 +180,17 @@ namespace BlockCraftLauncher.Wpf.Services
             foreach (var a in assets.Select(Object).Where(x => x != null))
             {
                 string name = Text(a, "name");
+                // Release titles/tags can describe a different Minecraft
+                // version than an individual asset. If the JAR filename
+                // explicitly contains Minecraft-looking versions, those must
+                // all agree with the selected profile before title fallback.
+                var declaredVersions = Regex.Matches(name,
+                    @"(?<![0-9.])1\.(?:[7-9]|1[0-9]|2[0-9])(?:\.[0-9]{1,3})?(?![0-9.])")
+                    .Cast<Match>().Select(x => x.Value).Distinct().ToArray();
+                if (declaredVersions.Length > 0 &&
+                    declaredVersions.Any(x => !string.Equals(x,
+                        gameVersion, StringComparison.OrdinalIgnoreCase)))
+                    continue;
                 if (name.Length < 5 || name.Length > 180 ||
                     name != Path.GetFileName(name) ||
                     name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
