@@ -1,0 +1,175 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.IO.Compression;
+using System.Linq;
+using System.Web.Script.Serialization;
+
+namespace BlockCraftLauncher.Wpf.Services
+{
+    /// <summary>
+    /// Fully offline GitHub API and JAR fixtures. Never downloads binaries or
+    /// uses personal tokens; installed release JARs must pass all checks.
+    /// </summary>
+    internal static class GitHubOpenSourceModSanityChecks
+    {
+        static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
+        static readonly string Digest = "sha256:" + new string('a', 64);
+
+        static void Require(bool ok, string message)
+        {
+            if (!ok) throw new InvalidOperationException(
+                "GitHub 开源模组自检失败：" + message);
+        }
+
+        static Dictionary<string, object> Repo(string name,
+            string license = "MIT", bool archived = false)
+        {
+            return new Dictionary<string, object> {
+                ["name"] = name.Split('/').Last(),
+                ["full_name"] = name,
+                ["description"] = "Minecraft Java open source mod",
+                ["archived"] = archived, ["fork"] = false, ["private"] = false,
+                ["owner"] = new Dictionary<string, object> { ["login"] = name.Split('/')[0] },
+                ["license"] = license == null ? null :
+                    new Dictionary<string, object> { ["spdx_id"] = license }
+            };
+        }
+
+        static object Asset(string name, string url = null, string digest = null)
+        {
+            return new Dictionary<string, object> {
+                ["name"] = name,
+                ["browser_download_url"] = url ??
+                    ("https://github.com/example/mod/releases/download/mc1.21.1/" + name),
+                ["digest"] = digest ?? Digest,
+                ["size"] = 1024
+            };
+        }
+
+        static string Release(params object[] assets)
+        {
+            return Json.Serialize(new Dictionary<string, object> {
+                ["tag_name"] = "mc1.21.1",
+                ["name"] = "Release for Minecraft 1.21.1",
+                ["draft"] = false,
+                ["prerelease"] = false,
+                ["assets"] = assets
+            });
+        }
+
+        static void MustReject(string label, Func<GitHubOpenSourceModClient.ReleaseJar> choose)
+        {
+            bool rejected = false;
+            try { choose(); }
+            catch (InvalidDataException) { rejected = true; }
+            Require(rejected, label);
+        }
+
+        static void SearchParser()
+        {
+            string fixture = Json.Serialize(new Dictionary<string, object> {
+                ["items"] = new object[] {
+                    Repo("example/mod", "MIT"),
+                    Repo("example/no-license", null),
+                    Repo("example/private", "MIT", true),
+                    Repo("example/strict", "GPL-3.0-only"),
+                    Repo("bad-owner/../traversal", "MIT")
+                },
+                ["total_count"] = 5
+            });
+            var page = GitHubOpenSourceModClient.ParseSearch(fixture);
+            Require(page.Hits.Count == 2 && page.TotalHits == 5,
+                "只有明确 SPDX 开源许可的有效公开仓库被展示");
+            Require(page.Hits[0].Source == "GitHub" &&
+                page.Hits[0].SourceLabel == "GitHub 开源" &&
+                page.Hits[0].CategoryLabel.Contains("MIT"),
+                "GitHub 的来源和许可需清晰标注");
+        }
+
+        static void ReleaseAssets()
+        {
+            var selected = GitHubOpenSourceModClient.ChooseReleaseJar(
+                "example/mod", "1.21.1", "fabric",
+                Release(
+                    Asset("example-1.21.1-sources.jar"),
+                    Asset("example-1.21.1-forge.jar"),
+                    Asset("example-1.21.1-fabric.jar")));
+            Require(selected.Filename == "example-1.21.1-fabric.jar" &&
+                selected.Sha256 == new string('a', 64),
+                "只能选择兼容加载器且具有 GitHub SHA-256 的 JAR");
+            Require(GitHubOpenSourceModClient.CompatibleVersion(
+                "example-mc1.21.1-fabric.jar", "1.21.1") &&
+                !GitHubOpenSourceModClient.CompatibleVersion(
+                    "example-mc1.21.10-fabric.jar", "1.21.1"),
+                "不会误将 Minecraft 1.21.10 当作 1.21.1");
+
+            MustReject("不能安装缺少 GitHub SHA256 的文件", () =>
+                GitHubOpenSourceModClient.ChooseReleaseJar("example/mod",
+                    "1.21.1", "fabric",
+                    Release(Asset("example-1.21.1-fabric.jar",
+                        digest: "sha256:invalid"))));
+            MustReject("不能安装伪造的 GitHub 下载主机", () =>
+                GitHubOpenSourceModClient.ChooseReleaseJar("example/mod",
+                    "1.21.1", "fabric", Release(
+                        Asset("example-1.21.1-fabric.jar",
+                            url: "https://github.com.evil.invalid/other.jar"))));
+            MustReject("不能猜测多个候选 JAR", () =>
+                GitHubOpenSourceModClient.ChooseReleaseJar("example/mod",
+                    "1.21.1", "fabric", Release(
+                        Asset("example-1.21.1-fabric.jar"),
+                        Asset("example-additional-1.21.1-fabric.jar"))));
+            MustReject("不能从源码归档猜测可安装文件", () =>
+                GitHubOpenSourceModClient.ChooseReleaseJar("example/mod",
+                    "1.21.1", "fabric",
+                    Release(Asset("example-1.21.1-sources.jar"))));
+            MustReject("不能使用伪造的仓库路径", () =>
+                GitHubOpenSourceModClient.ChooseReleaseJar("../mod",
+                    "1.21.1", "fabric", Release(
+                        Asset("example-1.21.1-fabric.jar"))));
+        }
+
+        static void JarSafety()
+        {
+            string temp = Path.Combine(Path.GetTempPath(),
+                "blockcraft-openmods-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(temp);
+            try
+            {
+                string fabric = Path.Combine(temp, "fabric.jar");
+                using (var zip = ZipFile.Open(fabric, ZipArchiveMode.Create))
+                {
+                    var entry = zip.CreateEntry("fabric.mod.json");
+                    using (var writer = new StreamWriter(entry.Open()))
+                        writer.Write("{\"id\":\"testmod\"}");
+                }
+                GitHubOpenSourceModClient.ValidateJar(fabric, "fabric");
+                bool rejected = false;
+                try { GitHubOpenSourceModClient.ValidateJar(fabric, "forge"); }
+                catch (InvalidDataException) { rejected = true; }
+                Require(rejected, "Fabric JAR 不可被误装到 Forge 实例");
+
+                string fake = Path.Combine(temp, "fake.jar");
+                File.WriteAllText(fake, "source text is not a mod");
+                rejected = false;
+                try { GitHubOpenSourceModClient.ValidateJar(fake, "fabric"); }
+                catch (InvalidDataException) { rejected = true; }
+                catch (InvalidZipFileException) { rejected = true; }
+                Require(rejected, "GitHub 错误文件不得通过 JAR 验证");
+            }
+            finally
+            {
+                try { Directory.Delete(temp, true); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
+
+        internal static void Run()
+        {
+            SearchParser();
+            ReleaseAssets();
+            JarSafety();
+        }
+    }
+}
