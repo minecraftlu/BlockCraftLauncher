@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Globalization;
 using System.Windows.Media;
@@ -91,6 +92,18 @@ namespace BlockCraftLauncher.Wpf.Services
             MaxJsonLength = MaxJsonBytes
         };
         static readonly HttpClient Http = CreateHttp();
+        // 24 thumbnails per page should not become 24 simultaneous requests
+        // to the same gallery. Limit connections and reuse recent previews.
+        static readonly SemaphoreSlim ThumbnailSlots = new SemaphoreSlim(8, 8);
+        const int ThumbnailCacheLimit = 80;
+        const int ThumbnailCacheMaxBytes = 256 * 1024;
+        static readonly ConcurrentDictionary<string, CachedThumbnail> ThumbnailCache =
+            new ConcurrentDictionary<string, CachedThumbnail>(StringComparer.Ordinal);
+        sealed class CachedThumbnail
+        {
+            internal byte[] Content;
+            internal DateTime ExpiresUtc;
+        }
 
         static HttpClient CreateHttp()
         {
@@ -210,18 +223,36 @@ namespace BlockCraftLauncher.Wpf.Services
             }
         }
 
-        static async Task<Dictionary<string, object>> GetJson(Uri uri, CancellationToken ct)
+        static Dictionary<string, object> ParseJson(string body)
         {
-            var bytes = await GetBytes(uri, MaxJsonBytes, ct).ConfigureAwait(false);
             try
             {
-                return Dict(Json.DeserializeObject(Encoding.UTF8.GetString(bytes))) ??
+                // Separate serializer per concurrent request; the shared
+                // instance is not used on multiple network worker threads.
+                var serializer = new JavaScriptSerializer { MaxJsonLength = MaxJsonBytes };
+                return Dict(serializer.DeserializeObject(body)) ??
                     throw new InvalidDataException("皮肤服务返回的 JSON 结构无效");
             }
             catch (ArgumentException error)
             {
                 throw new InvalidDataException("皮肤服务没有返回有效的 JSON", error);
             }
+        }
+
+        static async Task<Dictionary<string, object>> GetJson(Uri uri, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            string key = PublicSearchCache.CacheKey(uri.AbsoluteUri, "skin", "", false);
+            if (PublicSearchCache.TryGet(key, out var cached))
+            {
+                try { return ParseJson(cached); }
+                catch (InvalidDataException) { PublicSearchCache.Remove(key); }
+            }
+            var bytes = await GetBytes(uri, MaxJsonBytes, ct).ConfigureAwait(false);
+            var body = Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF');
+            var result = ParseJson(body);
+            PublicSearchCache.Store(key, body);
+            return result;
         }
 
         internal static OnlineSkinEntry ParseSessionProfile(
@@ -432,8 +463,40 @@ namespace BlockCraftLauncher.Wpf.Services
                 return null;
             // The fixed host and ID prohibit a catalog from injecting a
             // third-party BitmapImage URL; HTTP never follows redirects.
-            var url = new Uri("https://mosaicary.com/api/skins/" + item.Id + "/render.png");
-            return await GetBytes(url, 1024 * 1024, ct).ConfigureAwait(false);
+            if (ThumbnailCache.TryGetValue(item.Id, out var cached) &&
+                cached.ExpiresUtc > DateTime.UtcNow)
+                return cached.Content;
+            await ThumbnailSlots.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                // Another thumbnail request may have populated the cache
+                // while waiting for a network slot.
+                ct.ThrowIfCancellationRequested();
+                if (ThumbnailCache.TryGetValue(item.Id, out cached) &&
+                    cached.ExpiresUtc > DateTime.UtcNow)
+                    return cached.Content;
+                var url = new Uri("https://mosaicary.com/api/skins/" + item.Id + "/render.png");
+                var bytes = await GetBytes(url, 1024 * 1024, ct).ConfigureAwait(false);
+                if (bytes.Length > 8 && bytes.Length <= ThumbnailCacheMaxBytes &&
+                    bytes[0] == 137 && bytes[1] == 80 && bytes[2] == 78 &&
+                    bytes[3] == 71 && bytes[4] == 13 && bytes[5] == 10 &&
+                    bytes[6] == 26 && bytes[7] == 10)
+                {
+                    if (ThumbnailCache.Count >= ThumbnailCacheLimit)
+                    {
+                        foreach (var entry in ThumbnailCache
+                            .OrderBy(x => x.Value.ExpiresUtc).Take(ThumbnailCacheLimit / 4))
+                            ThumbnailCache.TryRemove(entry.Key, out _);
+                    }
+                    ThumbnailCache[item.Id] = new CachedThumbnail
+                    {
+                        Content = bytes,
+                        ExpiresUtc = DateTime.UtcNow.AddMinutes(8)
+                    };
+                }
+                return bytes;
+            }
+            finally { ThumbnailSlots.Release(); }
         }
 
         // Run on the WPF UI dispatcher rather than decoding a WPF bitmap on a
