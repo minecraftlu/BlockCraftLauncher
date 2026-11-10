@@ -1,0 +1,152 @@
+# SignPath Foundation signing readiness.
+# IMPORTANT: This is a manual proof-of-signing workflow, NOT a release publisher.
+# It is inert until the project is approved and the owner configures SignPath.
+name: WPF SignPath verified EXE (manual, post-approval only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      approved:
+        description: 'I confirm SignPath Foundation has approved this project and I have configured SignPath'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  sign-onefile:
+    if: github.repository == 'minecraftlu/BlockCraftLauncher' && github.ref == 'refs/heads/main' && inputs.approved
+    runs-on: windows-2022
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout reviewed main
+        uses: actions/checkout@v4
+
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Verify SignPath project configuration is available
+        env:
+          SP_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SP_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SP_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          SP_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($variable in @('SP_ORGANIZATION_ID','SP_PROJECT_SLUG','SP_SIGNING_POLICY_SLUG','SP_API_TOKEN')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($variable))) {
+              throw "Missing ${variable}: SignPath application approval and repository configuration are required"
+            }
+          }
+          if ('${{ github.ref }}' -ne 'refs/heads/main') {
+            throw 'Only reviewed main may submit to the release-signing policy'
+          }
+          Write-Host 'SignPath inputs present (values not displayed)'
+
+      - name: Run release static checks
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($check in @(
+            'check_project.py','check_phase2.py','check_windows_packaging.py',
+            'check_v0926_features.py','check_onefile.py','check_pcl_downloads.py',
+            'check_download_bindings.py','check_auth_recovery.py',
+            'check_pcl_unified_ui.py'
+          )) {
+            python "tests/$check"
+            if ($LASTEXITCODE -ne 0) { throw "Static check failed: $check" }
+          }
+
+      - name: Build Windows WPF and one-file distribution
+        shell: cmd
+        working-directory: wpf-net48
+        run: call build\build-windows.bat
+
+      - name: Run OneFile release smoke and security selftests
+        working-directory: wpf-net48
+        timeout-minutes: 15
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tagSource = Get-Content 'src/BlockCraftLauncher.Wpf/Services/LauncherAutoUpdateService.cs' -Raw
+          $tag = [regex]::Match($tagSource, 'internal const string CurrentTag = "([^"]+)";').Groups[1].Value
+          if ($tag -notmatch '^v\d+\.\d+\.\d+$') { throw 'Expected a stable updater release tag' }
+          $exeName = "BlockCraftLauncher-$tag-WPF-OneFile-Windows-x64.exe"
+          $exe = Join-Path (Resolve-Path dist).Path $exeName
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Missing OneFile release binary: $exeName" }
+          "SIGNING_EXE=$exeName" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          foreach ($flag in @('--smoke-test','--ui-layout-selftest','--download-selftest','--auth-selftest','--skin-selftest')) {
+            $process = Start-Process -FilePath $exe -ArgumentList $flag -PassThru
+            if (-not $process.WaitForExit(70000)) {
+              $process.Kill()
+              throw "Unsigned build selftest timeout: $flag"
+            }
+            $process.Refresh()
+            if ($process.ExitCode -ne 0) { throw "Unsigned build selftest failed: $flag, exit=$($process.ExitCode)" }
+          }
+
+      # For the OSS tier this uploaded GitHub artifact is used for trusted-origin
+      # verification. Do NOT upload a local ZIP or arbitrary external executable.
+      - name: Upload unsigned EXE for verified signing
+        id: unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: signpath-input-unsigned-onefile
+          path: wpf-net48/dist/${{ env.SIGNING_EXE }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Request SignPath signing (requires human approval)
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+
+      - name: Verify Authenticode signature and hash signed bytes
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = @(Get-ChildItem -LiteralPath signed -Recurse -File -Filter $env:SIGNING_EXE)
+          if ($files.Count -ne 1) { throw "Expected exactly one signed $env:SIGNING_EXE, got $($files.Count)" }
+          $signedExe = $files[0].FullName
+          $signature = Get-AuthenticodeSignature -LiteralPath $signedExe
+          if ($signature.Status -ne 'Valid' -or !$signature.SignerCertificate) {
+            throw "SignPath returned an executable without a valid Authenticode signature: $($signature.Status)"
+          }
+          if ($signature.SignerCertificate.Subject -notmatch 'SignPath Foundation') {
+            throw "Unexpected certificate publisher: $($signature.SignerCertificate.Subject)"
+          }
+          $digest = (Get-FileHash -LiteralPath $signedExe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$digest  $env:SIGNING_EXE" | Set-Content (Join-Path signed 'RELEASE-SHA256SUMS.txt') -Encoding ASCII
+          Write-Host "Verified SignPath Foundation signer and signed SHA256: $digest"
+          # Validate the EXACT signed binary, not only the pre-signing build.
+          $process = Start-Process -FilePath $signedExe -ArgumentList '--smoke-test' -PassThru
+          if (-not $process.WaitForExit(70000)) {
+            $process.Kill()
+            throw 'Signed OneFile smoke test timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) { throw "Signed OneFile smoke test failed: $($process.ExitCode)" }
+
+      - name: Upload validated signed EXE (workflow artifact only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: signpath-verified-onefile
+          path: |
+            signed/**/BlockCraftLauncher-*-WPF-OneFile-Windows-x64.exe
+            signed/RELEASE-SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+# Deliberately no GitHub Release publishing, no changes to stable updater
+# manifests, and no unsigned fallback. Review and integrate into the official
+# release workflow only after an approved signing test succeeds.
