@@ -431,6 +431,45 @@
         </Grid>
       </Border>
     </DataTemplate>
+    <!-- Public server search: text only; no untrusted remote image URLs are
+         automatically loaded from catalogue listings. -->
+    <DataTemplate x:Key="PublicServerResultTemplate">
+      <Border Padding="11,11" BorderBrush="{DynamicResource BorderBrushTheme}"
+              BorderThickness="0,0,0,1" MinHeight="90" Background="Transparent">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="43"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <Border Width="32" Height="32" CornerRadius="8"
+                  Background="{DynamicResource BadgeBrush}" VerticalAlignment="Top">
+            <TextBlock Text="&#xE902;" FontFamily="Segoe MDL2 Assets" FontSize="17"
+                       Foreground="{DynamicResource AccentInkBrush}"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Border>
+          <StackPanel Grid.Column="1">
+            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14"
+                       TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"/>
+            <TextBlock Text="{Binding Summary}" FontSize="11"
+                       Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                       MaxHeight="34" Margin="0,4,0,6" ToolTip="{Binding Summary}"/>
+            <WrapPanel>
+              <TextBlock Text="{Binding Address}" FontSize="11"
+                         Foreground="{DynamicResource AccentInkBrush}"
+                         Margin="0,0,10,3"/>
+              <TextBlock Text="{Binding StatusLabel}" FontSize="11"
+                         Foreground="{DynamicResource MutedBrush}" Margin="0,0,10,3"/>
+              <TextBlock Text="{Binding PlayerLabel}" FontSize="11"
+                         Foreground="{DynamicResource MutedBrush}" Margin="0,0,10,3"/>
+              <TextBlock Text="{Binding VersionLabel}" FontSize="11"
+                         Foreground="{DynamicResource MutedBrush}" Margin="0,0,10,3"/>
+              <TextBlock Text="{Binding SourceLabel}" FontSize="11"
+                         Foreground="{DynamicResource MutedBrush}" Margin="0,0,10,3"/>
+            </WrapPanel>
+          </StackPanel>
+        </Grid>
+      </Border>
+    </DataTemplate>
     <DataTemplate x:Key="ServerItemTemplate">
       <Border Padding="12,11" BorderBrush="{DynamicResource BorderBrushTheme}"
               BorderThickness="0,0,0,1" MinHeight="60">
