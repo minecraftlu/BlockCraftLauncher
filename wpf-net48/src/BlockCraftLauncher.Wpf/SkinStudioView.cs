@@ -631,8 +631,9 @@ namespace BlockCraftLauncher.Wpf
                     {
                         await limit.WaitAsync(token);
                         acquired = true;
-                        var image = await OnlineSkinSearchService.DownloadThumbnailAsync(entry, token);
-                        if (!token.IsCancellationRequested) entry.Thumbnail = image;
+                        var bytes = await OnlineSkinSearchService.DownloadThumbnailAsync(entry, token);
+                        if (!token.IsCancellationRequested)
+                            entry.Thumbnail = OnlineSkinSearchService.DecodeThumbnail(bytes);
                     }
                     catch (OperationCanceledException) { }
                     catch (Exception) { /* A broken thumbnail must not break results. */ }
