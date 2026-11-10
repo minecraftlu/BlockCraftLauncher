@@ -630,6 +630,7 @@
                          Foreground="{DynamicResource AccentInkBrush}"
                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
               <Image Source="{Binding IconUrl}" Width="50" Height="50"
+                     ToolTip="{Binding IconDescription}"
                      Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/>
             </Grid>
           </Border>
@@ -689,6 +690,7 @@
                          FontSize="23" Foreground="{DynamicResource AccentInkBrush}"
                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
               <Image Source="{Binding IconUrl}" Width="50" Height="50"
+                     ToolTip="CurseForge 项目封面；加载失败时显示默认模组图标"
                      Stretch="UniformToFill"
                      RenderOptions.BitmapScalingMode="HighQuality"/>
             </Grid>

@@ -30,6 +30,9 @@ namespace BlockCraftLauncher.Wpf.Services
         public string VersionsLabel { get; set; }
         public string Source { get; set; } = "Modrinth";
         public string SourceLabel => Source == "GitHub" ? "GitHub 开源" : "Modrinth";
+        public string IconDescription => Source == "GitHub"
+            ? "Github 开源项目作者头像（仅作来源识别，不代表模组官方图标）"
+            : "Modrinth 项目图标；无法获取时显示默认模组图标";
         public string KindLabel
         {
             get
