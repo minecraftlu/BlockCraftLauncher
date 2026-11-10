@@ -69,6 +69,14 @@ namespace BlockCraftLauncher.Wpf.Services
                 "大陆与海外设置保留相反的优先顺序及备用来源");
             Require(NetworkDownloader.Routes(Official, "official").SequenceEqual(new[] { Official }),
                 "仅官方源不会访问镜像");
+            Require(NetworkDownloader.FirstRouteHeaderTimeout(
+                    NetworkDownloader.HeaderTimeout, true) ==
+                    NetworkDownloader.AlternateRouteHeaderTimeout &&
+                NetworkDownloader.FirstRouteHeaderTimeout(
+                    NetworkDownloader.HeaderTimeout, false) ==
+                    NetworkDownloader.HeaderTimeout &&
+                NetworkDownloader.FirstRouteHeaderTimeout(ShortDeadline, true) == ShortDeadline,
+                "双线路首次连接 6 秒内自动回退，单线路和更短超时保持不变");
             Require(NetworkDownloader.TryNormalizeProxy("127.0.0.1:7890", out var proxy) &&
                 proxy == "http://127.0.0.1:7890" &&
                 !NetworkDownloader.TryNormalizeProxy("http://user:password@localhost:7890/path", out _),
