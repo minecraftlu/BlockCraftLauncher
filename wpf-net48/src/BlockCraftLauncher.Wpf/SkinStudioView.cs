@@ -27,6 +27,12 @@ namespace BlockCraftLauncher.Wpf
         readonly SkinEditorDocument document = new SkinEditorDocument();
         readonly Func<byte[], bool, System.Threading.Tasks.Task> uploadToMicrosoft;
         readonly Func<string> accountName;
+        readonly Action openEditor;
+        readonly Action<OnlineSkinEntry> queueSkinDownload;
+        UIElement editorPage;
+        UIElement downloadPage;
+        bool downloadMode;
+        internal bool DownloadMode => downloadMode;
         bool uploading;
         readonly Image texture = new Image();
         readonly Image front = new Image();
@@ -153,10 +159,14 @@ namespace BlockCraftLauncher.Wpf
 
         public SkinStudioView(
             Func<byte[], bool, System.Threading.Tasks.Task> uploadToMicrosoft = null,
-            Func<string> accountName = null)
+            Func<string> accountName = null,
+            Action openEditor = null,
+            Action<OnlineSkinEntry> queueSkinDownload = null)
         {
             this.uploadToMicrosoft = uploadToMicrosoft;
             this.accountName = accountName;
+            this.openEditor = openEditor;
+            this.queueSkinDownload = queueSkinDownload;
             document.Changed += () =>
             {
                 RefreshImages();
@@ -177,8 +187,11 @@ namespace BlockCraftLauncher.Wpf
             SetColor(selected);
             Loaded += (sender, args) =>
             {
-                Keyboard.Focus(paintingSurface);
-                OfferRecoveryOnce();
+                if (!downloadMode)
+                {
+                    Keyboard.Focus(paintingSurface);
+                    OfferRecoveryOnce();
+                }
             };
             Unloaded += (sender, args) =>
             {
@@ -199,7 +212,9 @@ namespace BlockCraftLauncher.Wpf
                     ActionButton("保存到皮肤库", SaveToLibrary, true),
                     ActionButton("导出 PNG", ExportPng),
                     ActionButton("新建皮肤", ResetTemplate)))));
-            page.Children.Add(BuildOnlineSearch());
+            // Keep the online catalog out of the DIY editing page.
+            // Both navigation entries reuse this one instance so unsaved
+            // edits and the selected search result survive page switches.
 
             var columns = new Grid();
             columns.ColumnDefinitions.Add(new ColumnDefinition {
@@ -342,8 +357,35 @@ namespace BlockCraftLauncher.Wpf
             Grid.SetColumn(rightPanel, 2);
             columns.Children.Add(rightPanel);
             page.Children.Add(columns);
-            Content = page;
+            editorPage = page;
+            downloadPage = BuildOnlineSearch();
+            downloadPage.Visibility = Visibility.Collapsed;
+            var sections = new Grid();
+            sections.Children.Add(editorPage);
+            sections.Children.Add(downloadPage);
+            Content = sections;
             ResizeEditor();
+        }
+
+        internal void ShowDownloadPage(bool downloads)
+        {
+            downloadMode = downloads;
+            if (editorPage != null)
+                editorPage.Visibility = downloads ? Visibility.Collapsed : Visibility.Visible;
+            if (downloadPage != null)
+                downloadPage.Visibility = downloads ? Visibility.Visible : Visibility.Collapsed;
+            if (downloads)
+            {
+                // Leave the unsaved DIY document intact; prevent CTRL+S
+                // while a search TextBox or download result is focused.
+                draftTimer.Stop();
+                SaveRecoveryDraft();
+            }
+            else
+            {
+                RefreshLibrary();
+                OfferRecoveryOnce();
+            }
         }
 
 
@@ -740,6 +782,13 @@ namespace BlockCraftLauncher.Wpf
             var item = selectedOnlineSkin;
             var png = selectedOnlinePng;
             if (item == null || png == null || !item.CanDownload) return;
+            if (queueSkinDownload != null)
+            {
+                queueSkinDownload(item);
+                onlineStatus.Text = "已加入下载队列：「下载 → 下载任务」可查看进度、取消或重试。" +
+                    " 皮肤完成后会保存到本地皮肤库。";
+                return;
+            }
             onlineSaveButton.IsEnabled = false;
             try
             {
@@ -795,6 +844,7 @@ namespace BlockCraftLauncher.Wpf
                 onlineStatus.Text = "已导入 DIY 编辑器。请点击“保存到皮肤库”或“导出 PNG”留存。";
                 info.Text = "已载入在线皮肤：" + item.Name +
                     "\n来源：" + item.Attribution;
+                openEditor?.Invoke();
             }
             catch (Exception ex)
             {
@@ -1371,7 +1421,7 @@ namespace BlockCraftLauncher.Wpf
 
         void OnShortcut(object sender, KeyEventArgs e)
         {
-            if ((Keyboard.Modifiers & ModifierKeys.Control) == 0 ||
+            if (downloadMode || (Keyboard.Modifiers & ModifierKeys.Control) == 0 ||
                 e.OriginalSource is TextBox) return;
             if (e.Key == Key.Z) { document.Undo(); e.Handled = true; }
             else if (e.Key == Key.Y) { document.Redo(); e.Handled = true; }
