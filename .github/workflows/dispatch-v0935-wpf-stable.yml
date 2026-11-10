@@ -1,0 +1,52 @@
+name: Dispatch the reviewed v0.9.35 stable release
+
+on:
+  push:
+    branches:
+      - release/v0.9.35-stable-dispatch
+    paths:
+      - .github/workflows/dispatch-v0935-wpf-stable.yml
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: dispatch-v0935-wpf-stable
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: github.repository == 'minecraftlu/BlockCraftLauncher'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REVIEWED_MAIN: 6a99dd2c86119f97845002b682f59ba78c9e9a08
+    steps:
+      - name: Dispatch the main branch release approved by the project owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          main_head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          test "$main_head" = "$REVIEWED_MAIN"
+          workflow="repos/$GITHUB_REPOSITORY/actions/workflows/wpf-net48-controlled-release.yml"
+          registered=false
+          for attempt in 1 2 3 4 5 6; do
+            if gh api "$workflow" --silent; then
+              registered=true
+              break
+            fi
+            sleep 5
+          done
+          test "$registered" = true
+          existing=$(gh api "$workflow/runs?head_sha=$REVIEWED_MAIN&event=workflow_dispatch" \
+            --jq '.workflow_runs[0].html_url // ""')
+          if [[ -n "$existing" ]]; then
+            printf 'Existing controlled release run %s\n' "$existing"
+            exit 0
+          fi
+          # The owner confirmed normal operation of RC1 and requested stable publication.
+          gh api "$workflow/dispatches" --method POST --input - <<'JSON'
+          {"ref":"main","inputs":{"release_tag":"v0.9.35","channel":"stable","real_device_acceptance":"true"}}
+          JSON
