@@ -1,31 +1,31 @@
-# BlockCraft Launcher v0.9.36 WPF RC2 · Licensed Skin Catalog and Mod-style Downloads
+# BlockCraft Launcher v0.9.36 WPF RC3 · Separate Skin Download Center
 
-- Candidate tag: `v0.9.36-wpf-rc.2`
-- Channel: **GitHub prerelease / preview**, never stable
-- Source branch: `feature/skin-catalog-beta-v0.9.36-rc2`
-- Target Windows: 10/11 x64 · C# WPF · .NET Framework 4.8
-- Distributions: standalone OneFile EXE + complete Alpha ZIP with updater
-- Release request date: 2026-11-10
+- Candidate tag: `v0.9.36-wpf-rc.3`
+- Channel: **GitHub prerelease / preview only**
+- Branch: `feature/skin-download-category-v0.9.36-rc3`
+- Target: Windows 10/11 x64 · WPF .NET Framework 4.8
+- Assets: standalone OneFile EXE and Alpha ZIP containing standalone updater
+- Request date: 2026-11-10
 
-## Highlights
+## Changes
 
-- Search/browse Mosaicary's freely licensed public skin library with category, model, sort, source, author and CC license filters; only fetch thumbnails for a limited visible page.
-- Include DP-Plugins community skin discovery and separate Mojang player skin search; a public player texture does NOT imply an open license.
-- Redesign result lists like the Modrinth/CurseForge download center: thumbnail + name, author, model, permission, downloads; right side preview/details; download PNG to existing library or use in skin DIY.
-- Save original source / license attribution in adjacent .png.source.txt. Reject oversized / malformed PNGs, untrusted redirect and not-licensed community downloads.
-- Preserve Minecraft account login, optional confirmed official skin upload, DIY tools, game/mod downloads, mod icons, saves, update rollback and direct-open behavior.
+- Skin search, paginated catalogs, downloads and author/license detail cards now live under **Download → Community Resources → Skin** beside mods, resource packs, shaders and modpacks.
+- **More → Tools → Skin DIY** remains an independent screen for painting, saved-skin library, importing/exporting PNG and explicit Microsoft Java skin upload.
+- Both screens share the same editor/document instance and cross-link, so unsaved edits survive navigation.
+- Saving an online skin now queues a job in the same **Download Tasks** manager as mods and games, with progress, cancellation, manual retry, bounded PNG, atomic non-overwriting save and source/attribution sidecar.
+- The supported catalogs are Mosaicary published/open-license skins (paged), DP-Plugins public skins (up to 200 in the provider listing), opt-in public found skins as preview only when no reuse license exists, and direct Mojang player lookup. Never claim to have downloaded every skin on the internet or bypass rights or source quotas.
+- Preserve original resource downloads, existing game profiles, the skin editor, Microsoft sign-in, updater rollback and all other stable behavior.
 
-## CI gates and acceptance
+## Build gates
 
-- [x] GitHub Windows WPF CI successfully compiled and ran full offline regression suite: https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42815074281
-- [x] All skin license and Mosaicary parser offline selftests, source validation and UI layout checks passed.
-- [x] Update tag is v0.9.36-wpf-rc.2 and the updater's preview channel selects newer RCs.
-- [ ] Controlled prerelease workflow itself must clean-compile WPF/OneFile, validate all offline selftests, real WPF window reopen behavior, SHA-256 generation, and publish only if every gate passes.
-- [ ] Manual network testing on mainland China and overseas networks: catalog pages, downloads, attribution, preview, Mojang/DP-Plugins availability, optional Microsoft skin upload.
+- [x] Verified Windows WPF and OneFile build, all offline UI navigation and skin-safety checks, task management, full regression tests, standalone updater rollback and relaunch: https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42818357176
+- [ ] The controlled prerelease workflow must independently build, run both EXE selftest suites, verify actual WPF window reopen, generate SHA-256, and publish **only after success**.
+- [ ] Actual Mosaicary and DP-Plugins connectivity, source licenses, user downloads and real Minecraft account upload must be tested by beta users on their own computers.
 
-## Strict release policy
+## Release policy
 
-Publish **only** GitHub prerelease v0.9.36-wpf-rc.2, with prerelease=true, latest=false. Do not change or replace v0.9.35 stable or rc1 preview tags. Existing v0.9.35 or RC1 users must intentionally select the Preview update channel to update. This build is NOT SignPath-signed because foundation approval is still pending. Do not pretend that it removes SmartScreen warnings.
+Publish `v0.9.36-wpf-rc.3` as GitHub prerelease=true and latest=false. Keep v0.9.35 stable and prior RC1/RC2 releases unchanged. Existing preview users may update RC1/RC2 to RC3 via Settings > Update Settings > Preview. Stable users must explicitly opt in to preview updates.
 
-Full notes: wpf-net48/docs/V0936_SKIN_CATALOG_RC2.md.
-External catalogs cannot guarantee containing every freely licensed skin on the internet; 'openly visible' is not identical to an open content license.
+Current Windows executables are **not SignPath-signed** (Foundation approval pending), and Windows SmartScreen may still warn.
+
+Read the feature and license notes: wpf-net48/docs/V0936_SKIN_NAVIGATION_RC3.md.
