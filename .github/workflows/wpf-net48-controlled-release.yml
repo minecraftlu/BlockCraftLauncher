@@ -5,7 +5,7 @@ on:
   # Stable requires an explicit dispatch on reviewed main.
   push:
     branches:
-      - feature/skin-catalog-beta-v0.9.36-rc2
+      - feature/skin-download-category-v0.9.36-rc3
     paths:
       - wpf-net48/RELEASE_CANDIDATE_REQUEST.md
   workflow_dispatch:
@@ -13,7 +13,7 @@ on:
       release_tag:
         description: 'Tag matching the checked-out build'
         required: true
-        default: 'v0.9.36-wpf-rc.2'
+        default: 'v0.9.36-wpf-rc.3'
         type: string
       channel:
         description: 'Candidate for testing; stable only after real Windows acceptance'
@@ -39,7 +39,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      RELEASE_TAG: ${{ github.event_name == 'push' && 'v0.9.36-wpf-rc.2' || inputs.release_tag }}
+      RELEASE_TAG: ${{ github.event_name == 'push' && 'v0.9.36-wpf-rc.3' || inputs.release_tag }}
       RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'candidate' || inputs.channel }}
       REAL_DEVICE_ACCEPTANCE: ${{ inputs.real_device_acceptance }}
     steps:
@@ -51,7 +51,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           if ($env:RELEASE_CHANNEL -eq 'candidate') {
             if ('${{ github.event_name }}' -eq 'push' -and
-                '${{ github.ref }}' -ne 'refs/heads/feature/skin-catalog-beta-v0.9.36-rc2') {
+                '${{ github.ref }}' -ne 'refs/heads/feature/skin-download-category-v0.9.36-rc3') {
               throw 'Automatic candidate publishing only runs on the WPF development branch'
             }
             if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+-wpf-rc\.\d+$') {
@@ -171,6 +171,9 @@ jobs:
           - 支持国内镜像和海外官方线路，提供 Microsoft 正版登录、实例管理及皮肤编辑。
           - 本次预览版新增在线皮肤搜索、预览、PNG 下载、保存到本地皮肤库和继续 DIY 编辑（Mojang 玩家名 / UUID 与第三方社区关键词搜索）。
           - 本次 RC2 新增开放许可皮肤图库（Mosaicary）、多来源筛选、缩略图图文列表、分类/模型/排序/分页及作者许可证说明。
+          - RC3 将皮肤下载放入「下载 → 社区资源 → 皮肤」与模组并列；皮肤 DIY 独立位于「更多 → 工具 → 皮肤 DIY」。
+          - 皮肤下载已接入统一下载队列，可查看进度、取消及重试；下载完成后自动存入皮肤库并保留许可署名信息。
+          - 公开皮肤图库支持翻页遍历现有合法来源，不会绕过网站限制、批量抓取或将未知许可作品标为开源。
           - 类似模组中心的搜索结果卡片与详情区；明确自由授权的皮肤允许下载，其他社区内容仅提供预览和来源。
           - 第三方在线搜索受服务可用性与网络影响，遇到网络失败时可继续离线编辑；请尊重作者许可。
           - 此版本是测试版，尚未完成真实账号上传和中国内地不同网络环境的全面验收。
