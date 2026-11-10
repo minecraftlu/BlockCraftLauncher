@@ -407,7 +407,7 @@ namespace BlockCraftLauncher.Wpf
             onlineSource.ItemsSource = new[] {
                 "自由授权图库（Mosaicary）", "全部图库（多来源）",
                 "社区图库（DP-Plugins）",
-                "全部公开皮肤（未授权仅预览）", "玩家皮肤（Mojang）" };
+                "全部公开皮肤（授权未知需确认）", "玩家皮肤（Mojang）" };
             onlineSource.SelectedIndex = 1; // all supported galleries, by default
             onlineSource.Width = 186;
             StyleSearch(onlineSource);
@@ -431,7 +431,7 @@ namespace BlockCraftLauncher.Wpf
             StyleSearch(onlineSort);
             onlineOpenOnly.Content = "仅显示开放许可（CC0 / CC BY / CC BY-SA 等）";
             onlineOpenOnly.IsChecked = true;
-            onlineOpenOnly.ToolTip = "勾选后隐藏未声明授权、保留所有权和限制商业使用的作品";
+            onlineOpenOnly.ToolTip = "勾选后只显示明确自由许可的作品；取消勾选可以查看其他公开皮肤，下载时会提示版权与使用限制";
             onlineSource.SelectionChanged += (sender, args) => UpdateOnlineFilters();
             onlineQuery.KeyDown += async (sender, e) =>
             {
@@ -768,9 +768,11 @@ namespace BlockCraftLauncher.Wpf
                 selectedOnlineSkin = item;
                 selectedOnlinePng = png;
                 onlineSaveButton.IsEnabled = onlineEditButton.IsEnabled = item.CanDownload;
-                onlineStatus.Text = item.CanDownload ?
-                    "预览成功。可保存到皮肤库或导入 DIY，下载会保留来源与授权说明。" :
-                    "该皮肤未声明开放授权或许可受限，仅展示预览与来源，不提供直接下载。";
+                onlineStatus.Text = item.RequiresLicenseNotice ?
+                    "预览成功。该作品不属于已确认的自由许可；可单张手动下载，但需确认使用限制，不得擅自再分发或商用。" :
+                    item.CanDownload ?
+                    "预览成功。可保存到皮肤库或导入 DIY，并保留作者来源与许可证。" :
+                    "该来源没有公开的 PNG 下载地址，请查看原始页面。";
             }
             catch (OperationCanceledException) { }
             catch (Exception ex)
@@ -791,11 +793,31 @@ namespace BlockCraftLauncher.Wpf
                 DateTime.Now.ToString("MMdd-HHmmss", CultureInfo.InvariantCulture);
         }
 
+        bool ConfirmUnlicensedSkin(OnlineSkinEntry item, string action)
+        {
+            if (item == null || !item.RequiresLicenseNotice) return true;
+            var license = string.IsNullOrWhiteSpace(item.License) ?
+                "未声明 / 未经核实" : item.License;
+            return MessageBox.Show(Window.GetWindow(this),
+                "皮肤：" + item.Name +
+                "\n来源：" + item.Source +
+                "\n作者：" + (string.IsNullOrWhiteSpace(item.Author) ?
+                    "未知" : item.Author) +
+                "\n许可证：" + license +
+                "\n\n此公开 PNG 未确认获得自由使用、修改、上传或再分发授权。" +
+                "下载不代表取得著作权许可。请遵守原作者及图库条款，" +
+                "不要用于未经许可的商业、再分发或冒充原作者的用途。" +
+                "\n\n仍要" + action + "这张皮肤吗？",
+                "公开皮肤的授权提示",
+                MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes;
+        }
+
         async Task SaveOnlineSkinAsync()
         {
             var item = selectedOnlineSkin;
             var png = selectedOnlinePng;
-            if (item == null || png == null || !item.CanDownload) return;
+            if (item == null || png == null || !item.CanDownload ||
+                !ConfirmUnlicensedSkin(item, "下载")) return;
             if (queueSkinDownload != null)
             {
                 queueSkinDownload(item);
@@ -838,7 +860,8 @@ namespace BlockCraftLauncher.Wpf
         {
             var item = selectedOnlineSkin;
             var png = selectedOnlinePng;
-            if (item == null || png == null || !item.CanDownload || !ConfirmDiscard()) return;
+            if (item == null || png == null || !item.CanDownload ||
+                !ConfirmUnlicensedSkin(item, "下载并编辑") || !ConfirmDiscard()) return;
             onlineEditButton.IsEnabled = false;
             string temporary = null;
             try
