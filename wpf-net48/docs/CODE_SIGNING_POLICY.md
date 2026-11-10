@@ -1,6 +1,6 @@
 # Code signing policy — BlockCraft Launcher (Windows WPF)
 
-> **Status (2026-11-10): NOT SIGNED. SignPath Foundation approval has not been obtained.** This document describes the proposed process only. No release is claimed to carry a SignPath signature until a signed release is built and verified.
+> **Status (2026-11-10): APPLICATION SUBMITTED, NOT SIGNED. SignPath Foundation approval has not been obtained.** This document describes the proposed process only. No release is claimed to carry a SignPath signature until a signed release is built and verified.
 
 **Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).** This attribution is a description of the intended program, not a claim of current participation.
 
@@ -62,7 +62,11 @@ The version in the example is for illustrating command syntax; **v0.9.35 is not 
 - [ ] Confirm license and redistribution permissions for all distributed components and document any excluded components.
 - [ ] Verify the privacy statement and external dependencies against current source and binary output.
 - [ ] Confirm GitHub multi-factor authentication and secure contributor/reviewer permissions.
-- [ ] Submit the application personally as the project's GitHub maintainer at https://signpath.org/apply.
+- [x] Application form was submitted by the maintainer on 2026-11-10 (submission confirmation shown; approval not yet received).
 - [ ] Obtain SignPath Foundation acceptance; acceptance is discretionary and depends on public project reputation.
 - [ ] Configure the SignPath GitHub app, SignPath organization/project/signing-policy details and the API token in repository secrets.
-- [ ] Integrate official signing action into the release workflow, preserve its tests, verify signed artifacts, and update release notes.
+- [x] Prepare an **inactive until approved** manual OneFile signing test workflow on a review branch (not the live release workflow).
+- [ ] After approval, review and merge the signing test workflow, configure SignPath and complete an approved manual signing test.
+- [ ] Integrate verified signing into the live release workflow, preserve its tests, verify signed artifacts, regenerate hashes **after** signing, and update release notes.
+
+See [SignPath GitHub Actions setup](SIGNPATH_GITHUB_ACTIONS_SETUP.md) for the required GitHub Variables, secret and safeguards.
