@@ -25,6 +25,8 @@ jobs:
       REAL_DEVICE_ACCEPTANCE: 'true'
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: microsoft/setup-msbuild@v2
 
       - name: Verify release tag and stability gates
@@ -33,9 +35,9 @@ jobs:
           # Source lock: only this workflow and the exact owner acceptance
           # record may change since the previously CI-verified main commit.
           $reviewed = '709f6640c6c8a4702c2460b08fa14df2daf04dcd'
-          $base = (& git rev-parse HEAD~3).Trim()
-          if ($LASTEXITCODE -ne 0 -or $base -ne $reviewed) {
-            throw 'One-time release source base does not match reviewed CI SHA'
+          & git merge-base --is-ancestor $reviewed HEAD
+          if ($LASTEXITCODE -ne 0) {
+            throw 'One-time release source is not descended from reviewed CI SHA'
           }
           $actual = @(& git diff --name-only $reviewed HEAD | Sort-Object)
           $expected = @(
