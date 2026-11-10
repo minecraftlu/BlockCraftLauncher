@@ -78,6 +78,17 @@ namespace BlockCraftLauncher.Wpf
         ListBox localResourceList, serverList, lanWorldList;
         CancellationTokenSource localModIconLoad;
         TextBox serverName, serverAddress;
+        TextBox serverFinderQuery, serverFinderVersion;
+        ComboBox serverFinderProvider, serverFinderSort;
+        CheckBox serverFinderOnlineOnly;
+        ListBox serverFinderResults;
+        TextBlock serverFinderStatus, serverFinderDetails;
+        Button serverFinderSearchButton, serverFinderPrevButton, serverFinderNextButton;
+        Button serverFinderFavoriteButton, serverFinderJoinButton, serverFinderCopyButton;
+        Button serverFinderSourceButton;
+        CancellationTokenSource serverFinderCancellation;
+        int serverFinderPage = 1, serverFinderPages = 1;
+        bool serverFinderSearching;
         TextBox packSearchQuery;
         ComboBox packVersionFilter, packSortMode;
         ListBox packSearchResults;
@@ -311,7 +322,8 @@ namespace BlockCraftLauncher.Wpf
                 case "皮肤 DIY": return "皮肤 DIY";
                 case "皮肤下载": return "皮肤";
                 case "设置": return "启动设置";
-                case "多人联机": return "服务器";
+                case "多人联机": return "服务器收藏";
+                case "查找服务器": return "查找服务器";
                 default: return page;
             }
         }
@@ -335,6 +347,7 @@ namespace BlockCraftLauncher.Wpf
                 case "皮肤 DIY": return "\uE70F";
                 case "皮肤下载": return "\uE8B7";
                 case "多人联机":
+                case "查找服务器":
                 case "局域网": return "\uE902";
                 case "启动器更新":
                 case "更新设置": return "\uE777";
@@ -366,6 +379,7 @@ namespace BlockCraftLauncher.Wpf
                 case "CurseForge":
                     return NavigationSection.Download;
                 case "多人联机":
+                case "查找服务器":
                 case "局域网":
                     return NavigationSection.Multiplayer;
                 case "设置":
@@ -398,7 +412,7 @@ namespace BlockCraftLauncher.Wpf
                     AddNavSection("任务", "下载管理");
                     break;
                 case NavigationSection.Multiplayer:
-                    AddNavSection("Minecraft Java", "多人联机", "局域网");
+                    AddNavSection("Minecraft Java", "多人联机", "查找服务器", "局域网");
                     break;
                 case NavigationSection.Settings:
                     AddNavSection("启动器设置", "设置", "下载设置", "个性化", "更新设置");
@@ -519,6 +533,8 @@ namespace BlockCraftLauncher.Wpf
             cfSearchCancellation = null;
             packSearchCancellation?.Cancel();
             packSearchCancellation = null;
+            serverFinderCancellation?.Cancel();
+            serverFinderCancellation = null;
             ClearDetails();
             detailTrigger = null;
             currentPage = page;
@@ -561,6 +577,7 @@ namespace BlockCraftLauncher.Wpf
                     break;
                 case "模组更新": PageHost.Content = BuildModUpdates(); break;
                 case "多人联机": PageHost.Content = BuildMultiplayer(); break;
+                case "查找服务器": PageHost.Content = BuildServerFinder(); break;
                 case "局域网": PageHost.Content = BuildLanWorlds(); break;
                 case "启动器更新": PageHost.Content = BuildLauncherUpdates(); break;
                 case "设置":
@@ -1181,8 +1198,19 @@ namespace BlockCraftLauncher.Wpf
                 throw new InvalidOperationException("下载任务搜索、筛选或进度布局不完整");
 
             Navigate("多人联机");
-            if (serverList?.ItemTemplate == null || sidebarButtons.Count != 2)
+            if (serverList?.ItemTemplate == null || sidebarButtons.Count != 3 ||
+                !sidebarButtons.ContainsKey("查找服务器"))
                 throw new InvalidOperationException("服务器列表或联机导航缺失");
+            Navigate("查找服务器");
+            if (serverFinderResults?.ItemTemplate == null ||
+                serverFinderSourceButton == null || serverFinderSearchButton == null ||
+                serverFinderQuery == null || serverFinderProvider == null ||
+                serverFinderVersion == null || serverFinderSort == null ||
+                serverFinderOnlineOnly == null || serverFinderPrevButton == null ||
+                serverFinderNextButton == null ||
+                !sidebarButtons.ContainsKey("多人联机") ||
+                !sidebarButtons.ContainsKey("局域网"))
+                throw new InvalidOperationException("服务器查找搜索、筛选、分页或入口缺失");
             Navigate("局域网");
             if (lanWorldList?.ItemTemplate == null)
                 throw new InvalidOperationException("局域网列表缺少行布局模板");
@@ -2388,6 +2416,7 @@ namespace BlockCraftLauncher.Wpf
             var form = Card(Col(Txt("服务器信息", 16, true),
                 SearchFields(("名称", serverName), ("地址", serverAddress)),
                 Row(Btn("加入服务器", async () => await JoinServerAsync(), true),
+                    Btn("查找服务器", () => Navigate("查找服务器")),
                     Btn("保存收藏", SaveServer),
                     Btn("检测连接", async () => await CheckServerAsync()),
                     Btn("启动当前版本", async () => await LaunchAsync()))));
