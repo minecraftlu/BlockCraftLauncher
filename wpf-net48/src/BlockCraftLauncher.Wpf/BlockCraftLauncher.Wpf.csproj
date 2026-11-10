@@ -17,6 +17,9 @@
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <Version>0.9.35.0</Version>
     <FileVersion>0.9.35.0</FileVersion>
+    <Product>BlockCraft Launcher</Product>
+    <Authors>晓银</Authors>
+    <Description>Open-source Minecraft Java Edition launcher for Windows</Description>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="CmlLib.Core" Version="4.1.0" />
