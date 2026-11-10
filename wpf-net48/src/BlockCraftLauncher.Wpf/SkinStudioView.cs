@@ -368,7 +368,7 @@ namespace BlockCraftLauncher.Wpf
             onlinePreview.Stretch = Stretch.Uniform;
             onlinePreview.HorizontalAlignment = HorizontalAlignment.Left;
             RenderOptions.SetBitmapScalingMode(onlinePreview, BitmapScalingMode.NearestNeighbor);
-            onlineAttribution.MaxWidth = 280;
+            onlineAttribution.MaxWidth = 190;
             onlineAttribution.TextWrapping = TextWrapping.Wrap;
             onlineAttribution.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
             onlineSaveButton = ActionButton("下载到皮肤库", async () =>
@@ -403,6 +403,8 @@ namespace BlockCraftLauncher.Wpf
             onlineAttribution.Text = "";
             searchingOnline = true;
             onlineSearchButton.IsEnabled = false;
+            onlineSource.IsEnabled = false;
+            onlineQuery.IsEnabled = false;
             onlineStatus.Text = "正在搜索在线皮肤...";
             try
             {
@@ -424,6 +426,8 @@ namespace BlockCraftLauncher.Wpf
             {
                 searchingOnline = false;
                 onlineSearchButton.IsEnabled = true;
+                onlineSource.IsEnabled = true;
+                onlineQuery.IsEnabled = true;
             }
         }
 
