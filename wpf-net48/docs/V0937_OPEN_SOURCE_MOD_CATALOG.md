@@ -17,7 +17,7 @@
 3. **GitHub 开源仓库 / Releases**（下一版新增）
    - 从 GitHub 官方公开仓库搜索 Minecraft 模组，**只显示可识别 SPDX 开源许可证**的项目。
    - 安装时再次确认仓库仍公开、未归档且仍有开源许可证。
-   - 只考虑当前 Minecraft 版本、对应加载器、官方 Release 下载地址以及 GitHub API SHA-256 摘要都匹配的 JAR。
+   - 查找至多 60 个近期 GitHub Release 中与当前 Minecraft 版本、加载器、官方 Release 下载地址以及 GitHub API SHA-256 摘要均匹配的 JAR。
    - 下载后检查 SHA-256、完整的 JAR 容器以及 Fabric / Forge / NeoForge / Quilt 模组声明，成功后才移动到实例的 mods 文件夹。
    - 不覆盖用户已有 JAR，不下载源码 ZIP、安装器、未核验的模组或未知第三方 CDN。
    - 无法唯一确定要安装的 JAR、版本或加载器时**拒绝自动安装**，建议查看项目原始说明。
