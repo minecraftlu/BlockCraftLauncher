@@ -29,6 +29,17 @@ namespace BlockCraftLauncher.Wpf.Services
             new ConcurrentDictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
         internal static readonly TimeSpan HeaderTimeout = TimeSpan.FromSeconds(10);
         internal static readonly TimeSpan TransferIdleTimeout = TimeSpan.FromSeconds(25);
+        internal static readonly TimeSpan AlternateRouteHeaderTimeout = TimeSpan.FromSeconds(6);
+
+        // When a known, explicitly allowed backup route exists, do not spend
+        // the full 10-second header timeout on an unreachable first endpoint.
+        // Never truncate the timeout for a single-source request, and preserve
+        // deliberately shorter test/user deadlines.
+        internal static TimeSpan FirstRouteHeaderTimeout(TimeSpan original, bool hasAlternative)
+        {
+            return hasAlternative && original > AlternateRouteHeaderTimeout
+                ? AlternateRouteHeaderTimeout : original;
+        }
         const int MaxMetadataBytes = 12 * 1024 * 1024;
         const long MaxFileBytes = 4L * 1024 * 1024 * 1024;
 
@@ -279,7 +290,8 @@ namespace BlockCraftLauncher.Wpf.Services
                     {
                         using (var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct))
                         {
-                            deadline.CancelAfter(requestTimeout);
+                            deadline.CancelAfter(FirstRouteHeaderTimeout(requestTimeout,
+                                routes.Count > 1 && string.Equals(url, routes[0], StringComparison.Ordinal)));
                             using (var request = new HttpRequestMessage(HttpMethod.Get, url))
                             using (var response = await http.SendAsync(request,
                                 HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false))
@@ -468,7 +480,7 @@ namespace BlockCraftLauncher.Wpf.Services
                         {
                             if (offset > 0) request.Headers.Range = new RangeHeaderValue(offset, null);
                             using (var response = await SendWithHeaderTimeoutAsync(http, request,
-                                requestTimeout, ct).ConfigureAwait(false))
+                                FirstRouteHeaderTimeout(requestTimeout, hasAlternative), ct).ConfigureAwait(false))
                             {
                                 if (offset > 0 && response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
                                 {
