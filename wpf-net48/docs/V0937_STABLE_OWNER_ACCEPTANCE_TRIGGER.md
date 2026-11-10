@@ -19,3 +19,5 @@ Publish v0.9.37 stable exactly once from main using the isolated full release ga
 Retry after blocked source-lock preflight: the first attempt used a shallow Git checkout and could not inspect the reviewed CI commit. The gate now checks a full history and still rejects any source file changes since the reviewed commit. No release was published by the failed attempt.
 
 Second blocked preflight found the owner acceptance record valid but CRLF-normalized by Windows; fixed normalization in the release gate. Both preflight failures occurred before any packaging or public release.
+
+Third preflight reached and passed Windows build, offline tests, upgrades and Sigstore signing. The final verifier required the canonical manual workflow identity; this one-time workflow now pins verification to its own exact certificate identity and GitHub attestation signer, preserving all checks before publication. No stable release was published by earlier attempts.
