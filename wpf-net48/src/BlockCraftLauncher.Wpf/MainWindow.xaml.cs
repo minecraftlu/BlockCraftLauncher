@@ -2445,11 +2445,24 @@ namespace BlockCraftLauncher.Wpf
             localModIconLoad = load;
             try
             {
-                foreach (var item in items)
+                // A large modpack may include hundreds of JARs. Extract at
+                // most four thumbnails in parallel while updating each card
+                // on the captured WPF Dispatcher as its icon becomes ready.
+                using (var slots = new SemaphoreSlim(4, 4))
                 {
-                    var icon = await Task.Run(() => LocalModIcon.Read(item.FullPath), load.Token);
-                    load.Token.ThrowIfCancellationRequested();
-                    item.Icon = icon;
+                    var workers = items.Select(async item =>
+                    {
+                        await slots.WaitAsync(load.Token);
+                        try
+                        {
+                            var icon = await Task.Run(
+                                () => LocalModIcon.Read(item.FullPath), load.Token);
+                            load.Token.ThrowIfCancellationRequested();
+                            item.Icon = icon;
+                        }
+                        finally { slots.Release(); }
+                    }).ToArray();
+                    await Task.WhenAll(workers);
                 }
             }
             catch (OperationCanceledException) when (load.IsCancellationRequested) { }
