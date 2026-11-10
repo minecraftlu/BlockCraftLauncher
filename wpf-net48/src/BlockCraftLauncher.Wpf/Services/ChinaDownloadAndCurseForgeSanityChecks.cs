@@ -49,9 +49,11 @@ namespace BlockCraftLauncher.Wpf.Services
                 "社区镜像拒绝陌生域名");
             Require(NetworkDownloader.RoutesForDownload(modrinth, "china", false).Count == 1,
                 "未主动启用 MCIM 不劫持 Modrinth 下载");
-            var optedIn = NetworkDownloader.RoutesForDownload(modrinth, "auto", true);
+            var optedIn = NetworkDownloader.RoutesForDownload(modrinth, "china", true);
             Require(optedIn.Count == 2 && optedIn[0] == mirrored && optedIn[1] == modrinth,
-                "明确启用 MCIM 时中国大陆社区 CDN 先行、官方回退");
+                "中国大陆模式且启用 MCIM 时镜像先行、官方回退");
+            Require(NetworkDownloader.RoutesForDownload(modrinth, "international", true)
+                .SequenceEqual(new[] { modrinth, mirrored }), "海外模式优先使用 Modrinth 官方源");
             Require(NetworkDownloader.RoutesForDownload(modrinth, "official", true).Count == 1,
                 "官方模式禁用社区重写");
 

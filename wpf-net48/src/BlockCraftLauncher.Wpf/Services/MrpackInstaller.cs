@@ -31,7 +31,6 @@ namespace BlockCraftLauncher.Wpf.Services
     {
         readonly LauncherConfig config;
         readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = 4 * 1024 * 1024 };
-        readonly ModLoaderInstaller unusedLoader;
         const long MaxArchive = 256L * 1024 * 1024;
         const long MaxExtracted = 1024L * 1024 * 1024;
         const long MaxDownload = 4L * 1024 * 1024 * 1024;
@@ -76,7 +75,8 @@ namespace BlockCraftLauncher.Wpf.Services
 
         sealed class RemoteFile
         {
-            public string Path, Sha1, Sha512, Url;
+            public string Path, Sha1, Sha512;
+            public string[] Urls;
             public long Size;
         }
         sealed class Parsed
@@ -144,9 +144,11 @@ namespace BlockCraftLauncher.Wpf.Services
                     throw new InvalidDataException("整合包下载大小超出限制");
                 if (!(row.TryGetValue("downloads", out var list) && list is object[] urls))
                     throw new InvalidDataException("资源没有下载地址");
-                string url = urls.Select(Convert.ToString).FirstOrDefault(PermittedHost);
-                if (url == null) throw new InvalidDataException("资源没有允许的官方/可信下载地址");
-                parsed.Files.Add(new RemoteFile { Path = relative, Sha1 = sha1, Sha512 = sha512, Size = size, Url = url });
+                string[] sources = urls.Select(Convert.ToString).Where(PermittedHost)
+                    .Distinct(StringComparer.Ordinal).Take(4).ToArray();
+                if (sources.Length == 0) throw new InvalidDataException("资源没有允许的官方/可信下载地址");
+                parsed.Files.Add(new RemoteFile
+                    { Path = relative, Sha1 = sha1, Sha512 = sha512, Size = size, Urls = sources });
             }
             parsed.Info.FileCount = parsed.Files.Count;
             parsed.Info.DownloadBytes = totalDownload;
@@ -157,6 +159,22 @@ namespace BlockCraftLauncher.Wpf.Services
         {
             if (new FileInfo(archivePath).Length > MaxArchive) throw new InvalidDataException("整合包压缩文件过大");
             using (var archive = ZipFile.OpenRead(archivePath)) return Inspect(archive).Info;
+        }
+
+        static async Task DownloadPackFileAsync(NetworkDownloader network, RemoteFile file,
+            string destination, CancellationToken ct)
+        {
+            IOException last = null;
+            foreach (var source in file.Urls)
+            {
+                try
+                {
+                    await network.DownloadVerifiedAsync(source, destination, file.Sha1, ct);
+                    return;
+                }
+                catch (IOException ex) when (!ct.IsCancellationRequested) { last = ex; }
+            }
+            throw new IOException("整合包文件下载失败：" + file.Path + "。" + last?.Message, last);
         }
 
         public async Task<GameProfile> InstallAsync(string archivePath, IProgress<string> progress, CancellationToken ct)
@@ -170,7 +188,12 @@ namespace BlockCraftLauncher.Wpf.Services
             try
             {
                 // Install the game + exact loader version in this *new* instance root.
-                var isolated = new LauncherConfig { Root = instance, Proxy = config.Proxy, DownloadRetries = config.DownloadRetries };
+                var isolated = new LauncherConfig
+                {
+                    Root = instance, JavaPath = config.JavaPath, Proxy = config.Proxy,
+                    NetworkMode = config.NetworkMode, McimEnabled = config.McimEnabled,
+                    DownloadThreads = config.DownloadThreads, DownloadRetries = config.DownloadRetries
+                };
                 var loader = new ModLoaderInstaller(isolated);
                 progress?.Report("准备安装 Minecraft " + info.Minecraft + " 和 " + info.Loader + " " + info.LoaderVersion);
                 var game = await loader.InstallAsync(info.Minecraft, info.Loader, info.LoaderVersion, progress, ct);
@@ -182,7 +205,7 @@ namespace BlockCraftLauncher.Wpf.Services
                         var row = parsed.Files[i]; var path = UnderRoot(instance, row.Path);
                         if (File.Exists(path)) throw new IOException("目标文件发生冲突：" + row.Path);
                         progress?.Report("下载整合包文件 " + (i + 1) + "/" + parsed.Files.Count + ": " + row.Path);
-                        await network.DownloadVerifiedAsync(row.Url, path, row.Sha1, ct);
+                        await DownloadPackFileAsync(network, row, path, ct);
                         if (new FileInfo(path).Length != row.Size) throw new InvalidDataException("文件大小与索引不一致：" + row.Path);
                         using (var stream = File.OpenRead(path))
                         using (var sha = SHA512.Create())

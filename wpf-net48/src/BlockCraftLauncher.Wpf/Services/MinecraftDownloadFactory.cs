@@ -8,6 +8,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using CmlLib.Core;
 using CmlLib.Core.Installers;
+using CmlLib.Core.Files;
+using CmlLib.Core.VersionLoader;
 using BlockCraftLauncher.Wpf.Models;
 
 namespace BlockCraftLauncher.Wpf.Services
@@ -21,32 +23,95 @@ namespace BlockCraftLauncher.Wpf.Services
     {
         internal static readonly TimeSpan GameDownloadTimeout = TimeSpan.FromMinutes(15);
 
-        public static MinecraftLauncher Create(MinecraftPath path, LauncherConfig settings)
+        public static Session Create(MinecraftPath path, LauncherConfig settings,
+            CancellationToken token = default)
         {
-            var handler = new MinecraftRouteHandler(settings)
+            var handler = new MinecraftRouteHandler(settings, token)
             {
-                InnerHandler = new HttpClientHandler
-                {
-                    AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
-                    MaxConnectionsPerServer = Math.Max(2, Math.Min(32, settings.DownloadThreads)),
-                    Proxy = string.IsNullOrWhiteSpace(settings.Proxy) ? null : new WebProxy(settings.Proxy),
-                    UseProxy = !string.IsNullOrWhiteSpace(settings.Proxy)
-                }
+                InnerHandler = NetworkDownloader.CreateHttpHandler(settings)
             };
-            // Large game jars/assets may legitimately take several minutes on a slow
-            // link. Cancellation stays controlled by the install operation.
             var http = new HttpClient(handler) { Timeout = GameDownloadTimeout };
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher-WPF/0.9.33");
-            var p = MinecraftLauncherParameters.CreateDefault(path, http);
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher-WPF/0.9.34");
+            var files = new NetworkDownloader(settings);
+            var parameters = MinecraftLauncherParameters.CreateDefault(path, http);
             int parallel = Math.Max(2, Math.Min(32, settings.DownloadThreads));
-            p.GameInstaller = new ParallelGameInstaller(
-                maxChecker: 4, maxDownloader: parallel, boundedCapacity: 2048, http);
-            return new MinecraftLauncher(p);
+            parameters.GameInstaller = new VerifiedGameInstaller(parallel, http, files);
+            return new Session(new MinecraftLauncher(parameters), http, files);
+        }
+
+        public static MinecraftLauncher CreateLocal(MinecraftPath path)
+        {
+            var parameters = MinecraftLauncherParameters.CreateDefault(path);
+            parameters.VersionLoader = new LocalJsonVersionLoader(path);
+            return new MinecraftLauncher(parameters);
+        }
+
+        internal sealed class Session : IDisposable
+        {
+            public MinecraftLauncher Launcher { get; }
+            public HttpClient Http { get; }
+            readonly NetworkDownloader files;
+
+            public Session(MinecraftLauncher launcher, HttpClient http, NetworkDownloader files)
+            {
+                Launcher = launcher;
+                Http = http;
+                this.files = files;
+            }
+
+            public void Dispose()
+            {
+                files.Dispose();
+                Http.Dispose();
+            }
+        }
+
+        sealed class VerifiedGameInstaller : ParallelGameInstaller
+        {
+            readonly NetworkDownloader files;
+
+            public VerifiedGameInstaller(int parallel, HttpClient http, NetworkDownloader files)
+                // CmlLib retains the file set for deduplication. Let its producer
+                // finish enqueueing even when a worker faults mid-install.
+                : base(maxChecker: 4, maxDownloader: parallel, boundedCapacity: int.MaxValue, http)
+            {
+                this.files = files;
+            }
+
+            protected override Task Download(GameFile file, IProgress<ByteProgress> progress,
+                CancellationToken cancellationToken)
+            {
+                if (!NetworkDownloader.ValidSha1(file.Hash) ||
+                    !Uri.TryCreate(file.Url, UriKind.Absolute, out var uri) ||
+                    uri.Scheme != Uri.UriSchemeHttps || !uri.IsDefaultPort || uri.UserInfo.Length != 0)
+                    return base.Download(file, progress, cancellationToken);
+
+                IProgress<DownloadBytes> transfer = progress == null ? null :
+                    new GameProgress(progress, file.Size);
+                return files.DownloadVerifiedDetailedAsync(file.Url, file.Path, file.Hash,
+                    cancellationToken, transfer);
+            }
+        }
+
+        sealed class GameProgress : IProgress<DownloadBytes>
+        {
+            readonly IProgress<ByteProgress> progress;
+            readonly long expected;
+            public GameProgress(IProgress<ByteProgress> progress, long expected)
+            {
+                this.progress = progress;
+                this.expected = expected;
+            }
+
+            public void Report(DownloadBytes value) =>
+                progress.Report(new ByteProgress(value.Total > 0 ? value.Total : expected, value.Completed));
         }
 
         internal sealed class MinecraftRouteHandler : DelegatingHandler
         {
-            readonly LauncherConfig settings;
+            readonly string mode, proxy;
+            readonly CancellationToken operationToken;
+            readonly TimeSpan headerTimeout;
             static readonly ConcurrentDictionary<string, Preference> History =
                 new ConcurrentDictionary<string, Preference>(StringComparer.OrdinalIgnoreCase);
             // A large asset batch must not launch 12–32 duplicate latency
@@ -60,7 +125,16 @@ namespace BlockCraftLauncher.Wpf.Services
                 public bool PreferMirror { get; set; }
             }
 
-            public MinecraftRouteHandler(LauncherConfig settings) { this.settings = settings; }
+            public MinecraftRouteHandler(LauncherConfig settings, CancellationToken operationToken = default,
+                TimeSpan? headerTimeout = null)
+            {
+                mode = NetworkDownloader.NormalizeMode(settings.NetworkMode);
+                proxy = settings.Proxy ?? "";
+                this.operationToken = operationToken;
+                this.headerTimeout = headerTimeout ?? NetworkDownloader.HeaderTimeout;
+            }
+
+            string CacheKey(string url) => proxy + "|" + new Uri(url).Host;
 
             // Requests may contain Range/If-Range or an Authorization header.
             // On a different host we forward ONLY public download headers:
@@ -117,7 +191,7 @@ namespace BlockCraftLauncher.Wpf.Services
 
             async Task<bool> PreferMirrorAsync(string official, string mirror, CancellationToken ct)
             {
-                string host = new Uri(official).Host;
+                string host = CacheKey(official);
                 if (History.TryGetValue(host, out var cached) && cached.Expires > DateTime.UtcNow)
                     return cached.PreferMirror;
                 var gate = ProbeLocks.GetOrAdd(host, _ => new SemaphoreSlim(1, 1));
@@ -149,7 +223,7 @@ namespace BlockCraftLauncher.Wpf.Services
             {
                 // Only server failures and connection timeouts affect host
                 // health; missing snapshots (404) are resource-specific.
-                History[new Uri(official).Host] = new Preference
+                History[CacheKey(official)] = new Preference
                 {
                     PreferMirror = false,
                     Expires = DateTime.UtcNow.AddMinutes(3)
@@ -163,30 +237,53 @@ namespace BlockCraftLauncher.Wpf.Services
             internal static bool NeedsFallback(HttpStatusCode status, bool firstIsMirror)
             {
                 int code = (int)status;
-                if (code == 429 || code >= 500) return true;
+                if (code == 403 || code == 408 || code == 429 || code == 451 || code >= 500) return true;
                 return firstIsMirror &&
                     (status == HttpStatusCode.Unauthorized ||
-                     status == HttpStatusCode.Forbidden ||
                      status == HttpStatusCode.NotFound ||
                      status == HttpStatusCode.Gone ||
                      status == HttpStatusCode.RequestedRangeNotSatisfiable);
             }
 
+            async Task<HttpResponseMessage> SendAttemptAsync(HttpRequestMessage request, CancellationToken ct)
+            {
+                using (var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct))
+                {
+                    deadline.CancelAfter(headerTimeout);
+                    try { return await base.SendAsync(request, deadline.Token).ConfigureAwait(false); }
+                    catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+                    {
+                        throw new HttpRequestException("等待 " + request.RequestUri.Host + " 响应超时", ex);
+                    }
+                }
+            }
+
+            static bool IsGatewayPage(HttpResponseMessage response) =>
+                string.Equals(response.Content?.Headers.ContentType?.MediaType,
+                    "text/html", StringComparison.OrdinalIgnoreCase);
+
             protected override async Task<HttpResponseMessage> SendAsync(
-                HttpRequestMessage request, CancellationToken ct)
+                HttpRequestMessage request, CancellationToken callerToken)
+            {
+                using (var operation = CancellationTokenSource.CreateLinkedTokenSource(callerToken, operationToken))
+                {
+                    var ct = operation.Token;
+                    ct.ThrowIfCancellationRequested();
+                    return await SendRoutedAsync(request, ct).ConfigureAwait(false);
+                }
+            }
+
+            async Task<HttpResponseMessage> SendRoutedAsync(HttpRequestMessage request, CancellationToken ct)
             {
                 var original = request.RequestUri;
-                // Only copy body-free GET requests. Never transform a request
-                // containing content into an incomplete GET.
-                string mirror = original != null && request.Method == HttpMethod.Get &&
-                    request.Content == null
+                string mirror = original != null && request.Method == HttpMethod.Get && request.Content == null
                     ? NetworkDownloader.MirrorMojangUri(original.AbsoluteUri) : null;
-                if (mirror == null || settings.NetworkMode == "official")
-                    return await base.SendAsync(request, ct);
+                if (mirror == null || mode == "official")
+                    return await SendAttemptAsync(request, ct).ConfigureAwait(false);
 
-                bool mirrorFirst = settings.NetworkMode == "mirror" || settings.NetworkMode == "china";
-                if (settings.NetworkMode == "auto")
-                    mirrorFirst = await PreferMirrorAsync(original.AbsoluteUri, mirror, ct);
+                bool mirrorFirst = mode == "china";
+                if (mode == "auto")
+                    mirrorFirst = await PreferMirrorAsync(original.AbsoluteUri, mirror, ct).ConfigureAwait(false);
 
                 string first = mirrorFirst ? mirror : original.AbsoluteUri;
                 string second = mirrorFirst ? original.AbsoluteUri : mirror;
@@ -194,12 +291,12 @@ namespace BlockCraftLauncher.Wpf.Services
                 {
                     using (var attempt = CloneDownloadRequest(request, first))
                     {
-                        var response = await base.SendAsync(attempt, ct);
-                        if (response.IsSuccessStatusCode ||
-                            !NeedsFallback(response.StatusCode, mirrorFirst))
+                        var response = await SendAttemptAsync(attempt, ct).ConfigureAwait(false);
+                        if (response.IsSuccessStatusCode && !IsGatewayPage(response) ||
+                            !response.IsSuccessStatusCode && !NeedsFallback(response.StatusCode, mirrorFirst))
                             return response;
                         if (mirrorFirst && ((int)response.StatusCode == 429 ||
-                            (int)response.StatusCode >= 500))
+                            (int)response.StatusCode >= 500 || IsGatewayPage(response)))
                             MarkMirrorTemporarilySlow(original.AbsoluteUri);
                         response.Dispose();
                     }
@@ -208,12 +305,17 @@ namespace BlockCraftLauncher.Wpf.Services
                 {
                     if (mirrorFirst) MarkMirrorTemporarilySlow(original.AbsoluteUri);
                 }
-                catch (TaskCanceledException) when (!ct.IsCancellationRequested)
-                {
-                    if (mirrorFirst) MarkMirrorTemporarilySlow(original.AbsoluteUri);
-                }
+                ct.ThrowIfCancellationRequested();
                 using (var fallback = CloneDownloadRequest(request, second))
-                    return await base.SendAsync(fallback, ct);
+                {
+                    var response = await SendAttemptAsync(fallback, ct).ConfigureAwait(false);
+                    if (response.IsSuccessStatusCode && IsGatewayPage(response))
+                    {
+                        response.Dispose();
+                        throw new HttpRequestException("游戏文件来源返回了网页，请检查下载线路。");
+                    }
+                    return response;
+                }
             }
         }
     }

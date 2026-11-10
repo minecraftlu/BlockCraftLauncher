@@ -17,20 +17,33 @@ namespace BlockCraftLauncher.Wpf.Services
     {
         readonly LauncherConfig config;
         public MinecraftBackend(LauncherConfig config) { this.config = config; }
-        MinecraftLauncher CreateLauncher() => MinecraftDownloadFactory.Create(new MinecraftPath(config.Root), config);
-        MinecraftLauncher CreateLauncher(GameProfile profile)
-        {
-            // Always use the same local-root decision as the file detector.
-            // Imported modpacks can keep isolated versions/libraries; legacy
-            // profiles may rely on the shared Minecraft game root.
-            var location = MinecraftInstanceLocator.Resolve(profile, config);
-            return MinecraftDownloadFactory.Create(new MinecraftPath(location.GameRoot), config);
-        }
-
         public async Task<IReadOnlyList<string>> ListVersionsAsync()
         {
-            var all = await CreateLauncher().GetAllVersionsAsync();
+            using var download = MinecraftDownloadFactory.Create(new MinecraftPath(config.Root), config);
+            var all = await download.Launcher.GetAllVersionsAsync();
             return all.Select(v => v.Name).ToArray();
+        }
+
+        async Task<Process> BuildLaunchProcessAsync(GameProfile profile, string version, MLaunchOption options)
+        {
+            var location = MinecraftInstanceLocator.Resolve(profile, config);
+            var path = new MinecraftPath(location.GameRoot);
+            if (location.MetadataFound)
+            {
+                var installed = MinecraftDownloadFactory.CreateLocal(path);
+                try
+                {
+                    // A complete installed version, including loader inheritance,
+                    // does not need to contact the public version catalog to launch.
+                    return await installed.BuildProcessAsync(version, options);
+                }
+                catch (KeyNotFoundException)
+                {
+                    // A partially imported version may still need its parent metadata.
+                }
+            }
+            using var online = MinecraftDownloadFactory.Create(path, config);
+            return await online.Launcher.BuildProcessAsync(version, options);
         }
 
         public async Task<GameProfile> InstallVanillaAsync(string version, IProgress<string> progress, CancellationToken cancellation)
@@ -38,9 +51,8 @@ namespace BlockCraftLauncher.Wpf.Services
             if (string.IsNullOrWhiteSpace(version)) throw new ArgumentException("未选择版本");
             cancellation.ThrowIfCancellationRequested();
             progress?.Report("准备安装 Minecraft " + version);
-            var launcher = CreateLauncher();
-            // The library handles game metadata, libraries, assets and Java runtime.
-            await launcher.InstallAsync(version);
+            using var download = MinecraftDownloadFactory.Create(new MinecraftPath(config.Root), config, cancellation);
+            await download.Launcher.InstallAsync(version, cancellation);
             cancellation.ThrowIfCancellationRequested();
             progress?.Report("安装完成：" + version);
             return new GameProfile { Id = Guid.NewGuid().ToString("N").Substring(0, 12), Name = version + " [vanilla]",
@@ -51,19 +63,18 @@ namespace BlockCraftLauncher.Wpf.Services
         {
             if (profile == null) throw new ArgumentNullException(nameof(profile));
             if (config.AccountMode != "offline")
-                throw new InvalidOperationException("当前选择正版账号。微软令牌认证仍需在原版启动器中使用，WPF 预览版不会以离线身份冒充正版登录。");
+                throw new InvalidOperationException("请在启动页切换到离线玩家，或使用当前微软账号启动。");
             var username = (config.OfflineName ?? "").Trim();
             if (!System.Text.RegularExpressions.Regex.IsMatch(username, "^[A-Za-z0-9_]{3,16}$"))
                 throw new InvalidOperationException("离线玩家名必须是 3～16 位英文字母、数字或下划线。");
             string id = string.IsNullOrWhiteSpace(profile.LaunchVersion) ? profile.BaseVersion : profile.LaunchVersion;
-            var launcher = CreateLauncher(profile);
             var server = string.IsNullOrWhiteSpace(serverAddress) ? null : MultiplayerService.ParseAddress(serverAddress);
-            var process = await launcher.BuildProcessAsync(id, new MLaunchOption {
+            var process = await BuildLaunchProcessAsync(profile, id, new MLaunchOption {
                 Session = MSession.CreateOfflineSession(username),
                 MaximumRamMb = Math.Max(512, config.MemoryMb),
                 JavaPath = string.IsNullOrWhiteSpace(config.JavaPath) ? null : config.JavaPath,
                 GameLauncherName = "BlockCraftLauncher",
-                GameLauncherVersion = "0.9.33",
+                GameLauncherVersion = "0.9.34",
                 ScreenWidth = 1280,
                 ScreenHeight = 720,
                 ServerIp = server == null ? null : server.Item1,
@@ -78,15 +89,14 @@ namespace BlockCraftLauncher.Wpf.Services
             if (session == null || string.IsNullOrWhiteSpace(session.AccessToken) || string.IsNullOrWhiteSpace(session.UUID))
                 throw new InvalidOperationException("请先完成微软正版登录，并确认 Minecraft Java 购买资格。");
             string version = string.IsNullOrWhiteSpace(profile.LaunchVersion) ? profile.BaseVersion : profile.LaunchVersion;
-            var launcher = CreateLauncher(profile);
             var server = string.IsNullOrWhiteSpace(serverAddress) ? null : MultiplayerService.ParseAddress(serverAddress);
-            var process = await launcher.BuildProcessAsync(version, new MLaunchOption
+            var process = await BuildLaunchProcessAsync(profile, version, new MLaunchOption
             {
                 Session = session,
                 MaximumRamMb = Math.Max(512, config.MemoryMb),
                 JavaPath = string.IsNullOrWhiteSpace(config.JavaPath) ? null : config.JavaPath,
                 GameLauncherName = "BlockCraftLauncher",
-                GameLauncherVersion = "0.9.33",
+                GameLauncherVersion = "0.9.34",
                 ScreenWidth = 1280,
                 ScreenHeight = 720,
                 ServerIp = server == null ? null : server.Item1,

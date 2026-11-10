@@ -178,7 +178,7 @@ namespace BlockCraftLauncher.Wpf.Services
                     if (!File.Exists(oldPath) || !FileSha1(oldPath).Equals(old.Sha1, StringComparison.OrdinalIgnoreCase))
                         continue; // Unknown/manual modification must not be updated.
                     var url = "https://api.modrinth.com/v2/project/" + Uri.EscapeDataString(old.ProjectId) + "/version";
-                    var data = await net.GetStringWithFallbackAsync(url, "official", ct);
+                    var data = await net.GetStringWithFallbackAsync(url, config.NetworkMode, ct);
                     var versions = json.DeserializeObject(data) as object[];
                     if (versions == null) continue;
                     foreach (var item in versions.OfType<Dictionary<string, object>>())
