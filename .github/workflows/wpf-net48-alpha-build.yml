@@ -134,6 +134,14 @@ jobs:
           }
           Write-Host 'PASS: PCL-style tabs, sidebar, pages, ResourceHit wrapping, download/version templates'
 
+      - name: Upload Windows layout verification captures
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlockCraftLauncher-WPF-layout-check
+          path: ${{ runner.temp }}/blockcraft-ui-check/*.png
+          retention-days: 3
+          if-no-files-found: error
+
       - name: Offline downloader self-tests (no game downloads)
         shell: pwsh
         working-directory: wpf-net48
@@ -452,10 +460,3 @@ jobs:
             wpf-net48/dist/BlockCraftLauncher-v0.9.33-WPF-OneFile-Windows-x64.exe.sha256
           if-no-files-found: error
           retention-days: 14
-      - name: Upload Windows layout verification captures
-        uses: actions/upload-artifact@v4
-        with:
-          name: BlockCraftLauncher-WPF-layout-check
-          path: ${{ runner.temp }}/blockcraft-ui-check/*.png
-          retention-days: 3
-          if-no-files-found: error

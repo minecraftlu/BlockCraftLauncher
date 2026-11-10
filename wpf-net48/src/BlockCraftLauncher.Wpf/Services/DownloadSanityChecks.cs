@@ -109,10 +109,12 @@ namespace BlockCraftLauncher.Wpf.Services
                     body = "Older WPF stable"
                 }
             });
-            var newest = LauncherReleaseService.SelectStableRelease(sample);
+            var newest = LauncherReleaseService.SelectStableRelease(sample, "v0.9.32");
             Require(newest.Version == "v0.9.33" && newest.CompatibleWpf &&
                 newest.Newer && newest.Url.EndsWith("/v0.9.33"),
                 "选择兼容的最新正式 WPF Release");
+            Require(!LauncherReleaseService.SelectStableRelease(sample, "v0.9.33").Newer,
+                "已安装相同版本时不重复提示更新");
             Require(!LauncherReleaseService.SelectStableRelease(
                 serializer.Serialize(new object[] {
                     new { tag_name = "room-lab", prerelease = true }

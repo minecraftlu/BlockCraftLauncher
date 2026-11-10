@@ -82,7 +82,8 @@ namespace BlockCraftLauncher.Wpf.Services
         /// prerelease, NetEase room-lab or legacy Python assets as WPF updates.
         /// Does not access the network; intended for offline regression tests.
         /// </summary>
-        internal static ReleaseNotice SelectStableRelease(string json)
+        internal static ReleaseNotice SelectStableRelease(string json,
+            string currentVersion = LauncherAutoUpdateService.CurrentTag)
         {
             var releases = Json.DeserializeObject(json) as object[]
                 ?? throw new InvalidOperationException("GitHub Releases 返回列表格式无效");
@@ -124,7 +125,7 @@ namespace BlockCraftLauncher.Wpf.Services
                     Description = description.Length > 1200 ?
                         description.Substring(0, 1200) : description,
                     CompatibleWpf = true,
-                    Newer = wpfAsset && IsNewer(tag, "v0.9.33")
+                    Newer = wpfAsset && IsNewer(tag, currentVersion)
                 };
             }
 
