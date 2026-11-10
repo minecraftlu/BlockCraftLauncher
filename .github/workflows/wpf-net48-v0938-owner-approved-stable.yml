@@ -49,7 +49,7 @@ jobs:
           }
           $record = (Get-Content -LiteralPath 'wpf-net48/docs/V0938_STABLE_OWNER_ACCEPTANCE_TRIGGER.md' -Raw) -replace "`r`n", "`n"
           if ($record -notmatch '(?m)^REAL_DEVICE_ACCEPTANCE: true$' -or
-              $record -notmatch '(?m)^RELEASE_TAG: v0\.9\.37$' -or
+              $record -notmatch '(?m)^RELEASE_TAG: v0\.9\.38$' -or
               $record -notmatch '(?m)^REVIEWED_MAIN_SHA: 2040ea21b49b2a5c6c09bf87ee46e8d687c252b2$') {
             throw 'Missing owner acceptance / exact release target'
           }
