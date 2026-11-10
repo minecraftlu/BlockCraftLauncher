@@ -1,6 +1,6 @@
 # BlockCraft Launcher · Windows WPF
 
-**v0.9.35 正式版 · Windows x64 · .NET Framework 4.8**
+**v0.9.36 正式版 · Windows x64 · .NET Framework 4.8**
 
 从 [v0.9.36 正式版](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.36) 下载单文件 EXE，或完整解压 ZIP 后运行 `BlockCraftLauncher.Wpf.exe`。
 
@@ -35,11 +35,11 @@ GitHub Actions 中的 **WPF net48 (Windows build)** 工作流会在 Windows 上�
 - 本项目的 WPF 源码使用当前目录的 [MIT License](LICENSE)；不代表仓库里其他文件已自动适用相同许可。
 
 
-### 在线皮肤搜索与下载（下一版本功能）
+### 在线皮肤搜索与下载
 
 「更多 → 皮肤 DIY」页面提供两种在线皮肤查找方式：**Mojang 玩家名/UUID** 和 **第三方社区关键词搜索**。可预览人物、下载标准 PNG 到本地皮肤库，或在确认后直接导入编辑器。联网失败不影响离线编辑；社区内容应遵守作者许可。
 
-数据来源、功能边界和验证方法参见 [在线皮肤搜索说明](docs/ONLINE_SKIN_SEARCH.md)。正式版 v0.9.35 暂不包含该功能；代码在完成 Windows 编译和联网测试后才可发布新版本。
+数据来源、功能边界和验证方法参见 [在线皮肤搜索说明](docs/ONLINE_SKIN_SEARCH.md)。当前正式版为 v0.9.36；下方 RC1–RC5 章节记录先前版本的研发历史。
 
 ### v0.9.36 RC1 皮肤搜索测试版
 
@@ -81,7 +81,7 @@ v0.9.35 仍为正式版。预览通道内已安装 RC1 的用户可以更新到 
 模组加载器元数据三重验证的 JAR 直装。GitHub 项目没有统一依赖格式，
 遇到缺少可验证的兼容文件时会提示手动查看作者说明，**不保证所有开源模组都可直装**。
 
-此功能的 v0.9.37 源码和测试包尚在开发；已发布的 v0.9.36 不包含它。正式发布仍需真实设备验收。
+v0.9.37 RC5 已发布为预览版，并新增鼠标控制的 360° 皮肤预览；用户已反馈该版本的皮肤预览在其设备上正常。已发布的 v0.9.36 正式版不包含这些新功能；正式发布 v0.9.37 仍需完成剩余真实设备验收。
 
 ### v0.9.36 中国内地和海外下载/搜索优化（正式版候选）
 
@@ -91,8 +91,8 @@ Modrinth 模组/光影/资源包/整合包和可选 MCIM CurseForge 搜索采用
 首次 HTTP 连接超时更快回退。保留哈希校验与自动更新回滚。
 这不保证第三方平台始终可用；稳定版发行前须完成实际 Windows 网络验收。
 
-### v0.9.36 正式版发布准备（未发布）
+### v0.9.36 正式版发布记录
 
 RC5 已通过 [Windows 受控 CI](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42824167368)，用户已反馈功能在自己的电脑上成功。现正为 v0.9.36 稳定版检查正式 ZIP、单 EXE、SHA-256、从 v0.9.35 直接升级的兼容性及真实 WPF 窗口重启。
 
-**目前最新公开稳定版仍是 v0.9.35；v0.9.36 正式版还没有发行。** 详细验收和手动发布门禁请参见 [v0.9.36 发布准备清单](docs/V0936_STABLE_RELEASE_READINESS.md)。原 RC1–RC5 预览版全部保留，不得直接重标记为正式版；SignPath Foundation 申请已因人气过低被拒绝；新免费的 Sigstore 签名方案不会改变 Windows 未知发布者提示。
+**v0.9.36 正式版已经于 2026-11-10 发布**：[官方下载页](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.36)。正式版与预览版采用不同更新通道；v0.9.37 RC5 仍是测试版，不能仅因 Windows CI 通过直接重标记为正式版。详细发布门禁参见 [稳定版验收清单](docs/STABLE_RELEASE_ACCEPTANCE.md)。SignPath Foundation 申请因人气不足被拒绝；Sigstore 签名方案不会改变 Windows 未知发布者提示。
