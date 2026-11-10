@@ -73,7 +73,6 @@ namespace BlockCraftLauncher.Wpf
         int onlineRequestNumber;
         int onlinePage = 1;
         int onlinePages = 1;
-        bool onlineAutoLoaded;
         bool searchingOnline;
         readonly Border colorSwatch = new Border();
         readonly TextBlock info = new TextBlock();
@@ -432,7 +431,7 @@ namespace BlockCraftLauncher.Wpf
             onlineResults.MouseDoubleClick += async (sender, args) =>
                 await PreviewOnlineSelectionAsync();
 
-            onlinePageStatus.Text = "请选择来源并搜索。";
+            onlinePageStatus.Text = "点击“搜索 / 刷新”浏览皮肤图库；不会在打开页面时自动联网。";
             onlinePageStatus.TextWrapping = TextWrapping.Wrap;
             onlinePageStatus.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
             onlinePrevButton = ActionButton("上一页", async () =>
@@ -480,12 +479,6 @@ namespace BlockCraftLauncher.Wpf
             root.Children.Add(Label("图库来源：Mosaicary（mosaicary.com）、DP-Plugins。二者独立运营；" +
                 "部分皮肤可能带有署名或相同方式共享要求。"));
             UpdateOnlineFilters();
-            Loaded += async (sender, args) =>
-            {
-                if (onlineAutoLoaded) return;
-                onlineAutoLoaded = true;
-                await SearchOnlineAsync(1);
-            };
             return root;
         }
 
@@ -693,27 +686,36 @@ namespace BlockCraftLauncher.Wpf
         async Task PreviewOnlineSelectionAsync()
         {
             int request = ++onlineRequestNumber;
+            onlinePreviewCancellation?.Cancel();
+            onlinePreviewCancellation?.Dispose();
+            onlinePreviewCancellation = new CancellationTokenSource();
+            var token = onlinePreviewCancellation.Token;
             var item = onlineResults.SelectedItem as OnlineSkinEntry;
             selectedOnlineSkin = null;
             selectedOnlinePng = null;
             onlineSaveButton.IsEnabled = onlineEditButton.IsEnabled = false;
+            onlineDetailButton.IsEnabled = item != null &&
+                !string.IsNullOrWhiteSpace(item.DetailUrl);
             onlinePreview.Source = null;
             if (item == null) return;
-            onlineAttribution.Text = item.Name + "\n" + item.Attribution;
-            onlineStatus.Text = "正在下载皮肤预览（只下载公开 PNG）...";
+            onlineAttribution.Text = item.Name + "\n" + item.Attribution +
+                "\n" + item.ModelLabel + "\n" + item.LicenseLabel;
+            onlineStatus.Text = "正在准备选中皮肤的 PNG 预览...";
             try
             {
-                byte[] png = await OnlineSkinSearchService.DownloadPngAsync(
-                    item, CancellationToken.None);
+                byte[] png = await OnlineSkinSearchService.PreviewPngAsync(item, token);
                 if (request != onlineRequestNumber ||
                     !ReferenceEquals(onlineResults.SelectedItem, item)) return;
                 var preview = DecodeOnlineSkin(png, item.SlimArms);
                 onlinePreview.Source = preview.AvatarImage(false, true);
                 selectedOnlineSkin = item;
                 selectedOnlinePng = png;
-                onlineSaveButton.IsEnabled = onlineEditButton.IsEnabled = true;
-                onlineStatus.Text = "预览成功。可以下载到本地皮肤库，也可以加载到现有 DIY 编辑器。";
+                onlineSaveButton.IsEnabled = onlineEditButton.IsEnabled = item.CanDownload;
+                onlineStatus.Text = item.CanDownload ?
+                    "预览成功。可保存到皮肤库或导入 DIY，下载会保留来源与授权说明。" :
+                    "该皮肤未声明开放授权或许可受限，仅展示预览与来源，不提供直接下载。";
             }
+            catch (OperationCanceledException) { }
             catch (Exception ex)
             {
                 if (request == onlineRequestNumber)
@@ -736,11 +738,13 @@ namespace BlockCraftLauncher.Wpf
         {
             var item = selectedOnlineSkin;
             var png = selectedOnlinePng;
-            if (item == null || png == null) return;
+            if (item == null || png == null || !item.CanDownload) return;
             onlineSaveButton.IsEnabled = false;
             try
             {
-                var preview = DecodeOnlineSkin(png, item.SlimArms);
+                byte[] downloaded = await OnlineSkinSearchService.DownloadPngAsync(
+                    item, CancellationToken.None);
+                var preview = DecodeOnlineSkin(downloaded, item.SlimArms);
                 Directory.CreateDirectory(SkinEditorDocument.LocalLibrary);
                 string name = SafeOnlineName(item);
                 string path = SkinEditorDocument.SafeLibraryPath(name);
@@ -751,6 +755,9 @@ namespace BlockCraftLauncher.Wpf
                     path = SkinEditorDocument.SafeLibraryPath(name);
                 }
                 preview.SavePng(path); // strips remote metadata; produces normalized PNG
+                File.WriteAllText(path + ".source.txt",
+                    OnlineSkinSearchService.SkinSourceNote(item),
+                    System.Text.Encoding.UTF8);
                 RefreshLibrary();
                 onlineStatus.Text = "皮肤已下载到本地：" + path +
                     "\n来源：" + item.Attribution;
@@ -767,13 +774,16 @@ namespace BlockCraftLauncher.Wpf
         {
             var item = selectedOnlineSkin;
             var png = selectedOnlinePng;
-            if (item == null || png == null || !ConfirmDiscard()) return;
+            if (item == null || png == null || !item.CanDownload || !ConfirmDiscard()) return;
             onlineEditButton.IsEnabled = false;
             string temporary = null;
             try
             {
-                temporary = TemporarySkinFile(png);
+                byte[] downloaded = await OnlineSkinSearchService.DownloadPngAsync(
+                    item, CancellationToken.None);
+                temporary = TemporarySkinFile(downloaded);
                 document.LoadPng(temporary, item.SlimArms);
+                editorSource = item;
                 ClearRecoveryDraft();
                 skinName.Text = SafeOnlineName(item);
                 armModel.SelectedIndex = document.SlimArms ? 1 : 0;
@@ -1225,6 +1235,10 @@ namespace BlockCraftLauncher.Wpf
                         "确认覆盖皮肤", MessageBoxButton.YesNo,
                         MessageBoxImage.Question) != MessageBoxResult.Yes) return;
                 SaveSafely(path);
+                if (editorSource != null)
+                    File.WriteAllText(path + ".source.txt",
+                        OnlineSkinSearchService.SkinSourceNote(editorSource),
+                        System.Text.Encoding.UTF8);
                 RefreshLibrary();
                 info.Text = "已保存到 BlockCraft 本地皮肤库：\n" + path;
             }
@@ -1250,6 +1264,10 @@ namespace BlockCraftLauncher.Wpf
             try
             {
                 SaveSafely(picker.FileName);
+                if (editorSource != null)
+                    File.WriteAllText(picker.FileName + ".source.txt",
+                        OnlineSkinSearchService.SkinSourceNote(editorSource),
+                        System.Text.Encoding.UTF8);
                 info.Text = "已导出标准 64×64 PNG：\n" + picker.FileName +
                     "\n正版账号可在 Minecraft 官方启动器上传。";
             }
