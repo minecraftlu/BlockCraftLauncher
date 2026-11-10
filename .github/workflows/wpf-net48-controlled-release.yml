@@ -8,7 +8,7 @@ on:
       release_tag:
         description: 'Stable tag (must match the compiled updater version)'
         required: true
-        default: 'v0.9.36'
+        default: 'v0.9.37'
         type: string
       channel:
         description: 'Stable release only; preview uses the RC branch workflows'
@@ -47,8 +47,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           if ($env:RELEASE_CHANNEL -ne 'stable' -or
-              $env:RELEASE_TAG -ne 'v0.9.36') {
-            throw 'This reviewed workflow only publishes v0.9.36 stable'
+              $env:RELEASE_TAG -ne 'v0.9.37') {
+            throw 'This reviewed workflow only publishes v0.9.37 stable'
           }
           if ('${{ github.ref }}' -ne 'refs/heads/main') {
             throw 'Stable release only permitted from reviewed main'
@@ -152,14 +152,17 @@ jobs:
           $manifest | Set-Content -LiteralPath (Join-Path $dist 'RELEASE-SHA256SUMS.txt') -Encoding ASCII
           $channel = if ($env:RELEASE_CHANNEL -eq 'stable') { '正式版' } else { '预览版' }
           $text = @"
-          Windows 10/11 x64 · WPF · .NET Framework 4.8 · v0.9.36 正式版
+          Windows 10/11 x64 · WPF · .NET Framework 4.8 · v0.9.37 正式版
 
-          本版包含 v0.9.36 RC1–RC5 期间完成的功能更新：
+          本版继承 v0.9.36 的皮肤、下载、自动更新与 UI 功能，并新增开源模组支持：
           - 下载中心支持 Mojang 玩家皮肤、开放许可图库与第三方社区皮肤搜索，图文列表、分类筛选、预览、PNG 下载及来源/许可记录。
           - 皮肤下载与模组下载同属「下载」分类，支持统一任务进度、取消与重试；「更多 → 皮肤 DIY」独立提供本地编辑、导入导出与明确确认的正版皮肤上传。
           - 未声明授权的公开皮肤仅在用户明确选择并确认版权提示后允许单张下载。下载不赋予转载、修改、商用或再分发权利。
           - 「联机 → 查找服务器」支持从第三方公开 Java 服务器目录按名称/IP、版本、缓存在线状态查找、排序和翻页；可收藏、复制地址或使用当前 Java 实例加入。
           - 保留 Minecraft 安装启动、微软正版登录、Modrinth/CurseForge 合法内容下载、模组图标、存档管理、中国内地和海外可选下载线路。
+          - Modrinth 按游戏版本/加载器筛选有效 JAR 和必要依赖，排除源码与开发 JAR。
+          - 新增 GitHub 公开 SPDX 开源仓库搜索，查找最多 60 个历史发布版中与当前 Minecraft 版本匹配的 JAR。
+          - GitHub 模组安装需要用户确认、官方 Release SHA-256 和加载器 JAR 元数据校验；依赖或安装包无法核实则提示作者项目页，不保证覆盖全部开源模组。
           - Modrinth 模组/光影/资源包/整合包及可选 MCIM CurseForge 搜索增加短时缓存；Mosaicary/DP-Plugins 公共皮肤图库支持短时缓存和限速缩略图加载。
           - 仅已允许的双线路下载/元数据请求缩短首次连接超时，失败仍回退至备选；保留断点来源隔离与下载文件哈希验证。实际可用性依地区、运营商和第三方服务而异。
           - ZIP/单文件 EXE 更新继续校验 SHA-256；更新失败回滚，成功后重新打开新版窗口。应用内「稳定版」通道仅检查非 prerelease 版本。
@@ -172,11 +175,11 @@ jobs:
           "@
           $text | Set-Content -LiteralPath (Join-Path $dist 'RELEASE-NOTES.txt') -Encoding UTF8
 
-      - name: Verify the stable packages with the original RC1 updater
+      - name: Verify v0.9.36 stable can parse and verify the new v0.9.37 ZIP
         if: env.RELEASE_CHANNEL == 'stable'
         working-directory: wpf-net48
         timeout-minutes: 4
-        run: ./tests/check_v0936_promotion.ps1 -Phase Preflight
+        run: ./tests/check_v0937_promotion.ps1 -Phase Preflight
 
       # Build-provenance and keyless signatures bind the shipped file bytes to
       # this GitHub Actions workflow. They are not Windows Authenticode.
@@ -201,8 +204,8 @@ jobs:
         with:
           # Exact immutable release binaries; do not attest a path wildcard.
           subject-path: |
-            wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe
-            wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-net48-Windows-x64.zip
+            wpf-net48/dist/BlockCraftLauncher-v0.9.37-WPF-OneFile-Windows-x64.exe
+            wpf-net48/dist/BlockCraftLauncher-v0.9.37-WPF-net48-Windows-x64.zip
 
       - name: Block publication unless SHA-256, Cosign and provenance all verify
         working-directory: wpf-net48
@@ -235,8 +238,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "GitHub release creation failed" }
           Write-Host "Published release: https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/$env:RELEASE_TAG"
 
-      - name: Upgrade the original RC1 ZIP and OneFile from the stable channel
+      - name: Upgrade v0.9.36 stable ZIP and OneFile from published v0.9.37
         if: env.RELEASE_CHANNEL == 'stable'
         working-directory: wpf-net48
         timeout-minutes: 10
-        run: ./tests/check_v0936_promotion.ps1 -Phase Live
+        run: ./tests/check_v0937_promotion.ps1 -Phase Live
