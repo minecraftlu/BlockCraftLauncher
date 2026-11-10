@@ -51,6 +51,29 @@ namespace BlockCraftLauncher.Wpf.Services
             }
         }
 
+        // Header arrival is fast, but JSON payload starts after the header
+        // deadline. This must succeed while each body read meets its own idle
+        // deadline; slow cross-border responses are not automatically broken.
+        sealed class DelayedFirstReadStream : MemoryStream
+        {
+            bool firstRead = true;
+            public override bool CanSeek => false;
+
+            public DelayedFirstReadStream(string body)
+                : base(System.Text.Encoding.UTF8.GetBytes(body)) { }
+
+            public override async Task<int> ReadAsync(byte[] buffer, int offset, int count,
+                CancellationToken token)
+            {
+                if (firstRead)
+                {
+                    firstRead = false;
+                    await Task.Delay(350, token).ConfigureAwait(false);
+                }
+                return base.Read(buffer, offset, count);
+            }
+        }
+
         static void Require(bool ok, string description)
         {
             if (!ok) throw new InvalidOperationException("网络线路回归测试失败：" + description);
@@ -108,6 +131,25 @@ namespace BlockCraftLauncher.Wpf.Services
                     MinecraftVersionCatalog.Parse, CancellationToken.None).ConfigureAwait(false);
                 Require(list.Single().Id == "1.21.1" && badMirror.Requests.SequenceEqual(new[] { Mirror, Official }),
                     "镜像返回成功状态的错误网页也会改用官方清单");
+            }
+
+            const string slowBodyEndpoint =
+                "https://api.modrinth.com/v2/search?query=metadata-body-idle-regression";
+            var slowBody = new ScriptedHandler((request, token) =>
+                Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) {
+                    Content = new StreamContent(new DelayedFirstReadStream(
+                        "{\\"hits\\":[],\\"total_hits\\":0}"))
+                }));
+            using (var client = new NetworkDownloader(new LauncherConfig {
+                NetworkMode = "official", DownloadRetries = 1
+            }, slowBody, requestTimeout: ShortDeadline, idleTimeout: TimeSpan.FromSeconds(2)))
+            {
+                var page = await client.GetMetadataWithFallbackAsync(slowBodyEndpoint,
+                    "official", body => ModrinthClient.ParseSearchResponse(body, "mod"),
+                    CancellationToken.None).ConfigureAwait(false);
+                Require(page.TotalHits == 0 && slowBody.Requests.SequenceEqual(
+                    new[] { slowBodyEndpoint }),
+                    "元数据响应头及时返回但正文稍慢时，不应被响应头截止时间取消");
             }
 
             var slowOfficial = new ScriptedHandler(async (request, token) =>
