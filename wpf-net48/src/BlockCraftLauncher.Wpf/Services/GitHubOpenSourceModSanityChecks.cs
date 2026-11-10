@@ -98,6 +98,24 @@ namespace BlockCraftLauncher.Wpf.Services
             Require(selected.Filename == "example-1.21.1-fabric.jar" &&
                 selected.Sha256 == new string('a', 64),
                 "只能选择兼容加载器且具有 GitHub SHA-256 的 JAR");
+            // The project's newest release may target 1.21.10, while the
+            // player still needs a verified 1.21.1 binary from older Releases.
+            string newer = Release(Asset("example-1.21.10-fabric.jar"));
+            string older = Release(Asset("example-1.21.1-fabric.jar"));
+            var releases = Json.Serialize(new object[] {
+                Json.DeserializeObject(newer),
+                Json.DeserializeObject(older)
+            });
+            var fromHistory = GitHubOpenSourceModClient.ChooseFromReleaseList(
+                "example/mod", "1.21.1", "fabric", releases);
+            Require(fromHistory != null &&
+                fromHistory.Filename == "example-1.21.1-fabric.jar",
+                "历史公开 Release 的兼容 JAR 可代替最新不兼容文件");
+            var unavailable = GitHubOpenSourceModClient.ChooseFromReleaseList(
+                "example/mod", "1.20.1", "fabric", releases);
+            Require(unavailable == null,
+                "无兼容历史版本时不猜测不安全下载文件");
+
             Require(GitHubOpenSourceModClient.CompatibleVersion(
                 "example-mc1.21.1-fabric.jar", "1.21.1") &&
                 !GitHubOpenSourceModClient.CompatibleVersion(

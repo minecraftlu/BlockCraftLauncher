@@ -2,6 +2,15 @@
 
 > 2026-11-10。UI 排版参考 PCL2 的交互层级，由 BlockCraft 独立实现；不复制其专有图标、图片或源码。
 
+## v0.9.37 发布前新增安全验收门槛（尚未全部完成）
+
+- 正式版升级路径：使用已公开的 **v0.9.36** 单文件 EXE 和 ZIP，校验 GitHub 官方发布 SHA-256，测试检测 v0.9.37、下载、替换、回滚和新版窗口打开；CI 模拟不代替用户真实电脑。
+- 模组：Modrinth 的 Fabric、Forge、NeoForge、Quilt 真实安装至少各验证一个可公开下载的合法模组和必要依赖；不得覆盖已有模组或存档。
+- GitHub 开源项目：使用有可识别 SPDX 开源许可的仓库测试，确认历史 Release 版本匹配、GitHub API 摘要、JAR 加载器声明和作者依赖说明；测试无摘要、错误加载器与多个歧义 JAR 的拒绝行为。
+- 中国大陆与海外：两种线路下实际测试 Modrinth、可选 CurseForge (MCIM) 和 GitHub；记录不可达、429 限流和人工回退，不能宣称所有网络和开源模组保证可用。
+- Microsoft 登录及本地离线模式、游戏安装启动、皮肤/资源包/光影、UI、单文件 EXE、SHA-256、Sigstore 来源证明依旧检查。
+- **以下条件仍未由本次 CI 自动满足：** 维护者完成真实设备验收并在受控发布中明确设置 `real_device_acceptance=true`。未确认不得发布 stable。
+
 ## v0.9.35 发布验收
 
 项目所有者确认 v0.9.35 RC1 均能正常使用，并要求发布正式版。RC1 的 Windows 构建已通过模组图标等回归，且从 v0.9.34 的 ZIP 和单文件 EXE 均完成了联网升级与新版窗口重开。[RC1 构建](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42788551084) · [RC1 升级验证](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42791240457)

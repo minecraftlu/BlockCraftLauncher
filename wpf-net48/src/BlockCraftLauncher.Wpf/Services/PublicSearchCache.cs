@@ -43,7 +43,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 (host == "api.github.com" &&
                     (path == "/search/repositories" ||
                      System.Text.RegularExpressions.Regex.IsMatch(path,
-                        @"^/repos/[A-Za-z0-9-]{1,39}/[A-Za-z0-9_.-]{1,100}(?:/releases/latest)?$")));
+                        @"^/repos/[A-Za-z0-9-]{1,39}/[A-Za-z0-9_.-]{1,100}(?:/releases(?:/latest)?)?$")));
             if (!allowed) return null;
 
             // A proxy or network-mode change must not reuse a response produced

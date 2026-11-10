@@ -180,6 +180,17 @@ namespace BlockCraftLauncher.Wpf.Services
             foreach (var a in assets.Select(Object).Where(x => x != null))
             {
                 string name = Text(a, "name");
+                // Release titles/tags can describe a different Minecraft
+                // version than an individual asset. If the JAR filename
+                // explicitly contains Minecraft-looking versions, those must
+                // all agree with the selected profile before title fallback.
+                var declaredVersions = Regex.Matches(name,
+                    @"(?<![0-9.])1\.(?:[7-9]|1[0-9]|2[0-9])(?:\.[0-9]{1,3})?(?![0-9.])")
+                    .Cast<Match>().Select(x => x.Value).Distinct().ToArray();
+                if (declaredVersions.Length > 0 &&
+                    declaredVersions.Any(x => !string.Equals(x,
+                        gameVersion, StringComparison.OrdinalIgnoreCase)))
+                    continue;
                 if (name.Length < 5 || name.Length > 180 ||
                     name != Path.GetFileName(name) ||
                     name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
@@ -227,6 +238,43 @@ namespace BlockCraftLauncher.Wpf.Services
             return available[0];
         }
 
+        /// <summary>
+        /// GitHub's "latest" Release only follows the newest project version,
+        /// which often excludes users on older Minecraft versions. Traverse
+        /// a bounded page of published releases in server order instead.
+        /// Never infer an artifact from a tag or use repository source ZIPs.
+        /// </summary>
+        internal static ReleaseJar ChooseFromReleaseList(string repository,
+            string gameVersion, string loader, string payload)
+        {
+            var rows = new JavaScriptSerializer { MaxJsonLength = 12 * 1024 * 1024 }
+                .DeserializeObject(payload ?? "") as object[];
+            if (rows == null || rows.Length > 40)
+                throw new InvalidDataException("GitHub Releases 列表格式无效");
+            foreach (var item in rows)
+            {
+                if (!(item is Dictionary<string, object> release)) continue;
+                if (string.Equals(Text(release, "draft"), "True",
+                        StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(Text(release, "prerelease"), "True",
+                        StringComparison.OrdinalIgnoreCase))
+                    continue;
+                try
+                {
+                    return ChooseReleaseJar(repository, gameVersion, loader,
+                        new JavaScriptSerializer { MaxJsonLength = 12 * 1024 * 1024 }
+                            .Serialize(release));
+                }
+                catch (InvalidDataException)
+                {
+                    // A newer project release may target a different Minecraft
+                    // version, contain only sources or lack a GitHub digest.
+                    // Keep searching older validated releases.
+                }
+            }
+            return null;
+        }
+
         internal static void ValidateJar(string file, string loader)
         {
             using (var zip = ZipFile.OpenRead(file))
@@ -268,10 +316,26 @@ namespace BlockCraftLauncher.Wpf.Services
                 string.Equals(Text(repo, "archived"), "True", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(Text(repo, "private"), "True", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("仓库已改变、私有或缺少可识别的开源许可证，不能自动安装");
-            string releaseUrl = repoUrl + "/releases/latest";
-            var release = await metadata.GetMetadataWithFallbackAsync(releaseUrl, "official",
-                body => body, ct);
-            var asset = ChooseReleaseJar(repository, profile.BaseVersion, loader, release);
+            // Two bounded pages (at most 60 releases) cover an older
+            // supported Minecraft branch without exhausting GitHub's
+            // unauthenticated API quota. Each returned JAR must still carry
+            // a SHA-256 digest and match the selected loader.
+            ReleaseJar asset = null;
+            for (int page = 1; page <= 2 && asset == null; page++)
+            {
+                ct.ThrowIfCancellationRequested();
+                string releasesUrl = repoUrl + "/releases?per_page=30&page=" + page;
+                var releases = await metadata.GetMetadataWithFallbackAsync(releasesUrl,
+                    "official", body => body, ct);
+                asset = ChooseFromReleaseList(repository, profile.BaseVersion,
+                    loader, releases);
+                if (asset != null) break;
+                // Do not fetch extra pages for empty or short first pages.
+                var rows = json.DeserializeObject(releases) as object[];
+                if (rows == null || rows.Length < 30) break;
+            }
+            if (asset == null)
+                throw new InvalidDataException("GitHub 最近 60 个公开 Release 中没有符合 Minecraft 版本、加载器、SHA-256 的唯一可安装 JAR；请查看项目发布页");
 
             string baseDir = Path.GetFullPath(profile.Directory);
             string mods = Path.Combine(baseDir, "mods");
