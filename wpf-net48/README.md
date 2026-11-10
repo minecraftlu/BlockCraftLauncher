@@ -1,10 +1,14 @@
 # BlockCraft Launcher · Windows WPF
 
-**v0.9.36 正式版 · Windows x64 · .NET Framework 4.8**
+**v0.9.38 正式版 · Windows x64 · .NET Framework 4.8**
 
-从 [v0.9.36 正式版](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.36) 下载单文件 EXE，或完整解压 ZIP 后运行 `BlockCraftLauncher.Wpf.exe`。
+从 [v0.9.38 正式版](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.38) 下载单文件 EXE，或完整解压 ZIP 后运行 `BlockCraftLauncher.Wpf.exe`。
 
 从 RC1 升级时，在「设置 → 更新设置」选择「稳定版」，保存后打开「启动器更新」检查新版。从 Python 版迁移时，在独立目录启动 WPF 版，再选择已有游戏实例。
+
+**v0.9.38 稳定版补丁**：修复了 v0.9.37 单文件启动器仍使用旧版 `v0.9.36` 缓存名称，导致发布后的单文件自动升级验证失败的问题。现在通过 CI 强制校验 OneFile 解包版本、更新服务版本和发行包版本一致。2026-11-11 的正式发布构建已通过 SHA-256、Sigstore/GitHub 来源证明，并实际验证 v0.9.36 的 ZIP 与 OneFile 均能升级到 v0.9.38 并重新打开窗口。RC5 的鼠标 360° 皮肤预览及之前的功能保持不变。
+
+
 
 ### Windows 构建
 
