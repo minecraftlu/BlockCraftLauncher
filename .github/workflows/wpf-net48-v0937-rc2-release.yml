@@ -27,7 +27,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $tag = 'v0.9.37-wpf-rc.2'
           $source = Get-Content -LiteralPath 'wpf-net48/src/BlockCraftLauncher.Wpf/Services/LauncherAutoUpdateService.cs' -Raw
-          if ($source -notmatch 'internal const string CurrentTag = "v0\.9\.37-wpf-rc\.1";') {
+          if ($source -notmatch 'internal const string CurrentTag = "v0\.9\.37-wpf-rc\.2";') {
             throw 'Launcher binary must identify itself as RC2, never as stable'
           }
           $existing = & git ls-remote --tags origin "refs/tags/$tag"
