@@ -5,7 +5,7 @@ on:
   # Stable requires an explicit dispatch on reviewed main.
   push:
     branches:
-      - feature/public-skin-manual-download-v0.9.36-rc4
+      - feature/server-discovery-preview-v0.9.36-rc5
     paths:
       - wpf-net48/RELEASE_CANDIDATE_REQUEST.md
   workflow_dispatch:
@@ -13,7 +13,7 @@ on:
       release_tag:
         description: 'Tag matching the checked-out build'
         required: true
-        default: 'v0.9.36-wpf-rc.4'
+        default: 'v0.9.36-wpf-rc.5'
         type: string
       channel:
         description: 'Candidate for testing; stable only after real Windows acceptance'
@@ -39,7 +39,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      RELEASE_TAG: ${{ github.event_name == 'push' && 'v0.9.36-wpf-rc.4' || inputs.release_tag }}
+      RELEASE_TAG: ${{ github.event_name == 'push' && 'v0.9.36-wpf-rc.5' || inputs.release_tag }}
       RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'candidate' || inputs.channel }}
       REAL_DEVICE_ACCEPTANCE: ${{ inputs.real_device_acceptance }}
     steps:
@@ -51,7 +51,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           if ($env:RELEASE_CHANNEL -eq 'candidate') {
             if ('${{ github.event_name }}' -eq 'push' -and
-                '${{ github.ref }}' -ne 'refs/heads/feature/public-skin-manual-download-v0.9.36-rc4') {
+                '${{ github.ref }}' -ne 'refs/heads/feature/server-discovery-preview-v0.9.36-rc5') {
               throw 'Automatic candidate publishing only runs on the WPF development branch'
             }
             if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+-wpf-rc\.\d+$') {
@@ -174,6 +174,9 @@ jobs:
           - 本次 RC2 新增开放许可皮肤图库（Mosaicary）、多来源筛选、缩略图图文列表、分类/模型/排序/分页及作者许可证说明。
           - RC3 将皮肤下载放入「下载 → 社区资源 → 皮肤」与模组并列；皮肤 DIY 独立位于「更多 → 工具 → 皮肤 DIY」。
           - RC4 支持单张下载公开可访问但授权未知的皮肤；下载或导入 DIY 前明确提示原作者许可风险并征求确认。
+          - RC5 新增「联机 → 查找服务器」，可通过公开 Java 服务器目录搜索名称或 IP、版本和在线状态，并查看玩家人数、排序、分页。
+          - 可将结果加入原有服务器收藏、复制地址或使用当前 Minecraft Java 实例直接连接；服务器目录信息为缓存而非实时测量。
+          - 数据来自 MC Monitor、minecraftserve.rs 与 MSID，搜索无需登录，受第三方可用性和使用条款限制。
           - 下载保留原作品作者、来源和许可说明，不表示取得版权、修改、重新发布或商用许可；不得绕过网站访问控制或限流。
           - 皮肤下载已接入统一下载队列，可查看进度、取消及重试；下载完成后自动存入皮肤库并保留许可署名信息。
           - 公开皮肤图库支持翻页遍历现有合法来源，不会绕过网站限制、批量抓取或将未知许可作品标为开源。
