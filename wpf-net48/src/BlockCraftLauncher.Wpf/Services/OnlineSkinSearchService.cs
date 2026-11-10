@@ -688,6 +688,11 @@ namespace BlockCraftLauncher.Wpf.Services
                         ["id"] = "ABCDef012346", ["name"] = "Restricted",
                         ["width"] = 64, ["height"] = 64, ["png"] = "https://mosaicary.com/",
                         ["license"] = "arr"
+                    },
+                    new Dictionary<string, object> {
+                        ["id"] = "ABCDef012347", ["name"] = "Found player",
+                        ["width"] = 64, ["height"] = 64, ["png"] = "https://mosaicary.com/",
+                        ["found"] = true
                     }
                 }
             };
@@ -696,6 +701,11 @@ namespace BlockCraftLauncher.Wpf.Services
                 catalog.Entries[0].OpenLicense && catalog.Entries[0].SlimArms &&
                 catalog.Entries[0].TextureUrl.Contains("/ABCDef012345.png"),
                 "Mosaicary 分页、许可过滤、可信主机、模型及作者");
+            var publicCatalog = ParseMosaicaryPage(sample, 1, false, true);
+            Require(publicCatalog.Entries.Count == 3 &&
+                publicCatalog.Entries.Any(x => x.Name == "Found player" &&
+                    !x.OpenLicense && !x.CanDownload),
+                "公开发现的玩家皮肤可以查看，但绝不能被当作开放许可下载");
             Require(ValidPlayerInput("jeb_") && ValidPlayerInput(
                 "853c80ef3c3749fdaa49938b674adae6"), "玩家名和 UUID");
             Require(!ValidPlayerInput("../secret") && !ValidPlayerInput("bad?"),
