@@ -398,7 +398,7 @@ namespace BlockCraftLauncher.Wpf
                         var brush = ((DiffuseMaterial)face.Material).Brush as ImageBrush;
                         if (!(brush?.ImageSource is BitmapSource image) ||
                             image.PixelWidth > 12 || image.PixelHeight > 12 ||
-                            image.PixelWidth != (mesh.TextureCoordinates.Count == 0 ? 0 : image.PixelWidth))
+                            image.PixelWidth < 3 || image.PixelHeight < 3)
                             throw new InvalidOperationException("皮肤面未使用单独裁剪的贴图");
                     }
                     if (region.Overlay)
