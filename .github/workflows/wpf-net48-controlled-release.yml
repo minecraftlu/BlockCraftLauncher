@@ -5,7 +5,7 @@ on:
   # Stable requires an explicit dispatch on reviewed main.
   push:
     branches:
-      - feature/wpf-net48-alpha-v0.9.27
+      - feature/skin-search-beta-v0.9.36
     paths:
       - wpf-net48/RELEASE_CANDIDATE_REQUEST.md
   workflow_dispatch:
@@ -13,7 +13,7 @@ on:
       release_tag:
         description: 'Tag matching the checked-out build'
         required: true
-        default: 'v0.9.35-wpf-rc.1'
+        default: 'v0.9.36-wpf-rc.1'
         type: string
       channel:
         description: 'Candidate for testing; stable only after real Windows acceptance'
@@ -39,7 +39,7 @@ jobs:
       run:
         shell: pwsh
     env:
-      RELEASE_TAG: ${{ github.event_name == 'push' && 'v0.9.35-wpf-rc.1' || inputs.release_tag }}
+      RELEASE_TAG: ${{ github.event_name == 'push' && 'v0.9.36-wpf-rc.1' || inputs.release_tag }}
       RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'candidate' || inputs.channel }}
       REAL_DEVICE_ACCEPTANCE: ${{ inputs.real_device_acceptance }}
     steps:
@@ -51,7 +51,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           if ($env:RELEASE_CHANNEL -eq 'candidate') {
             if ('${{ github.event_name }}' -eq 'push' -and
-                '${{ github.ref }}' -ne 'refs/heads/feature/wpf-net48-alpha-v0.9.27') {
+                '${{ github.ref }}' -ne 'refs/heads/feature/skin-search-beta-v0.9.36') {
               throw 'Automatic candidate publishing only runs on the WPF development branch'
             }
             if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+-wpf-rc\.\d+$') {
@@ -169,11 +169,15 @@ jobs:
 
           - 已安装模组显示自带图标，停用模组同样显示。缺少可用图片时显示默认方块。
           - 支持国内镜像和海外官方线路，提供 Microsoft 正版登录、实例管理及皮肤编辑。
+          - 本次预览版新增在线皮肤搜索、预览、PNG 下载、保存到本地皮肤库和继续 DIY 编辑（Mojang 玩家名 / UUID 与第三方社区关键词搜索）。
+          - 第三方在线搜索受服务可用性与网络影响，遇到网络失败时可继续离线编辑；请尊重作者许可。
+          - 此版本是测试版，尚未完成真实账号上传和中国内地不同网络环境的全面验收。
           - 可直接运行单文件 EXE，也可完整解压 ZIP 后打开 BlockCraftLauncher.Wpf.exe。
-          - 从 RC1 升级正式版时，在「设置 → 更新设置」选择「稳定版」，保存后检查更新。
+          - 从正式版 v0.9.35 切换到测试版：在「设置 → 更新设置」选择「预览版」，保存后检查更新。
           - 从 Python 版迁移时，请在独立目录打开 WPF 版，再选择已有游戏实例。
 
-          校验文件为 RELEASE-SHA256SUMS.txt。
+          测试反馈请提交至 https://github.com/minecraftlu/BlockCraftLauncher/issues 。
+          校验文件为 RELEASE-SHA256SUMS.txt。此包尚未获得 SignPath Foundation 数字签名。
           "@
           $text | Set-Content -LiteralPath (Join-Path $dist 'RELEASE-NOTES.txt') -Encoding UTF8
 
