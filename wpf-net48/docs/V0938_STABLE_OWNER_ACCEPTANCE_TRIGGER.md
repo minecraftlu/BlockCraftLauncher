@@ -14,3 +14,5 @@ v0.9.38 corrects that internal bootstrap version, keeps all previously accepted 
 - Reviewed patch pull request: https://github.com/minecraftlu/BlockCraftLauncher/pull/29
 
 Release this exact reviewed main patch only after a fresh Windows build, both package selftests, stable updater preflight from v0.9.36, SHA-256, Sigstore and GitHub provenance verification. The post-release upgrade test MUST confirm the new v0.9.38 OneFile cache and reopened WPF window. Do not overwrite the already published v0.9.37; retain it for traceability.
+
+The first v0.9.38 owner gate run stopped before compilation because its literal approval regex retained the escaped v0.9.37 pattern; the pattern is now corrected. No stable patch release was created by that attempt.
