@@ -34,5 +34,5 @@ assert "preview.SavePng(path)" in studio
 assert "document.LoadPng(temporary, item.SlimArms)" in studio
 assert "ConfirmDiscard()" in studio
 assert "OnlineSkinSearchService.RunOfflineSelfTest()" in app
-assert "DP-Plugins" in docs and "Mojang" in docs
+assert "dpplugins.com" in docs and "Mojang" in docs
 print("PASS: online skin search/download static wiring (real Windows tests still required)")
