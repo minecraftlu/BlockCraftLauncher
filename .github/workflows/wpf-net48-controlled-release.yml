@@ -56,6 +56,11 @@ jobs:
           if ($env:REAL_DEVICE_ACCEPTANCE -ne 'true') {
             throw 'Stable release requires explicit owner real-device acceptance'
           }
+          # A stable version is immutable. Refuse to rebuild or silently
+          # replace previously issued tags, even if the Release is a draft.
+          $existing = & git ls-remote --tags origin "refs/tags/$env:RELEASE_TAG"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot verify stable release tag availability' }
+          if ($existing) { throw 'Stable release tag already exists; refusing overwrite' }
           $source = Get-Content 'wpf-net48/src/BlockCraftLauncher.Wpf/Services/LauncherAutoUpdateService.cs' -Raw
           $tag = [regex]::Match($source, 'internal const string CurrentTag = "([^"]+)";').Groups[1].Value
           if ($tag -ne $env:RELEASE_TAG) { throw 'The release tag must match the installed updater tag' }
@@ -156,6 +161,7 @@ jobs:
 
           本版继承 v0.9.36 的皮肤、下载、自动更新与 UI 功能，并新增开源模组支持：
           - 下载中心支持 Mojang 玩家皮肤、开放许可图库与第三方社区皮肤搜索，图文列表、分类筛选、预览、PNG 下载及来源/许可记录。
+          - 新版 3D 皮肤预览支持鼠标 360° 旋转、缩放、自动旋转与皮肤外层切换；基础皮肤使用不依赖 GPU 图集采样的像素几何，RC5 用户已反馈实机正常。
           - 皮肤下载与模组下载同属「下载」分类，支持统一任务进度、取消与重试；「更多 → 皮肤 DIY」独立提供本地编辑、导入导出与明确确认的正版皮肤上传。
           - 未声明授权的公开皮肤仅在用户明确选择并确认版权提示后允许单张下载。下载不赋予转载、修改、商用或再分发权利。
           - 「联机 → 查找服务器」支持从第三方公开 Java 服务器目录按名称/IP、版本、缓存在线状态查找、排序和翻页；可收藏、复制地址或使用当前 Java 实例加入。
