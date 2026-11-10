@@ -535,6 +535,7 @@ namespace BlockCraftLauncher.Wpf
             packSearchCancellation = null;
             serverFinderCancellation?.Cancel();
             serverFinderCancellation = null;
+            serverFinderSearching = false;
             ClearDetails();
             detailTrigger = null;
             currentPage = page;
