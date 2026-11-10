@@ -8,8 +8,8 @@
     <AssemblyName>BlockCraftLauncher</AssemblyName>
     <RootNamespace>BlockCraftLauncher.OneFile</RootNamespace>
     <ApplicationIcon>..\src\BlockCraftLauncher.Wpf\Assets\blockcraft_icon.ico</ApplicationIcon>
-    <Version>0.9.32.0</Version>
-    <FileVersion>0.9.32.0</FileVersion>
+    <Version>0.9.33.0</Version>
+    <FileVersion>0.9.33.0</FileVersion>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System.Windows.Forms" />

@@ -1,133 +1,157 @@
 <Window x:Class="BlockCraftLauncher.Wpf.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="BlockCraft Launcher · Minecraft 启动器"
-        Width="1180" Height="770" MinWidth="870" MinHeight="620"
-        WindowStartupLocation="CenterScreen"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Style="{StaticResource {x:Type Window}}"
+        Title="BlockCraft Launcher · Minecraft Java 启动器"
+        Width="1080" Height="680" MinWidth="850" MinHeight="560"
+        WindowStyle="None" WindowStartupLocation="CenterScreen"
         Icon="Assets/blockcraft_icon.ico"
         UseLayoutRounding="True" SnapsToDevicePixels="True">
-  <!-- Only the sidebar and the active content page scroll at normal scale.
-       The outer viewport scrolls only if the user explicitly zooms beyond
-       the supported window area; this removes the screenshot's three bars. -->
-  <ScrollViewer x:Name="WindowViewport"
-                HorizontalScrollBarVisibility="Auto"
-                VerticalScrollBarVisibility="Auto"
-                Background="{DynamicResource WindowBrush}"
-                SizeChanged="WindowViewport_SizeChanged">
-    <Grid x:Name="Shell" MinWidth="840" MinHeight="580">
-      <Grid.LayoutTransform>
-        <ScaleTransform x:Name="UiScale" ScaleX="1" ScaleY="1"/>
-      </Grid.LayoutTransform>
-      <Grid.RowDefinitions>
-        <RowDefinition Height="60"/>
-        <RowDefinition Height="*"/>
-        <RowDefinition Height="32"/>
-      </Grid.RowDefinitions>
+  <shell:WindowChrome.WindowChrome>
+    <shell:WindowChrome CaptionHeight="46" ResizeBorderThickness="5"
+                        GlassFrameThickness="0" CornerRadius="0" UseAeroCaptionButtons="False"/>
+  </shell:WindowChrome.WindowChrome>
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="52"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="34"/>
+    </Grid.RowDefinitions>
 
-      <!-- Clear PCL-style primary navigation. The app name and logo remain
-           BlockCraft's own; all existing feature pages are retained. -->
-      <Border Grid.Row="0" Background="{DynamicResource HeaderBrush}">
-        <Grid Margin="18,0">
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="Auto"/>
-            <ColumnDefinition Width="Auto"/>
-          </Grid.ColumnDefinitions>
-          <StackPanel Grid.Column="0" Orientation="Horizontal"
-                      VerticalAlignment="Center">
-            <Image Source="Assets/blockcraft_icon.png" Width="34" Height="34"
-                   Margin="0,0,9,0"/>
-            <StackPanel VerticalAlignment="Center">
-              <TextBlock Text="BlockCraft" Foreground="{DynamicResource HeaderTextBrush}"
-                         FontWeight="SemiBold" FontSize="18"/>
-              <TextBlock Text="独立开发的 Minecraft Java 启动器"
-                         Foreground="#D8EDFF" FontSize="10" Margin="0,0,0,0"/>
-            </StackPanel>
-          </StackPanel>
-          <StackPanel Grid.Column="1" Orientation="Horizontal"
-                      VerticalAlignment="Center">
-            <Button x:Name="TopLaunchButton" Style="{StaticResource HeaderTab}">
-              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="&#xE768;" FontFamily="Segoe MDL2 Assets"
-                           FontSize="15" Margin="0,0,7,0"
-                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                <TextBlock Text="启动" VerticalAlignment="Center"
-                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-              </StackPanel>
-            </Button>
-            <Button x:Name="TopDownloadButton" Style="{StaticResource HeaderTab}">
-              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="&#xE896;" FontFamily="Segoe MDL2 Assets"
-                           FontSize="15" Margin="0,0,7,0"
-                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                <TextBlock Text="下载" VerticalAlignment="Center"
-                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-              </StackPanel>
-            </Button>
-            <Button x:Name="TopSettingsButton" Style="{StaticResource HeaderTab}">
-              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets"
-                           FontSize="15" Margin="0,0,7,0"
-                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                <TextBlock Text="设置" VerticalAlignment="Center"
-                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-              </StackPanel>
-            </Button>
-            <Button x:Name="TopMoreButton" Style="{StaticResource HeaderTab}">
-              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="&#xE80F;" FontFamily="Segoe MDL2 Assets"
-                           FontSize="15" Margin="0,0,7,0"
-                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                <TextBlock Text="更多" VerticalAlignment="Center"
-                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-              </StackPanel>
-            </Button>
-          </StackPanel>
-          <TextBlock Grid.Column="2" Text="BlockCraft" FontSize="10" FontWeight="SemiBold"
-                     Foreground="#D5EBFE" Margin="12,0,0,0"
-                     VerticalAlignment="Center"/>
-        </Grid>
-      </Border>
-
-      <Grid Grid.Row="1" Background="{DynamicResource PageBrush}">
+    <Border Background="{DynamicResource TitleBarBrush}">
+      <Grid Margin="13,0,5,0">
         <Grid.ColumnDefinitions>
-          <ColumnDefinition x:Name="SideColumn" Width="188"/>
+          <ColumnDefinition Width="187"/>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+          <Image Source="Assets/blockcraft_icon.png" Width="25" Height="25" Margin="0,0,8,0"/>
+          <TextBlock Text="BlockCraft Launcher" FontSize="15" FontWeight="SemiBold"
+                     Foreground="{DynamicResource HeaderTextBrush}" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <StackPanel x:Name="TopNavigation" Grid.Column="1" Orientation="Horizontal"
+                    VerticalAlignment="Center">
+          <Button x:Name="TopLaunchButton" Style="{StaticResource HeaderTab}" AutomationProperties.Name="启动">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="&#xE768;" Style="{StaticResource HeaderGlyph}"/>
+              <TextBlock Text="启动" Style="{StaticResource HeaderLabel}"/>
+            </StackPanel>
+          </Button>
+          <Button x:Name="TopDownloadButton" Style="{StaticResource HeaderTab}" AutomationProperties.Name="下载">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="&#xE896;" Style="{StaticResource HeaderGlyph}"/>
+              <TextBlock Text="下载" Style="{StaticResource HeaderLabel}"/>
+            </StackPanel>
+          </Button>
+          <Button x:Name="TopMultiplayerButton" Style="{StaticResource HeaderTab}" AutomationProperties.Name="联机">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="&#xE902;" Style="{StaticResource HeaderGlyph}"/>
+              <TextBlock Text="联机" Style="{StaticResource HeaderLabel}"/>
+            </StackPanel>
+          </Button>
+          <Button x:Name="TopSettingsButton" Style="{StaticResource HeaderTab}" AutomationProperties.Name="设置">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="&#xE713;" Style="{StaticResource HeaderGlyph}"/>
+              <TextBlock Text="设置" Style="{StaticResource HeaderLabel}"/>
+            </StackPanel>
+          </Button>
+          <Button x:Name="TopMoreButton" Style="{StaticResource HeaderTab}" AutomationProperties.Name="更多">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="&#xE712;" Style="{StaticResource HeaderGlyph}"/>
+              <TextBlock Text="更多" Style="{StaticResource HeaderLabel}"/>
+            </StackPanel>
+          </Button>
+        </StackPanel>
+        <Grid x:Name="ContextNavigation" Grid.Column="1" Visibility="Collapsed">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <Button x:Name="BackButton" Style="{StaticResource HeaderTab}" MinWidth="0"
+                  Click="BackButton_Click" AutomationProperties.Name="返回">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="&#xE72B;" Style="{StaticResource HeaderGlyph}"/>
+              <TextBlock Text="返回" Style="{StaticResource HeaderLabel}"/>
+            </StackPanel>
+          </Button>
+          <TextBlock x:Name="ContextTitle" Grid.Column="1" FontSize="15" FontWeight="SemiBold"
+                     Foreground="{DynamicResource HeaderTextBrush}" VerticalAlignment="Center"
+                     Margin="10,0,12,0" TextTrimming="CharacterEllipsis"/>
+        </Grid>
+
+        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+          <Button Style="{StaticResource CaptionButton}" ToolTip="最小化"
+                  AutomationProperties.Name="最小化" Click="MinimizeButton_Click">
+            <TextBlock Style="{StaticResource HeaderGlyph}" Margin="0" Text="&#xE921;"/>
+          </Button>
+          <Button x:Name="MaximizeButton" Style="{StaticResource CaptionButton}"
+                  ToolTip="最大化 / 还原" AutomationProperties.Name="最大化或还原"
+                  Click="MaximizeButton_Click">
+            <TextBlock x:Name="MaximizeGlyph" Style="{StaticResource HeaderGlyph}" Margin="0" Text="&#xE922;"/>
+          </Button>
+          <Button Style="{StaticResource CaptionButton}" ToolTip="关闭"
+                  AutomationProperties.Name="关闭" Click="CloseButton_Click">
+            <TextBlock Style="{StaticResource HeaderGlyph}" Margin="0" Text="&#xE8BB;"/>
+          </Button>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <ScrollViewer x:Name="WindowViewport" Grid.Row="1"
+                  HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                  Background="{DynamicResource PageBrush}" SizeChanged="WindowViewport_SizeChanged">
+      <Grid x:Name="Shell" MinWidth="820" MinHeight="320">
+        <Grid.LayoutTransform>
+          <ScaleTransform x:Name="UiScale" ScaleX="1" ScaleY="1"/>
+        </Grid.LayoutTransform>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition x:Name="SideColumn" Width="164"/>
           <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
-        <Border x:Name="SideBar" Grid.Column="0" BorderThickness="0,0,1,0"
-                BorderBrush="{DynamicResource BorderBrushTheme}"
-                Background="{DynamicResource PanelBrush}" Padding="8,16,7,8">
-          <ScrollViewer VerticalScrollBarVisibility="Auto"
-                        HorizontalScrollBarVisibility="Disabled">
-            <StackPanel x:Name="SideMenu"/>
+        <Border x:Name="SideBar" Background="{DynamicResource SidebarBrush}"
+                BorderBrush="{DynamicResource BorderBrushTheme}" BorderThickness="0,0,1,0">
+          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Grid>
+              <ContentControl x:Name="LaunchPane" HorizontalContentAlignment="Stretch"
+                              VerticalContentAlignment="Top" Visibility="Collapsed"/>
+              <StackPanel x:Name="SideMenu" Margin="8,14,8,10"/>
+            </Grid>
           </ScrollViewer>
         </Border>
         <ScrollViewer x:Name="PageScroll" Grid.Column="1"
-                      VerticalScrollBarVisibility="Auto"
-                      HorizontalScrollBarVisibility="Disabled"
-                      Padding="23,20,23,14">
-          <ContentControl x:Name="PageHost"
-                          HorizontalContentAlignment="Stretch"
-                          VerticalContentAlignment="Top"/>
+                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                      Padding="20,16,20,9">
+          <Grid>
+            <ContentControl x:Name="PageHost" HorizontalContentAlignment="Stretch"
+                            VerticalContentAlignment="Top"/>
+            <ContentControl x:Name="DetailHost" HorizontalContentAlignment="Stretch"
+                            VerticalContentAlignment="Top" Visibility="Collapsed"/>
+          </Grid>
         </ScrollViewer>
       </Grid>
+    </ScrollViewer>
 
-      <Border Grid.Row="2" Background="{DynamicResource WindowBrush}"
-              BorderBrush="{DynamicResource BorderBrushTheme}"
-              BorderThickness="0,1,0,0" Padding="15,0">
-        <Grid>
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
-          </Grid.ColumnDefinitions>
-          <TextBlock x:Name="StatusText" Grid.Column="0" Text="就绪"
-                     Foreground="{DynamicResource MutedBrush}" FontSize="11"
-                     TextTrimming="CharacterEllipsis"
-                     VerticalAlignment="Center"/>
-          <TextBlock Grid.Column="1" Text="BlockCraft  ·  v0.9.32 WPF 预览"
-                     FontSize="10" Foreground="{DynamicResource MutedBrush}"
-                     VerticalAlignment="Center"/>
-        </Grid>
-      </Border>
-    </Grid>
-  </ScrollViewer>
+    <Border Grid.Row="2" Background="{DynamicResource WindowBrush}" Padding="14,0,9,0"
+            BorderBrush="{DynamicResource BorderBrushTheme}" BorderThickness="0,1,0,0">
+      <DockPanel LastChildFill="True">
+        <Button x:Name="TaskShortcut" DockPanel.Dock="Right" Style="{StaticResource FooterButton}"
+                AutomationProperties.Name="打开下载任务">
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="&#xE896;" FontFamily="Segoe MDL2 Assets" FontSize="13" Margin="0,0,6,0"/>
+            <TextBlock Text="下载任务"/>
+          </StackPanel>
+        </Button>
+        <TextBlock x:Name="BuildVersionText" DockPanel.Dock="Right" Margin="0,0,12,0"
+                   FontSize="11" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
+        <TextBlock x:Name="StatusText" Text="就绪" Margin="0,0,12,0"
+                   Foreground="{DynamicResource MutedBrush}" FontSize="11"
+                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+      </DockPanel>
+    </Border>
+  </Grid>
 </Window>

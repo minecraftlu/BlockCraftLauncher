@@ -67,7 +67,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $launchers = @(
             'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe',
-            'dist/BlockCraftLauncher-v0.9.32-WPF-OneFile-Windows-x64.exe'
+            'dist/BlockCraftLauncher-v0.9.33-WPF-OneFile-Windows-x64.exe'
           )
           foreach ($launcher in $launchers) {
             $exe = (Resolve-Path $launcher).Path
@@ -117,6 +117,8 @@ jobs:
         shell: pwsh
         working-directory: wpf-net48
         timeout-minutes: 2
+        env:
+          BLOCKCRAFT_UI_CAPTURE_DIR: ${{ runner.temp }}/blockcraft-ui-check
         run: |
           $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
           $process = Start-Process -FilePath $exe -ArgumentList '--ui-layout-selftest' -PassThru
@@ -173,7 +175,7 @@ jobs:
         working-directory: wpf-net48
         timeout-minutes: 2
         run: |
-          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.32-WPF-OneFile-Windows-x64.exe').Path
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.33-WPF-OneFile-Windows-x64.exe').Path
           $process = Start-Process -FilePath $exe -ArgumentList '--download-ui-selftest' -PassThru
           if (-not $process.WaitForExit(60000)) {
             $process.Kill()
@@ -191,7 +193,7 @@ jobs:
         working-directory: wpf-net48
         timeout-minutes: 2
         run: |
-          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.32-WPF-OneFile-Windows-x64.exe').Path
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.33-WPF-OneFile-Windows-x64.exe').Path
           $process = Start-Process -FilePath $exe -ArgumentList '--ui-layout-selftest' -PassThru
           if (-not $process.WaitForExit(60000)) {
             $process.Kill()
@@ -212,7 +214,7 @@ jobs:
         working-directory: wpf-net48
         timeout-minutes: 2
         run: |
-          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.32-WPF-OneFile-Windows-x64.exe').Path
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.33-WPF-OneFile-Windows-x64.exe').Path
           $process = Start-Process -FilePath $exe -ArgumentList '--download-selftest' -PassThru
           if (-not $process.WaitForExit(60000)) {
             $process.Kill()
@@ -251,7 +253,7 @@ jobs:
         working-directory: wpf-net48
         timeout-minutes: 2
         run: |
-          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.32-WPF-OneFile-Windows-x64.exe').Path
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.33-WPF-OneFile-Windows-x64.exe').Path
           $process = Start-Process -FilePath $exe -ArgumentList '--modrinth-search-selftest' -PassThru
           if (-not $process.WaitForExit(60000)) {
             $process.Kill()
@@ -289,7 +291,7 @@ jobs:
         working-directory: wpf-net48
         timeout-minutes: 2
         run: |
-          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.32-WPF-OneFile-Windows-x64.exe').Path
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.33-WPF-OneFile-Windows-x64.exe').Path
           $process = Start-Process -FilePath $exe -ArgumentList '--modrinth-deps-selftest' -PassThru
           if (-not $process.WaitForExit(60000)) {
             $process.Kill()
@@ -327,7 +329,7 @@ jobs:
         working-directory: wpf-net48
         timeout-minutes: 2
         run: |
-          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.32-WPF-OneFile-Windows-x64.exe').Path
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.33-WPF-OneFile-Windows-x64.exe').Path
           $process = Start-Process -FilePath $exe -ArgumentList '--saves-restore-selftest' -PassThru
           if (-not $process.WaitForExit(60000)) {
             $process.Kill()
@@ -365,7 +367,7 @@ jobs:
         working-directory: wpf-net48
         timeout-minutes: 2
         run: |
-          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.32-WPF-OneFile-Windows-x64.exe').Path
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.33-WPF-OneFile-Windows-x64.exe').Path
           $process = Start-Process -FilePath $exe -ArgumentList '--instance-detection-selftest' -PassThru
           if (-not $process.WaitForExit(60000)) {
             $process.Kill()
@@ -402,7 +404,7 @@ jobs:
         working-directory: wpf-net48
         timeout-minutes: 2
         run: |
-          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.32-WPF-OneFile-Windows-x64.exe').Path
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.33-WPF-OneFile-Windows-x64.exe').Path
           $process = Start-Process -FilePath $exe -ArgumentList '--auth-selftest' -PassThru
           if (-not $process.WaitForExit(45000)) {
             $process.Kill()
@@ -421,7 +423,7 @@ jobs:
         working-directory: wpf-net48
         timeout-minutes: 2
         run: |
-          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.32-WPF-OneFile-Windows-x64.exe').Path
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.33-WPF-OneFile-Windows-x64.exe').Path
           $process = Start-Process -FilePath $exe -ArgumentList '--smoke-test' -PassThru
           if (-not $process.WaitForExit(60000)) {
             $process.Kill()
@@ -439,14 +441,21 @@ jobs:
         working-directory: wpf-net48
         run: |
           if (!(Test-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe')) { throw 'EXE not produced' }
-          if (!(Test-Path 'dist/BlockCraftLauncher-v0.9.32-WPF-net48-Alpha-Windows-x64.zip')) { throw 'ZIP not produced' }
-          if (!(Test-Path 'dist/BlockCraftLauncher-v0.9.32-WPF-OneFile-Windows-x64.exe')) { throw 'One-file EXE not produced' }
+          if (!(Test-Path 'dist/BlockCraftLauncher-v0.9.33-WPF-net48-Alpha-Windows-x64.zip')) { throw 'ZIP not produced' }
+          if (!(Test-Path 'dist/BlockCraftLauncher-v0.9.33-WPF-OneFile-Windows-x64.exe')) { throw 'One-file EXE not produced' }
       - uses: actions/upload-artifact@v4
         with:
-          name: BlockCraftLauncher-v0.9.32-WPF-net48-Windows-Alpha
+          name: BlockCraftLauncher-v0.9.33-WPF-net48-Windows-Alpha
           path: |
-            wpf-net48/dist/BlockCraftLauncher-v0.9.32-WPF-net48-Alpha-Windows-x64.zip
-            wpf-net48/dist/BlockCraftLauncher-v0.9.32-WPF-OneFile-Windows-x64.exe
-            wpf-net48/dist/BlockCraftLauncher-v0.9.32-WPF-OneFile-Windows-x64.exe.sha256
+            wpf-net48/dist/BlockCraftLauncher-v0.9.33-WPF-net48-Alpha-Windows-x64.zip
+            wpf-net48/dist/BlockCraftLauncher-v0.9.33-WPF-OneFile-Windows-x64.exe
+            wpf-net48/dist/BlockCraftLauncher-v0.9.33-WPF-OneFile-Windows-x64.exe.sha256
           if-no-files-found: error
           retention-days: 14
+      - name: Upload Windows layout verification captures
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlockCraftLauncher-WPF-layout-check
+          path: ${{ runner.temp }}/blockcraft-ui-check/*.png
+          retention-days: 3
+          if-no-files-found: error

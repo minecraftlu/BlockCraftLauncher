@@ -7,9 +7,11 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using BlockCraftLauncher.Wpf.Models;
@@ -46,7 +48,7 @@ namespace BlockCraftLauncher.Wpf
         readonly ObservableCollection<MinecraftVersionEntry> gameVersions = new ObservableCollection<MinecraftVersionEntry>();
         readonly DownloadTaskCenter downloads = new DownloadTaskCenter(3);
         DownloadJob versionInstallJob;
-        bool installingGame;
+        string versionLoadError;
         ComboBox versionCategory, settingsNetworkMode;
         TextBox settingsDownloadThreads, settingsDownloadRetries;
         ListBox downloadList;
@@ -63,6 +65,13 @@ namespace BlockCraftLauncher.Wpf
         readonly DispatcherTimer gameProcessTimer = new DispatcherTimer(DispatcherPriority.Background);
         TextBlock gameProcessText;
         Button homeLaunchButton;
+        TextBlock homeLaunchLabel, homeVersionCaption, homeProfileName, homeProfileInfo;
+        ListBox profileList;
+        string versionSettingsReturnPage = "首页";
+        string detailTitle;
+        double detailReturnOffset;
+        IInputElement detailTrigger;
+        Dictionary<string, UIElement> settingsPages;
         ComboBox localResourceKind;
         ListBox localResourceList, serverList, lanWorldList;
         TextBox serverName, serverAddress;
@@ -83,12 +92,12 @@ namespace BlockCraftLauncher.Wpf
         CheckBox settingsMcim;
         GameProfile activeProfile;
         string currentPage = "首页";
-        ComboBox homeProfile, versionLoader, settingsTheme;
-        Button versionInstallButton, versionCancelButton;
+        ComboBox versionLoader, settingsTheme;
+        Button versionInstallButton, versionCancelButton, versionReloadButton;
         TextBox versionQuery, resourceQuery, settingsRoot, settingsProxy, settingsJava, settingsPlayer, settingsMemory;
         TextBlock versionCounter;
         ListBox versionList, resourceList;
-        TextBlock accountText, zoomValue;
+        TextBlock zoomValue;
         Slider settingsZoom;
         string resourceType = "mod";
         int resourcePage;
@@ -110,10 +119,15 @@ namespace BlockCraftLauncher.Wpf
             activeProfile = settings.Profiles.FirstOrDefault();
             TopLaunchButton.Click += (sender, args) => Navigate("首页");
             TopDownloadButton.Click += (sender, args) => Navigate("游戏版本");
+            TopMultiplayerButton.Click += (sender, args) => Navigate("多人联机");
             TopSettingsButton.Click += (sender, args) => Navigate("设置");
-            TopMoreButton.Click += (sender, args) => Navigate("模组更新");
-            ApplyTheme(); ApplyZoom(); BuildSidebar(); Navigate("首页");
-            Log("已读取旧版本配置；WPF 预览设置将单独保存，不覆盖原 Python 启动器配置。");
+            TopMoreButton.Click += (sender, args) => Navigate("关于");
+            TaskShortcut.Click += (sender, args) => Navigate("下载管理");
+            BuildVersionText.Text = LauncherAutoUpdateService.CurrentTag + "  ·  预览版";
+            ApplyTheme();
+            ApplyZoom();
+            Navigate("首页");
+            Log("启动器设置已加载。");
             gameProcesses.ProcessExited += (profile, state) =>
                 Log("Minecraft 已退出：" + profile.Name + "（PID " + state.ProcessId
                     + "，退出码 " + (state.ExitCode?.ToString() ?? "未知") + "）");
@@ -144,25 +158,22 @@ namespace BlockCraftLauncher.Wpf
             var label = new TextBlock
             {
                 Text = text,
-                FontSize = size >= 22 ? size - 1 : size,
+                FontSize = size,
                 FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal,
                 TextWrapping = TextWrapping.Wrap,
-                LineHeight = size >= 20 ? size + 9 : size + 6,
-                Margin = new Thickness(0, 0, 0, size >= 20 ? 12 : 9)
+                LineHeight = size + 5,
+                Margin = new Thickness(0, 0, 0, 7)
             };
             if (muted) label.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
             return label;
         }
-        static UIElement PageHeading(string group, string title, string summary)
+
+        static UIElement PageHeading(string title, string summary)
         {
-            var overline = Txt("BLOCKCRAFT   /   " + group, 11, true, true);
-            overline.SetResourceReference(TextBlock.ForegroundProperty, "AccentBrush");
-            overline.Margin = new Thickness(2, 0, 0, 4);
-            var heading = Txt(title, 25, true);
-            heading.Margin = new Thickness(0, 0, 0, 5);
+            var heading = Txt(title, 21, true);
             var description = Txt(summary, 12, false, true);
-            description.Margin = new Thickness(0, 0, 0, 17);
-            return Col(overline, heading, description);
+            description.Margin = new Thickness(0, 0, 0, 12);
+            return Col(heading, description);
         }
 
         static Border SearchCard(UIElement content)
@@ -212,25 +223,21 @@ namespace BlockCraftLauncher.Wpf
         }
         static Button Btn(string caption, Action action, bool accent = false)
         {
-            // Consistent Segoe MDL2 icons replace mixed emoji, box symbols and
-            // font-dependent characters across all generated feature pages.
-            var text = (caption ?? "").Trim();
-            while (text.Length > 0 && "▶⬇◇▤☼⇩⚙▣⟳ ".IndexOf(text[0]) >= 0)
-                text = text.Substring(1).TrimStart();
-            var b = new Button { MinHeight = 37 };
-            var content = new StackPanel { Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-            string glyph = ActionGlyph(text);
+            var b = new Button { MaxWidth = 338 };
+            AutomationProperties.SetName(b, caption);
+            var content = new DockPanel { VerticalAlignment = VerticalAlignment.Center };
+            string glyph = ActionGlyph(caption);
             if (glyph.Length > 0)
             {
                 var symbol = new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"),
                     FontSize = 14, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0) };
                 symbol.SetBinding(TextBlock.ForegroundProperty,
                     new Binding("Foreground") { Source = b, Mode = BindingMode.OneWay });
+                DockPanel.SetDock(symbol, Dock.Left);
                 content.Children.Add(symbol);
             }
-            var label = new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center,
-                TextWrapping = TextWrapping.NoWrap };
+            var label = new TextBlock { Text = caption, VerticalAlignment = VerticalAlignment.Center,
+                TextWrapping = TextWrapping.Wrap };
             label.SetBinding(TextBlock.ForegroundProperty,
                 new Binding("Foreground") { Source = b, Mode = BindingMode.OneWay });
             content.Children.Add(label);
@@ -251,19 +258,18 @@ namespace BlockCraftLauncher.Wpf
         }
         static WrapPanel Row(params UIElement[] children)
         {
-            // Wrap narrow toolbars and translated text instead of pushing
-            // their buttons underneath the right-hand scrollbar.
             var p = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             foreach (var c in children) p.Children.Add(c); return p;
         }
-        static void AddNavSection(Panel sidebar, string heading, IEnumerable<string> names, Action<string> navigate, Dictionary<string, Button> buttonMap)
+        void AddNavSection(string heading, params string[] names)
         {
             var title = Txt(heading, 11, true, true);
-            title.Margin = new Thickness(13, 5, 0, 8);
-            sidebar.Children.Add(title);
+            title.Margin = new Thickness(10, 6, 0, 5);
+            SideMenu.Children.Add(title);
             foreach (var name in names)
             {
                 var btn = new Button();
+                AutomationProperties.SetName(btn, NavLabel(name));
                 var content = new StackPanel { Orientation = Orientation.Horizontal,
                     VerticalAlignment = VerticalAlignment.Center };
                 var icon = new TextBlock { Text = NavGlyph(name),
@@ -279,28 +285,27 @@ namespace BlockCraftLauncher.Wpf
                 content.Children.Add(icon);
                 content.Children.Add(label);
                 btn.Content = content;
-                btn.Click += (sender, args) => navigate(name);
+                btn.Click += (sender, args) => Navigate(name);
                 btn.SetResourceReference(FrameworkElement.StyleProperty, "SidebarItem");
-                sidebar.Children.Add(btn);
-                buttonMap[name] = btn;
+                SideMenu.Children.Add(btn);
+                sidebarButtons[name] = btn;
             }
-            sidebar.Children.Add(new Separator { Margin = new Thickness(10, 8, 10, 13) });
+            SideMenu.Children.Add(new Border { Height = 7 });
         }
         static string NavLabel(string page)
         {
             switch (page)
             {
-                case "首页": return "启动游戏";
-                case "游戏版本": return "Minecraft 版本";
+                case "版本设置": return "概览";
+                case "模组更新": return "模组与资源";
+                case "存档管理": return "存档";
+                case "游戏版本": return "原版游戏";
                 case "下载管理": return "下载任务";
-                case "资源中心": return "Mod 搜索";
-                case "光影引擎": return "光影包下载";
-                case "资源包": return "资源包下载";
-                case "整合包": return "整合包搜索";
-                case "CurseForge": return "CurseForge";
-                case "模组更新": return "本地模组管理";
-                case "皮肤 DIY": return "皮肤 DIY 工作室";
-                case "设置": return "启动器设置";
+                case "资源中心": return "模组";
+                case "光影引擎": return "光影包";
+                case "皮肤 DIY": return "皮肤编辑";
+                case "设置": return "启动设置";
+                case "多人联机": return "服务器";
                 default: return page;
             }
         }
@@ -309,49 +314,186 @@ namespace BlockCraftLauncher.Wpf
         {
             switch (page)
             {
-                case "首页": return "\uE80F";
-                case "游戏版本": return "\uE8A5";
+                case "版本选择":
+                case "游戏版本": return "\uE7B8";
+                case "版本设置": return "\uE8A5";
+                case "存档管理": return "\uE74E";
                 case "下载管理": return "\uE896";
-                case "资源中心": return "\uE8B7";
-                case "光影引擎": return "\uE790";
+                case "资源中心":
+                case "模组更新": return "\uE8B7";
+                case "光影引擎":
+                case "个性化": return "\uE790";
                 case "资源包": return "\uE8A7";
                 case "整合包": return "\uE8F1";
                 case "CurseForge": return "\uE753";
-                case "模组更新": return "\uE72C";
-                case "皮肤 DIY": return "\uE790";
-                case "多人联机": return "\uE902";
-                case "启动器更新": return "\uE777";
+                case "皮肤 DIY": return "\uE70F";
+                case "多人联机":
+                case "局域网": return "\uE902";
+                case "启动器更新":
+                case "更新设置": return "\uE777";
+                case "下载设置": return "\uE774";
                 case "设置": return "\uE713";
-                case "运行日志": return "\uE8A5";
-                default: return "\uE8A7";
+                case "运行日志": return "\uE9F9";
+                default: return "\uE946";
             }
         }
-        void BuildSidebar()
+        enum NavigationSection { Launch, Versions, VersionSettings, Download, Multiplayer, Settings, More }
+
+        static NavigationSection SectionFor(string page)
         {
-            SideMenu.Children.Clear(); sidebarButtons.Clear();
-            AddNavSection(SideMenu, "游戏 · 版本下载", new[] { "首页", "游戏版本", "下载管理" }, Navigate, sidebarButtons);
-            AddNavSection(SideMenu, "社区 · 在线搜索", new[] { "资源中心", "整合包", "资源包", "光影引擎", "CurseForge" }, Navigate, sidebarButtons);
-            AddNavSection(SideMenu, "管理 · 帮助工具", new[] { "皮肤 DIY", "模组更新", "多人联机", "启动器更新", "设置", "运行日志" }, Navigate, sidebarButtons);
-            SideMenu.Children.Add(Txt("当前账号", 12, true, true));
-            SideMenu.Children.Add(Txt(settings.AccountMode == "offline" ? "离线：" + settings.OfflineName :
-                (settings.AccountMode == "microsoft" ? "微软正版：" + settings.AccountName : "未登录"), 13));
-            SideMenu.Children.Add(Btn("切换到离线模式", EditOfflineAccount));
-            SideMenu.Children.Add(Btn("微软正版登录", async () => await LoginMicrosoftAsync()));
-            SideMenu.Children.Add(Btn("退出账号", async () => await SignOutAsync()));
+            switch (page)
+            {
+                case "首页": return NavigationSection.Launch;
+                case "版本选择": return NavigationSection.Versions;
+                case "版本设置":
+                case "模组更新":
+                case "存档管理":
+                    return NavigationSection.VersionSettings;
+                case "游戏版本":
+                case "下载管理":
+                case "资源中心":
+                case "光影引擎":
+                case "资源包":
+                case "整合包":
+                case "CurseForge":
+                    return NavigationSection.Download;
+                case "多人联机":
+                case "局域网":
+                    return NavigationSection.Multiplayer;
+                case "设置":
+                case "下载设置":
+                case "个性化":
+                case "更新设置":
+                    return NavigationSection.Settings;
+                default: return NavigationSection.More;
+            }
         }
+
+        void BuildSidebar(NavigationSection section, string page)
+        {
+            SideMenu.Children.Clear();
+            sidebarButtons.Clear();
+            LaunchPane.Visibility = section == NavigationSection.Launch ? Visibility.Visible : Visibility.Collapsed;
+            SideMenu.Visibility = section == NavigationSection.Launch ? Visibility.Collapsed : Visibility.Visible;
+            SideColumn.Width = new GridLength(section == NavigationSection.Launch ? 264 : 164);
+            switch (section)
+            {
+                case NavigationSection.Versions:
+                    AddNavSection("本地游戏", "版本选择");
+                    break;
+                case NavigationSection.VersionSettings:
+                    AddNavSection("版本设置", "版本设置", "模组更新", "存档管理");
+                    break;
+                case NavigationSection.Download:
+                    AddNavSection("游戏", "游戏版本");
+                    AddNavSection("社区资源", "资源中心", "整合包", "资源包", "光影引擎", "CurseForge");
+                    AddNavSection("任务", "下载管理");
+                    break;
+                case NavigationSection.Multiplayer:
+                    AddNavSection("Minecraft Java", "多人联机", "局域网");
+                    break;
+                case NavigationSection.Settings:
+                    AddNavSection("启动器设置", "设置", "下载设置", "个性化", "更新设置");
+                    break;
+                case NavigationSection.More:
+                    AddNavSection("工具", "皮肤 DIY", "启动器更新", "运行日志");
+                    AddNavSection("信息", "关于");
+                    break;
+            }
+            if (sidebarButtons.TryGetValue(page, out var active))
+                active.SetResourceReference(FrameworkElement.StyleProperty, "SidebarItemActive");
+        }
+
+        static void SetHeaderTab(Button button, bool active) =>
+            button.SetResourceReference(FrameworkElement.StyleProperty, active ? "HeaderTabActive" : "HeaderTab");
+
+        void UpdateHeader(NavigationSection section)
+        {
+            bool detailOpen = DetailHost.Content != null;
+            bool inner = detailOpen || section == NavigationSection.Versions ||
+                section == NavigationSection.VersionSettings;
+            TopNavigation.Visibility = inner ? Visibility.Collapsed : Visibility.Visible;
+            ContextNavigation.Visibility = inner ? Visibility.Visible : Visibility.Collapsed;
+            ContextTitle.Text = detailOpen ? detailTitle :
+                section == NavigationSection.VersionSettings
+                    ? "版本设置" + (activeProfile == null ? "" : "  /  " + activeProfile.Name)
+                    : "版本选择";
+            SetHeaderTab(TopLaunchButton, section == NavigationSection.Launch);
+            SetHeaderTab(TopDownloadButton, section == NavigationSection.Download);
+            SetHeaderTab(TopMultiplayerButton, section == NavigationSection.Multiplayer);
+            SetHeaderTab(TopSettingsButton, section == NavigationSection.Settings);
+            SetHeaderTab(TopMoreButton, section == NavigationSection.More);
+        }
+
+        void BackButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DetailHost.Content != null)
+            {
+                ClearDetails();
+                UpdateHeader(SectionFor(currentPage));
+                PageScroll.UpdateLayout();
+                PageScroll.ScrollToVerticalOffset(detailReturnOffset);
+                if (detailTrigger != null) System.Windows.Input.Keyboard.Focus(detailTrigger);
+                detailTrigger = null;
+                return;
+            }
+            Navigate(SectionFor(currentPage) == NavigationSection.VersionSettings
+                ? versionSettingsReturnPage : "首页");
+        }
+
+        void ShowDetails(string title, UIElement details)
+        {
+            detailReturnOffset = PageScroll.VerticalOffset;
+            detailTrigger = System.Windows.Input.Keyboard.FocusedElement;
+            detailTitle = title;
+            DetailHost.Content = details;
+            DetailHost.Visibility = Visibility.Visible;
+            PageHost.Visibility = Visibility.Collapsed;
+            UpdateHeader(SectionFor(currentPage));
+            PageScroll.ScrollToTop();
+            BackButton.Focus();
+        }
+
+        void ClearDetails()
+        {
+            DetailHost.Content = null;
+            DetailHost.Visibility = Visibility.Collapsed;
+            PageHost.Visibility = Visibility.Visible;
+        }
+
+        void MinimizeButton_Click(object sender, RoutedEventArgs e) => SystemCommands.MinimizeWindow(this);
+        void CloseButton_Click(object sender, RoutedEventArgs e) => SystemCommands.CloseWindow(this);
+        void MaximizeButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (WindowState == WindowState.Maximized)
+                SystemCommands.RestoreWindow(this);
+            else
+                SystemCommands.MaximizeWindow(this);
+        }
+
+        protected override void OnStateChanged(EventArgs e)
+        {
+            base.OnStateChanged(e);
+            if (MaximizeGlyph != null)
+                MaximizeGlyph.Text = WindowState == WindowState.Maximized ? "\uE923" : "\uE922";
+        }
+
         void Navigate(string page)
         {
-            // Cancel searches before replacing the page to avoid a completed
-            // response rendering into a different resource page.
             resourceSearchCancellation?.Cancel();
             resourceSearchCancellation = null;
             cfSearchCancellation?.Cancel();
             cfSearchCancellation = null;
             packSearchCancellation?.Cancel();
             packSearchCancellation = null;
+            ClearDetails();
+            detailTrigger = null;
             currentPage = page;
+            var section = SectionFor(page);
+            if (section != NavigationSection.Settings) settingsPages = null;
             gameProcessText = null;
             homeLaunchButton = null;
+            profileList = null;
             updateStatusText = null;
             updateNotesText = null;
             updateInstallButton = null;
@@ -360,26 +502,15 @@ namespace BlockCraftLauncher.Wpf
             updateProgressBar = null;
             homeUpdateText = null;
             homeUpdateCard = null;
-            SideBar.Visibility = page == "首页" ? Visibility.Collapsed : Visibility.Visible;
-            SideColumn.Width = page == "首页" ? new GridLength(0) : new GridLength(188);
-            foreach (var pair in sidebarButtons)
-                pair.Value.SetResourceReference(FrameworkElement.StyleProperty,
-                    pair.Key == page ? "SidebarItemActive" : "SidebarItem");
-            string primary = page == "首页" ? "启动"
-                : (page == "游戏版本" || page == "下载管理" || page == "资源中心"
-                    || page == "光影引擎" || page == "资源包" || page == "整合包"
-                    || page == "CurseForge" ? "下载" : page == "设置" ? "设置" : "更多");
-            TopLaunchButton.SetResourceReference(FrameworkElement.StyleProperty,
-                primary == "启动" ? "HeaderTabActive" : "HeaderTab");
-            TopDownloadButton.SetResourceReference(FrameworkElement.StyleProperty,
-                primary == "下载" ? "HeaderTabActive" : "HeaderTab");
-            TopSettingsButton.SetResourceReference(FrameworkElement.StyleProperty,
-                primary == "设置" ? "HeaderTabActive" : "HeaderTab");
-            TopMoreButton.SetResourceReference(FrameworkElement.StyleProperty,
-                primary == "更多" ? "HeaderTabActive" : "HeaderTab");
+            BuildSidebar(section, page);
+            UpdateHeader(section);
+            LaunchPane.Content = section == NavigationSection.Launch ? BuildLaunchPane() : null;
             switch (page)
             {
                 case "首页": PageHost.Content = BuildHome(); break;
+                case "版本选择": PageHost.Content = BuildProfileSelection(); break;
+                case "版本设置": PageHost.Content = BuildInstanceOverview(); break;
+                case "存档管理": PageHost.Content = BuildInstanceSaves(); break;
                 case "游戏版本": PageHost.Content = BuildVersions(); break;
                 case "下载管理": PageHost.Content = BuildDownloadCenter(); break;
                 case "资源中心": PageHost.Content = BuildResources("mod"); break;
@@ -389,16 +520,24 @@ namespace BlockCraftLauncher.Wpf
                 case "CurseForge": PageHost.Content = BuildCurseForge(); break;
                 case "皮肤 DIY": PageHost.Content = skinStudio ??
                     (skinStudio = new SkinStudioView(UploadSkinToMicrosoftAsync,
-                        () => settings.AccountMode == "microsoft" ?
-                            settings.AccountName : null)); break;
+                        () => settings.AccountMode == "microsoft" ? settings.AccountName : null)); break;
                 case "模组更新": PageHost.Content = BuildModUpdates(); break;
                 case "多人联机": PageHost.Content = BuildMultiplayer(); break;
+                case "局域网": PageHost.Content = BuildLanWorlds(); break;
                 case "启动器更新": PageHost.Content = BuildLauncherUpdates(); break;
-                case "设置": PageHost.Content = BuildSettings(); break;
+                case "设置":
+                case "下载设置":
+                case "个性化":
+                case "更新设置":
+                    PageHost.Content = BuildSettings(page); break;
                 case "运行日志": PageHost.Content = BuildLogs(); break;
-                default: PageHost.Content = Txt("页面不存在"); break;
+                case "关于": PageHost.Content = BuildAbout(); break;
+                default: throw new ArgumentOutOfRangeException(nameof(page));
             }
-            PageScroll.ScrollToTop(); Status("当前页面：" + page);
+            PageScroll.ScrollToTop();
+            RefreshLauncherUpdatePanel();
+            if (page == "游戏版本" && IsLoaded && !SuppressAutomaticUpdateCheck && gameVersions.Count == 0)
+                _ = LoadVersionsAsync();
         }
         async Task UploadSkinToMicrosoftAsync(byte[] png, bool slim)
         {
@@ -436,27 +575,28 @@ namespace BlockCraftLauncher.Wpf
         void ApplyTheme()
         {
             bool light = settings.Theme == "浅色";
-            // XAML Freezable resources may be frozen after loading. Replace the brush so
-            // DynamicResource consumers update without mutating a frozen object.
-            void Set(string key, string value) { Application.Current.Resources[key] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(value)); }
-            Set("WindowBrush", light ? "#F1F5FA" : "#151D2B");
-            Set("PageBrush", light ? "#EAF3FC" : "#111827");
-            Set("PanelBrush", light ? "#FFFFFF" : "#1D2939");
-            Set("PanelAltBrush", light ? "#F5F9FE" : "#26364B");
-            Set("TextBrush", light ? "#22374D" : "#EFF5FF");
-            Set("MutedBrush", light ? "#667E95" : "#ACBCD0");
-            Set("BorderBrushTheme", light ? "#D8E5F3" : "#33475D");
-            Set("HoverBrush", light ? "#EAF3FF" : "#2E425A");
-            Set("SelectedBrush", light ? "#E0EFFF" : "#274968");
-            Set("BadgeBrush", light ? "#E8F3FF" : "#314C67");
-            Set("SecondaryAccentBrush", light ? "#4E9BDD" : "#5B9FDE");
-            Set("SoftDividerBrush", light ? "#E6EDF6" : "#344B63");
-            Set("SearchSurfaceBrush", light ? "#F9FCFF" : "#223246");
-            Set("SuccessBrush", light ? "#278A6B" : "#5BD09F");
-            Set("AccentBrush", IsHexColor(settings.Accent) ? settings.Accent : "#1977D2");
-            Set("AccentTextBrush", "#FFFFFF");
-            Set("HeaderBrush", light ? "#176DBF" : "#145C9C");
-            Set("HeaderTextBrush", "#FFFFFF");
+            void Set(string key, string value) => Application.Current.Resources[key] =
+                new SolidColorBrush((Color)ColorConverter.ConvertFromString(value));
+            Set("WindowBrush", light ? "#F5F8FC" : "#182435");
+            Set("PageBrush", light ? "#EAF2FC" : "#142031");
+            Set("SidebarBrush", light ? "#F8FBFF" : "#1A2A40");
+            Set("PanelBrush", light ? "#FFFFFF" : "#203147");
+            Set("PanelAltBrush", light ? "#F3F7FC" : "#283C55");
+            Set("TextBrush", light ? "#203249" : "#EFF5FF");
+            Set("MutedBrush", light ? "#526983" : "#B2C5DD");
+            Set("BorderBrushTheme", light ? "#D3E0F0" : "#38516C");
+            Set("HoverBrush", light ? "#EAF3FF" : "#2E4663");
+            Set("SelectedBrush", light ? "#DFEDFD" : "#315173");
+            Set("BadgeBrush", light ? "#E5F0FD" : "#2A4667");
+            Set("SecondaryAccentBrush", light ? "#4E9BDD" : "#6FB5F8");
+            Set("SoftDividerBrush", light ? "#E5EDF7" : "#354E69");
+            Set("SearchSurfaceBrush", light ? "#FFFFFF" : "#203147");
+            Set("SuccessBrush", light ? "#1D765A" : "#70DBB1");
+            Set("AccentInkBrush", light ? "#125CA4" : "#94C9FF");
+            Set("AccentBrush", IsHexColor(settings.Accent) ? settings.Accent : "#1875CE");
+            var accent = ((SolidColorBrush)Application.Current.Resources["AccentBrush"]).Color;
+            double luminance = 0.2126 * accent.ScR + 0.7152 * accent.ScG + 0.0722 * accent.ScB;
+            Set("AccentTextBrush", luminance > 0.179 ? "#000000" : "#FFFFFF");
         }
         static bool IsHexColor(string s) => s != null && s.Length == 7 && s[0] == '#' && s.Skip(1).All(c => Uri.IsHexDigit(c));
         void ApplyZoom()
@@ -470,176 +610,231 @@ namespace BlockCraftLauncher.Wpf
             if (WindowViewport == null || Shell == null) return;
             var scale = Math.Max(0.8, UiScale.ScaleX);
             if (WindowViewport.ActualWidth > 0)
-                Shell.Width = Math.Max(840, (WindowViewport.ActualWidth - 2) / scale);
+                Shell.Width = Math.Max(Shell.MinWidth, (WindowViewport.ActualWidth - 2) / scale);
             if (WindowViewport.ActualHeight > 0)
-                Shell.Height = Math.Max(580, (WindowViewport.ActualHeight - 2) / scale);
+                Shell.Height = Math.Max(Shell.MinHeight, (WindowViewport.ActualHeight - 2) / scale);
         }
         void WindowViewport_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateShellSize();
 
-        Grid DashboardGrid()
-        {
-            var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(66, GridUnitType.Star) });
-            for (int i = 0; i < 3; i++) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            return grid;
-        }
         static void Place(Grid grid, UIElement element, int row, int col)
         {
-            Grid.SetRow(element, row); Grid.SetColumn(element, col); grid.Children.Add(element);
+            Grid.SetRow(element, row);
+            Grid.SetColumn(element, col);
+            grid.Children.Add(element);
         }
+
+        UIElement BuildLaunchPane()
+        {
+            var account = Col(Txt("玩家账号", 16, true));
+            string identity = settings.AccountMode == "offline" ? settings.OfflineName :
+                settings.AccountMode == "microsoft" ? settings.AccountName : "未登录";
+            account.Children.Add(Txt(string.IsNullOrWhiteSpace(identity) ? "未登录" : identity, 18, true));
+            account.Children.Add(Txt(settings.AccountMode == "microsoft" ? "微软正版账号" :
+                settings.AccountMode == "offline" ? "离线玩家" : "选择一种登录方式", 12, false, true));
+            account.Children.Add(Row(
+                Btn("正版登录", async () => await LoginMicrosoftAsync(), settings.AccountMode == "microsoft"),
+                Btn("离线登录", EditOfflineAccount, settings.AccountMode == "offline")));
+            if (settings.AccountMode != "signed_out")
+                account.Children.Add(Btn("退出账号", async () => await SignOutAsync()));
+
+            homeLaunchLabel = Txt("启动游戏", 19, true);
+            homeVersionCaption = Txt("", 11);
+            foreach (var label in new[] { homeLaunchLabel, homeVersionCaption })
+            {
+                label.Margin = new Thickness(0);
+                label.TextWrapping = TextWrapping.NoWrap;
+                label.TextTrimming = TextTrimming.CharacterEllipsis;
+                label.TextAlignment = TextAlignment.Center;
+                label.SetResourceReference(TextBlock.ForegroundProperty, "AccentTextBrush");
+            }
+            homeLaunchButton = Btn("启动游戏", async () =>
+            {
+                if (activeProfile == null) Navigate("游戏版本");
+                else await LaunchAsync();
+            }, true);
+            homeLaunchButton.Content = Col(homeLaunchLabel, homeVersionCaption);
+            homeLaunchButton.MinHeight = 63;
+            homeLaunchButton.Margin = new Thickness(0, 16, 0, 7);
+            gameProcessText = Txt("", 11, false, true);
+            gameProcessText.Margin = new Thickness(1, 0, 0, 9);
+            var select = Btn("版本选择", () => Navigate("版本选择"));
+            var manage = Btn("版本设置", () => OpenVersionSettings("首页"));
+            select.Margin = new Thickness(0, 0, 6, 0);
+            manage.Margin = new Thickness(0);
+            var versionButtons = new System.Windows.Controls.Primitives.UniformGrid { Columns = 2 };
+            versionButtons.Children.Add(select);
+            versionButtons.Children.Add(manage);
+
+            var pane = Col(account, homeLaunchButton, gameProcessText, versionButtons);
+            pane.Margin = new Thickness(15, 18, 15, 14);
+            return pane;
+        }
+
         UIElement BuildHome()
         {
-            // Prominent selected instance and one clear launch action,
-            // followed by compact download and account management cards.
-            var root = Col(PageHeading("游戏启动", "启动 Minecraft",
-                "选择已安装的游戏版本，确认玩家身份后开始游戏。"));
+            homeProfileName = Txt("", 20, true);
+            homeProfileInfo = Txt("", 12, false, true);
+            var overview = Card(Col(Txt("当前版本", 12, true, true),
+                homeProfileName, homeProfileInfo,
+                Row(Btn("打开游戏目录", OpenGameFolder),
+                    Btn("查看运行日志", () => Navigate("运行日志")))));
 
-            var updateNotice = Col(Txt("发现启动器新版本", 17, true));
             homeUpdateText = Txt("", 12, false, true);
-            updateNotice.Children.Add(homeUpdateText);
-            updateNotice.Children.Add(Row(
-                Btn("查看新版本与更新内容", () => Navigate("启动器更新"), true),
-                Btn("查看更新设置", () => Navigate("设置"))));
-            homeUpdateCard = Card(updateNotice);
-            root.Children.Add(homeUpdateCard);
-            RefreshLauncherUpdatePanel();
+            homeUpdateCard = Card(Col(Txt("启动器有新版本", 16, true), homeUpdateText,
+                Row(Btn("查看更新", () => Navigate("启动器更新"), true),
+                    Btn("更新设置", () => Navigate("更新设置")))));
 
-            var hero = new Grid { Margin = new Thickness(0, 12, 0, 4) };
-            hero.ColumnDefinitions.Add(new ColumnDefinition {
-                Width = new GridLength(63, GridUnitType.Star) });
-            hero.ColumnDefinitions.Add(new ColumnDefinition {
-                Width = new GridLength(37, GridUnitType.Star) });
-
-            var launchPanel = Col(Txt("启动游戏", 19, true),
-                Txt("选择实例", 12, false, true));
-            var selectionCaption = Txt(activeProfile == null
-                ? "未选择游戏版本，请先前往下载页面。"
-                : "当前：" + activeProfile.Name + " · " + activeProfile.BaseVersion, 12, false, true);
-            homeProfile = new ComboBox
-            {
-                ItemsSource = settings.Profiles,
-                SelectedItem = activeProfile,
-                DisplayMemberPath = "Name",
-                MaxWidth = 430,
-                HorizontalAlignment = HorizontalAlignment.Stretch
-            };
-            homeProfile.SelectionChanged += (sender, args) =>
-            {
-                activeProfile = homeProfile.SelectedItem as GameProfile;
-                selectionCaption.Text = activeProfile == null
-                    ? "未选择游戏版本，请先前往下载页面。"
-                    : "当前：" + activeProfile.Name + " · " + activeProfile.BaseVersion;
-                RefreshGameProcessStatus();
-            };
-            launchPanel.Children.Add(homeProfile);
-            launchPanel.Children.Add(selectionCaption);
-            var launch = Btn("▶   启动游戏", async () => await LaunchAsync(), true);
-            launch.Height = 62;
-            launch.FontSize = 19;
-            launch.HorizontalAlignment = HorizontalAlignment.Stretch;
-            launch.Margin = new Thickness(0, 12, 0, 12);
-            homeLaunchButton = launch;
-            launchPanel.Children.Add(launch);
-            gameProcessText = Txt("", 12, false, true);
-            gameProcessText.Margin = new Thickness(0, 0, 0, 8);
-            launchPanel.Children.Add(gameProcessText);
+            var shortcuts = Card(Col(Txt("常用功能", 16, true),
+                Row(Btn("安装游戏", () => Navigate("游戏版本")),
+                    Btn("搜索模组", () => Navigate("资源中心")),
+                    Btn("皮肤编辑", () => Navigate("皮肤 DIY")),
+                    Btn("多人游戏", () => Navigate("多人联机")))));
             RefreshGameProcessStatus();
-            launchPanel.Children.Add(Row(
-                Btn("切换 / 管理实例", ManageInstance),
-                Btn("检查版本文件", CheckInstance),
-                Btn("游戏目录", OpenGameFolder)));
-            var left = Card(launchPanel);
-            left.Margin = new Thickness(0, 0, 13, 12);
-            Grid.SetColumn(left, 0);
-            hero.Children.Add(left);
-
-            var account = Col(Txt("玩家账号", 19, true));
-            accountText = Txt(settings.AccountMode == "offline" ?
-                "离线玩家：" + settings.OfflineName :
-                (settings.AccountMode == "microsoft" ?
-                 ((microsoft != null && microsoft.HasSession) ?
-                     "微软正版：" + settings.AccountName :
-                     "微软正版：请重新验证登录") : "尚未登录"));
-            account.Children.Add(accountText);
-            account.Children.Add(Txt("可以使用正版账号，也可以切换到离线模式进行单人游戏。", 12, false, true));
-            account.Children.Add(Btn("微软正版登录", async () => await LoginMicrosoftAsync(), true));
-            account.Children.Add(Btn("使用离线账号", EditOfflineAccount));
-            account.Children.Add(Btn("退出当前账号", async () => await SignOutAsync()));
-            var right = Card(account);
-            right.Margin = new Thickness(0, 0, 0, 12);
-            Grid.SetColumn(right, 1);
-            hero.Children.Add(right);
-            root.Children.Add(hero);
-
-            var shortcuts = Col(Txt("快捷操作", 18, true),
-                Txt("下载游戏、管理资源和调整设置", 12, false, true));
-            shortcuts.Children.Add(Row(
-                Btn("⬇  下载游戏版本", () => Navigate("游戏版本"), true),
-                Btn("◇  模组与资源", () => Navigate("资源中心")),
-                Btn("▤  整合包", () => Navigate("整合包")),
-                Btn("☼  光影与材质", () => Navigate("光影引擎")),
-                Btn("皮肤 DIY 工作室", () => Navigate("皮肤 DIY")),
-                Btn("⇩  下载任务", () => Navigate("下载管理")),
-                Btn("⚙  启动器设置", () => Navigate("设置"))));
-            root.Children.Add(Card(shortcuts));
-
-            root.Children.Add(Card(Col(Txt("使用提示", 16, true),
-                Txt("当前版本包含独立的 Minecraft 版本管理、下载与联机入口。"
-                    + "尚未完成真实设备验收的功能将继续标为预览，不会覆盖旧版启动器。", 12, false, true),
-                Btn("查看本次更新说明", ShowReleaseNotes))));
-            return root;
+            return Col(homeUpdateCard, overview, shortcuts,
+                Card(Col(Txt("版本动态", 16, true),
+                    Txt("新版启动器调整了页面布局。游戏、下载、联机和设置均可从顶部进入。", 12, false, true),
+                    Row(Btn("查看更新说明", () => Navigate("关于"))))));
         }
+
+        void OpenVersionSettings(string returnPage)
+        {
+            versionSettingsReturnPage = returnPage;
+            Navigate("版本设置");
+        }
+
+        UIElement BuildProfileSelection()
+        {
+            profileList = new ListBox
+            {
+                ItemsSource = settings.Profiles, SelectedItem = activeProfile,
+                ItemTemplate = (DataTemplate)FindResource("ProfileItemTemplate"),
+                MinHeight = 145, MaxHeight = 366
+            };
+            void SelectProfile(bool openSettings)
+            {
+                if (!(profileList.SelectedItem is GameProfile profile)) return;
+                activeProfile = profile;
+                if (openSettings) OpenVersionSettings("版本选择");
+                else Navigate("首页");
+            }
+            profileList.MouseDoubleClick += (sender, args) =>
+            {
+                if (args.OriginalSource is DependencyObject source &&
+                    ItemsControl.ContainerFromElement(profileList, source) is ListBoxItem)
+                    SelectProfile(false);
+            };
+            var use = Btn("选择此版本", () => SelectProfile(false), true);
+            var manage = Btn("版本设置", () => SelectProfile(true));
+            void RefreshSelection() => use.IsEnabled = manage.IsEnabled = profileList.SelectedItem != null;
+            profileList.SelectionChanged += (sender, args) => RefreshSelection();
+            RefreshSelection();
+            return Col(
+                PageHeading("版本选择", "选择本次启动使用的 Minecraft 版本。"),
+                Card(Col(Txt("已安装版本", 16, true),
+                    Txt(settings.Profiles.Count == 0 ? "暂无游戏版本。可安装新版本或导入本地游戏。"
+                        : "双击列表中的版本可直接选用。", 12, false, true),
+                    profileList, Row(use, manage))),
+                Card(Col(Txt("添加版本", 16, true),
+                    Row(Btn("下载游戏", () => Navigate("游戏版本")),
+                        Btn("导入本地版本", ImportLocalGame),
+                        Btn("打开游戏目录", OpenGameFolder)))));
+        }
+
+        void UseInstalledProfile(GameProfile profile)
+        {
+            // Keep open version settings on the instance they were opened for.
+            if (activeProfile == null || SectionFor(currentPage) != NavigationSection.VersionSettings)
+                activeProfile = profile;
+            if (profileList != null)
+            {
+                var selection = profileList.SelectedItem;
+                CollectionViewSource.GetDefaultView(settings.Profiles).Refresh();
+                profileList.SelectedItem = selection ?? activeProfile;
+            }
+            RefreshGameProcessStatus();
+        }
+
+        static Grid SearchFields(params (string Label, Control Input)[] fields)
+        {
+            var form = new Grid { Margin = new Thickness(0, 2, 0, 1) };
+            for (int column = 0; column < 4; column++)
+                form.ColumnDefinitions.Add(new ColumnDefinition
+                {
+                    Width = column % 2 == 0 ? new GridLength(56) : new GridLength(1, GridUnitType.Star)
+                });
+            for (int i = 0; i < fields.Length; i++)
+            {
+                var field = fields[i];
+                if (i % 2 == 0) form.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                var label = new Label
+                {
+                    Content = field.Label, Target = field.Input, FontSize = 12,
+                    Padding = new Thickness(i % 2 == 0 ? 0 : 6, 0, 0, 0),
+                    Margin = new Thickness(0, 0, 0, 7), VerticalAlignment = VerticalAlignment.Center
+                };
+                label.SetResourceReference(Control.ForegroundProperty, "TextBrush");
+                AutomationProperties.SetLabeledBy(field.Input, label);
+                field.Input.Margin = new Thickness(0, 0, 0, 7);
+                field.Input.HorizontalAlignment = HorizontalAlignment.Stretch;
+                Place(form, label, i / 2, 2 * (i % 2));
+                Place(form, field.Input, i / 2, 2 * (i % 2) + 1);
+            }
+            return form;
+        }
+
         UIElement BuildVersions()
         {
-            var root = Col(PageHeading("游戏下载 / Minecraft", "Minecraft 游戏版本",
-                "按名称和发布类型筛选游戏版本，随后选择兼容加载器进行安装。"));
-            var toolbar = Row();
-            versionQuery = new TextBox { Width = 275, ToolTip = "输入版本号，例如 1.21.1" };
-            ApplySearchInputStyle(versionQuery, "输入完整或部分版本号，输入后即时筛选");
-            versionQuery.TextChanged += (s, e) => FilterVersions();
-            toolbar.Children.Add(versionQuery);
+            versionQuery = new TextBox();
+            ApplySearchInputStyle(versionQuery, "输入完整或部分版本号，例如 1.21.1");
             versionCategory = new ComboBox
             {
-                Width = 145,
                 ItemsSource = new[] { "全部版本", "正式版", "快照版", "远古 Beta", "远古 Alpha" },
-                SelectedIndex = 0,
-                Margin = new Thickness(8, 0, 0, 0)
+                SelectedIndex = 0
             };
             ApplySearchInputStyle(versionCategory, "筛选正式版、快照版或历史版本");
-            versionCategory.SelectionChanged += (sender, e) => FilterVersions();
-            toolbar.Children.Add(versionCategory);
-            toolbar.Children.Add(Btn("刷新在线版本", async () => await LoadVersionsAsync(), true));
-            toolbar.Children.Add(Btn("下载任务", () => Navigate("下载管理")));
-            var quickVersions = Row(
-                Txt("快速筛选", 12, false, true),
-                FilterChipButton("全部", () => versionCategory.SelectedIndex = 0),
-                FilterChipButton("正式版", () => versionCategory.SelectedIndex = 1),
-                FilterChipButton("快照版", () => versionCategory.SelectedIndex = 2));
-            root.Children.Add(SearchCard(Col(Txt("搜索 Minecraft 游戏版本", 18, true),
-                toolbar, quickVersions)));
-            versionCounter = Txt("正在准备官方版本列表...", 12, false, true);
-            versionList = new ListBox { ItemsSource = gameVersions,
-                ItemTemplate = (DataTemplate)FindResource("VersionItemTemplate"),
-                Height = 350, MinWidth = 300, Margin = new Thickness(0, 10, 0, 12) };
-            root.Children.Add(ResultsCard(Col(
-                Txt("搜索结果 · Minecraft 版本", 18, true),
-                versionCounter, versionList)));
-            var options = Col(Txt("版本安装选项", 18, true));
-            versionLoader = new ComboBox { ItemsSource = new[] { "原版", "Fabric", "Forge", "NeoForge", "Quilt" }, SelectedIndex = 0, Width = 280, HorizontalAlignment = HorizontalAlignment.Left };
-            options.Children.Add(versionLoader);
-            options.Children.Add(Txt("原版 / Fabric / Forge / NeoForge / Quilt：通过各自安装组件获取匹配的版本文件。部分新版本可能暂不兼容。", 12, false, true));
-            versionInstallButton = Btn("开始安装选中版本", async () => await InstallSelectedVersionAsync(), true);
+            versionReloadButton = Btn("刷新列表", async () => await LoadVersionsAsync());
+            versionReloadButton.IsEnabled = !loadingVersions;
+            var filters = SearchCard(Col(Txt("原版游戏", 16, true),
+                SearchFields(("版本号", versionQuery), ("类型", versionCategory)),
+                Row(FilterChipButton("全部", () => versionCategory.SelectedIndex = 0),
+                    FilterChipButton("正式版", () => versionCategory.SelectedIndex = 1),
+                    FilterChipButton("快照版", () => versionCategory.SelectedIndex = 2),
+                    versionReloadButton)));
+
+            versionCounter = Txt("", 12, false, true);
+            versionList = new ListBox
+            {
+                ItemsSource = gameVersions, ItemTemplate = (DataTemplate)FindResource("VersionItemTemplate"),
+                MinHeight = 155, MaxHeight = 300, Margin = new Thickness(0, 0, 0, 8)
+            };
+            versionLoader = new ComboBox
+            {
+                ItemsSource = new[] { "原版", "Fabric", "Forge", "NeoForge", "Quilt" },
+                SelectedIndex = 0, Width = 160
+            };
+            AutomationProperties.SetName(versionLoader, "加载器");
+            versionInstallButton = Btn("安装", async () => await InstallSelectedVersionAsync(), true);
             versionCancelButton = Btn("取消安装", () => versionInstallJob?.Cancel());
-            versionCancelButton.IsEnabled = false;
-            options.Children.Add(Row(versionInstallButton, versionCancelButton,
-                Btn("导入本地实例", ImportLocalGame), Btn("打开游戏目录", OpenGameFolder)));
-            root.Children.Add(Card(options)); return root;
+            var loaderCaption = Txt("加载器", 12, false, true);
+            loaderCaption.Margin = new Thickness(0, 5, 9, 8);
+            versionQuery.TextChanged += (sender, args) => FilterVersions();
+            versionCategory.SelectionChanged += (sender, args) => FilterVersions();
+            versionList.SelectionChanged += (sender, args) => RefreshVersionActions();
+            FilterVersions();
+            RefreshVersionActions();
+            return Col(filters,
+                ResultsCard(Col(Txt("可安装版本", 16, true), versionCounter, versionList,
+                    Row(loaderCaption, versionLoader, versionInstallButton, versionCancelButton))),
+                Card(Col(Txt("本地游戏", 16, true),
+                    Row(Btn("导入本地版本", ImportLocalGame),
+                        Btn("打开游戏目录", OpenGameFolder)))));
         }
+
         void FilterVersions()
         {
             if (versionList == null || versionQuery == null) return;
             string category = Convert.ToString(versionCategory?.SelectedItem) ?? "全部版本";
-            string search = (versionQuery.Text ?? "").Trim();
+            string search = versionQuery.Text.Trim();
             versionList.Items.Filter = raw =>
             {
                 var item = raw as MinecraftVersionEntry;
@@ -647,104 +842,122 @@ namespace BlockCraftLauncher.Wpf
                     (category == "全部版本" || item.Category == category) &&
                     (search.Length == 0 || item.Id.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0);
             };
-            if (versionCounter != null)
-                versionCounter.Text = versionList.Items.Count == 0 ?
-                    "没有符合条件的版本；试试清除搜索词或切换版本类型。" :
-                    "共找到 " + versionList.Items.Count + " 个符合条件的版本 · 点击一项后选择加载器。";
+            versionCounter.Text = loadingVersions ? "正在获取 Minecraft 版本列表…" :
+                gameVersions.Count == 0 ? versionLoadError ?? "点击“刷新列表”获取可用版本。" :
+                versionList.Items.Count == 0 ? "没有符合条件的版本。" :
+                "共 " + versionList.Items.Count + " 个版本。选中版本后可选择加载器。";
         }
+
         async Task LoadVersionsAsync()
         {
             if (loadingVersions) return;
-            loadingVersions = true; Status("正在获取版本列表...");
+            loadingVersions = true;
+            versionLoadError = null;
+            versionReloadButton.IsEnabled = false;
+            FilterVersions();
             try
             {
                 var versions = await new MinecraftVersionCatalog(settings).LoadAsync(true, CancellationToken.None);
-                gameVersions.Clear(); foreach (var v in versions) gameVersions.Add(v);
-                FilterVersions(); Status("已加载版本数量：" + gameVersions.Count);
+                gameVersions.Clear();
+                foreach (var version in versions) gameVersions.Add(version);
+                Status("已获取 " + gameVersions.Count + " 个游戏版本。");
             }
-            catch (Exception ex) { ShowError("获取版本列表失败", ex); }
-            finally { loadingVersions = false; }
+            catch (Exception ex)
+            {
+                versionLoadError = "无法获取版本列表，请检查网络后刷新。";
+                Status(versionLoadError);
+                Log(ex.ToString());
+            }
+            finally
+            {
+                loadingVersions = false;
+                versionReloadButton.IsEnabled = true;
+                FilterVersions();
+            }
         }
+
+        void RefreshVersionActions()
+        {
+            bool running = versionInstallJob?.IsRunning == true;
+            if (versionInstallButton != null)
+                versionInstallButton.IsEnabled = !running && versionList?.SelectedItem is MinecraftVersionEntry;
+            if (versionCancelButton != null)
+                versionCancelButton.IsEnabled = running;
+        }
+
         async Task InstallSelectedVersionAsync()
         {
-            if (!(versionList?.SelectedItem is MinecraftVersionEntry selected))
-            {
-                MessageBox.Show("请先选择 Minecraft 版本。"); return;
-            }
-            if (installingGame)
-            {
-                MessageBox.Show("已有游戏安装任务正在运行。请前往下载管理查看进度。"); return;
-            }
+            if (!(versionList?.SelectedItem is MinecraftVersionEntry selected) ||
+                versionInstallJob?.IsRunning == true)
+                return;
             string version = selected.Id;
             string loader = Convert.ToString(versionLoader?.SelectedItem) ?? "原版";
-            installingGame = true;
-            if (versionInstallButton != null) versionInstallButton.IsEnabled = false;
-            if (versionCancelButton != null) versionCancelButton.IsEnabled = true;
 
             versionInstallJob = downloads.Enqueue("游戏", version + " · " + loader, async (token, progress, bytes) =>
             {
-                try
+                progress.Report("正在安装游戏及依赖：" + version);
+                var profile = await modLoaders.InstallAsync(version, loader, null, progress, bytes, token);
+                token.ThrowIfCancellationRequested();
+                var registered = settings.Profiles.FirstOrDefault(p => p.LaunchVersion == profile.LaunchVersion);
+                if (registered == null)
                 {
-                    progress.Report("开始安装游戏及依赖：" + version + " / " + loader);
-                    var profile = await modLoaders.InstallAsync(version, loader, null, progress, bytes, token);
-                    token.ThrowIfCancellationRequested();
-                    if (!settings.Profiles.Any(p => p.LaunchVersion == profile.LaunchVersion))
-                        settings.Profiles.Add(profile);
-                    activeProfile = settings.Profiles.First(p => p.LaunchVersion == profile.LaunchVersion);
-                    store.Save(settings);
-                    progress.Report("安装完成：" + activeProfile.Name);
-                    Status("安装完成：" + activeProfile.Name);
+                    settings.Profiles.Add(profile);
+                    try { store.Save(settings); }
+                    catch { settings.Profiles.Remove(profile); throw; }
                 }
-                finally
-                {
-                    installingGame = false;
-                    if (versionInstallButton != null) versionInstallButton.IsEnabled = true;
-                    if (versionCancelButton != null) versionCancelButton.IsEnabled = false;
-                }
+                UseInstalledProfile(registered ?? profile);
+                progress.Report("安装完成：" + (registered ?? profile).Name);
+                Status("安装完成：" + (registered ?? profile).Name);
             });
-            Status("已添加下载任务：" + version + " / " + loader + "，可到“下载管理”查看。");
+            versionInstallJob.PropertyChanged += (sender, args) =>
+            {
+                if (args.PropertyName == nameof(DownloadJob.Status)) RefreshVersionActions();
+            };
+            RefreshVersionActions();
+            Status("已加入下载任务：" + version + " · " + loader);
+            await Task.CompletedTask;
         }
 
         UIElement BuildDownloadCenter()
         {
-            var root = Col(PageHeading("下载中心 / 任务", "下载管理",
-                "集中查看游戏、加载器、模组与整合包的进度、速度和失败重试。"));
-            downloadSearchQuery = new TextBox { Width = 265 };
-            ApplySearchInputStyle(downloadSearchQuery, "搜索任务名称、资源名称或任务类型");
-            downloadSearchQuery.TextChanged += (sender, args) => ApplyDownloadFilter();
+            var root = Col();
+            downloadSearchQuery = new TextBox();
+            ApplySearchInputStyle(downloadSearchQuery, "按名称或资源类型查找任务");
             downloadStatusFilter = new ComboBox
             {
                 ItemsSource = new[] { "全部任务", "进行中", "已完成", "失败或取消", "等待中" },
-                SelectedIndex = 0, Width = 160
+                SelectedIndex = 0
             };
             ApplySearchInputStyle(downloadStatusFilter, "按任务状态筛选");
-            downloadStatusFilter.SelectionChanged += (sender, args) => ApplyDownloadFilter();
-            root.Children.Add(SearchCard(Col(Txt("筛选下载任务", 18, true),
-                Row(Txt("名称", 12, false, true), downloadSearchQuery,
-                    Txt("状态", 12, false, true), downloadStatusFilter,
-                    Btn("刷新列表", ApplyDownloadFilter),
-                    Btn("清除条件", () =>
+            root.Children.Add(SearchCard(Col(Txt("下载任务", 16, true),
+                SearchFields(("名称", downloadSearchQuery), ("状态", downloadStatusFilter)),
+                Row(Btn("刷新列表", ApplyDownloadFilter),
+                    Btn("重置条件", () =>
                     {
-                        downloadSearchQuery.Text = "";
+                        downloadSearchQuery.Clear();
                         downloadStatusFilter.SelectedIndex = 0;
                     })))));
-            downloadCounter = Txt("当前共有 " + downloads.Jobs.Count + " 个下载任务。", 12, false, true);
-            downloadList = new ListBox { ItemsSource = downloads.Jobs, Height = 350,
-                ItemTemplate = (DataTemplate)FindResource("DownloadItemTemplate"),
-                Margin = new Thickness(0, 6, 0, 10) };
-            root.Children.Add(ResultsCard(Col(Txt("全部下载任务", 18, true),
-                downloadCounter, downloadList)));
+            downloadCounter = Txt("", 12, false, true);
+            downloadList = new ListBox
+            {
+                ItemsSource = downloads.Jobs, MinHeight = 134, MaxHeight = 294,
+                ItemTemplate = (DataTemplate)FindResource("DownloadItemTemplate")
+            };
+            downloadSearchQuery.TextChanged += (sender, args) => ApplyDownloadFilter();
+            downloadStatusFilter.SelectionChanged += (sender, args) => ApplyDownloadFilter();
+            ApplyDownloadFilter();
+            root.Children.Add(ResultsCard(Col(Txt("任务列表", 16, true), downloadCounter, downloadList)));
 
-            var heading = Txt("选中任务详情", 17, true);
+            var heading = Txt("任务详情", 16, true);
             var status = Txt("", 14);
             status.SetBinding(TextBlock.TextProperty, new Binding("SelectedItem.Status")
             {
-                Source = downloadList, Mode = BindingMode.OneWay, FallbackValue = "等待任务"
+                Source = downloadList, Mode = BindingMode.OneWay, FallbackValue = "尚未选择任务"
             });
             var detail = Txt("", 12, false, true);
             detail.SetBinding(TextBlock.TextProperty, new Binding("SelectedItem.Detail")
             {
-                Source = downloadList, Mode = BindingMode.OneWay, FallbackValue = "请选择任务"
+                Source = downloadList, Mode = BindingMode.OneWay, FallbackValue = ""
             });
             var bytesLabel = Txt("", 13);
             bytesLabel.SetBinding(TextBlock.TextProperty, new Binding("SelectedItem.BytesLabel")
@@ -776,13 +989,16 @@ namespace BlockCraftLauncher.Wpf
                 {
                     Source = downloadList, Mode = BindingMode.OneWay, FallbackValue = false
                 });
+            var cancel = Btn("取消任务", () => downloads.Cancel(downloadList.SelectedItem as DownloadJob));
+            var retry = Btn("重试任务", () => downloads.Retry(downloadList.SelectedItem as DownloadJob), true);
+            cancel.SetBinding(IsEnabledProperty, new Binding("SelectedItem.IsRunning")
+                { Source = downloadList, Mode = BindingMode.OneWay, FallbackValue = false });
+            retry.SetBinding(IsEnabledProperty, new Binding("SelectedItem.CanRetry")
+                { Source = downloadList, Mode = BindingMode.OneWay, FallbackValue = false });
             root.Children.Add(Card(Col(heading, status, detail, downloadProgressBar,
                 Row(bytesLabel, speedLabel, percentLabel),
-                Row(Btn("取消选中任务", () => downloads.Cancel(downloadList.SelectedItem as DownloadJob)),
-                    Btn("重试失败任务", () => downloads.Retry(downloadList.SelectedItem as DownloadJob), true),
-                    Btn("返回游戏下载", () => Navigate("游戏版本"))),
-                Txt("速度为当前进度的估算，可能包含缓存和校验步骤；部分加载器安装步骤无法即时取消。", 12, false, true))));
-            if (downloads.Jobs.Count > 0)
+                Row(cancel, retry, Btn("返回游戏下载", () => Navigate("游戏版本"))))));
+            if (downloadList.Items.Count > 0)
                 downloadList.SelectedIndex = 0;
             return root;
         }
@@ -794,9 +1010,9 @@ namespace BlockCraftLauncher.Wpf
         /// </summary>
         internal void VerifyPclLayout()
         {
-            if (TopLaunchButton == null || TopDownloadButton == null ||
+            if (TopLaunchButton == null || TopDownloadButton == null || TopMultiplayerButton == null ||
                 TopSettingsButton == null || TopMoreButton == null ||
-                PageHost == null || SideMenu == null)
+                PageHost == null || SideMenu == null || BackButton == null)
                 throw new InvalidOperationException("PCL 顶部导航或侧边栏控件缺失");
             if (PageScroll.HorizontalScrollBarVisibility != ScrollBarVisibility.Disabled)
                 throw new InvalidOperationException("内容页出现不允许的横向滚动");
@@ -813,15 +1029,41 @@ namespace BlockCraftLauncher.Wpf
                 FindResource("FilterChip") == null)
                 throw new InvalidOperationException("资源、游戏版本或下载任务缺少卡片布局模板");
 
+            var originalProfile = activeProfile;
+            var sampleProfile = new GameProfile
+            {
+                Id = "offline-layout-profile", Name = "原版 1.21.1",
+                BaseVersion = "1.21.1", LaunchVersion = "1.21.1", Loader = "vanilla",
+                Directory = Path.Combine(Path.GetTempPath(), "blockcraft-layout-probe")
+            };
+            settings.Profiles.Add(sampleProfile);
+            activeProfile = sampleProfile;
             Navigate("首页");
-            if (homeProfile == null || PageHost.Content == null ||
-                SideBar.Visibility != Visibility.Collapsed)
-                throw new InvalidOperationException("首页实例选择或顶部导航未显示");
+            if (homeLaunchButton == null || PageHost.Content == null ||
+                LaunchPane.Visibility != Visibility.Visible || SideMenu.Visibility != Visibility.Collapsed ||
+                homeVersionCaption.Text != sampleProfile.Name)
+                throw new InvalidOperationException("启动页账号面板或版本入口未显示");
+            ArrangeLayoutProbe(1080, 680, "01-launch");
+
+            Navigate("版本选择");
+            if (profileList?.ItemTemplate == null || profileList.SelectedItem != sampleProfile ||
+                ContextNavigation.Visibility != Visibility.Visible)
+                throw new InvalidOperationException("版本选择没有显示已安装版本");
+            ArrangeLayoutProbe(1080, 680, "02-versions");
+            OpenVersionSettings("版本选择");
+            Navigate("模组更新");
+            if (localResourceList?.ItemTemplate == null || sidebarButtons.Count != 3)
+                throw new InvalidOperationException("版本设置侧栏或本地资源列表缺失");
+            Navigate("存档管理");
+            BackButton_Click(this, new RoutedEventArgs());
+            if (currentPage != "版本选择")
+                throw new InvalidOperationException("版本设置无法返回版本选择");
 
             Navigate("游戏版本");
             if (versionList == null || versionList.ItemTemplate == null ||
                 versionQuery == null || versionCounter == null ||
-                versionCategory == null || SideBar.Visibility != Visibility.Visible)
+                versionCategory == null || !sidebarButtons.ContainsKey("资源中心") ||
+                sidebarButtons.ContainsKey("设置") || sidebarButtons.ContainsKey("皮肤 DIY"))
                 throw new InvalidOperationException("游戏版本卡片与侧边导航不完整");
 
             Navigate("资源中心");
@@ -839,13 +1081,29 @@ namespace BlockCraftLauncher.Wpf
                 UpdatedLabel = "更新 2026-11-10", VersionsLabel = "1.21.1",
                 LoaderLabel = "fabric", CategoryLabel = "性能优化"
             });
-            PageHost.Measure(new Size(900, 2200));
-            PageHost.Arrange(new Rect(0, 0, 900, 1100));
-            PageHost.UpdateLayout();
-            if (resourceList.Items.Count != 1 ||
-                resourceSource.SelectedIndex != 0 ||
-                resourceMatchVersion == null)
-                throw new InvalidOperationException("Modrinth 图片和多项筛选控件回归");
+            resourceResults.Add(new ResourceHit
+            {
+                ProjectId = "second-test-item", Kind = "mod",
+                Name = "示例模组 · 建筑装饰", Author = "作者名称",
+                Description = "这里显示模组的简介。点击列表或按 Enter 查看详情与安装选项。",
+                CategoryLabel = "装饰", DownloadsLabel = "1.2 万次下载", LoaderLabel = "Fabric"
+            });
+            resourceQuery.Text = "示例筛选";
+            resourceList.SelectedIndex = 0;
+            ArrangeLayoutProbe(1080, 680, "03-download");
+            ArrangeLayoutProbe(850, 560);
+            if (resourceList.Items.Count != 2 || resourceSource.SelectedIndex != 0 ||
+                resourceMatchVersion == null || resourceQuery.ActualWidth < 140 ||
+                Math.Abs(resourceQuery.ActualWidth - resourceSource.ActualWidth) > 2)
+                throw new InvalidOperationException("资源列表或窄窗口筛选网格布局错误");
+            var selection = resourceList.SelectedItem as ResourceHit;
+            ShowResourceDetails(selection);
+            if (DetailHost.Content == null || PageHost.Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("资源详情未在当前窗口显示");
+            BackButton_Click(this, new RoutedEventArgs());
+            if (DetailHost.Content != null || PageHost.Visibility != Visibility.Visible ||
+                resourceList.SelectedItem != selection || resourceQuery.Text != "示例筛选")
+                throw new InvalidOperationException("从详情返回时丢失了搜索条件或选中项目");
 
             Navigate("光影引擎");
             Navigate("资源包");
@@ -863,17 +1121,17 @@ namespace BlockCraftLauncher.Wpf
                 throw new InvalidOperationException("下载任务搜索、筛选或进度布局不完整");
 
             Navigate("多人联机");
-            if (serverList == null || serverList.ItemTemplate == null ||
-                lanWorldList == null || lanWorldList.ItemTemplate == null)
-                throw new InvalidOperationException("服务器与局域网列表没有统一布局模板");
+            if (serverList?.ItemTemplate == null || sidebarButtons.Count != 2)
+                throw new InvalidOperationException("服务器列表或联机导航缺失");
+            Navigate("局域网");
+            if (lanWorldList?.ItemTemplate == null)
+                throw new InvalidOperationException("局域网列表缺少行布局模板");
 
             Navigate("皮肤 DIY");
             if (skinStudio == null || PageHost.Content != skinStudio)
                 throw new InvalidOperationException("内置 Minecraft 皮肤 DIY 工作室无法打开");
             skinStudio.VerifyOfflineLayout();
-            Navigate("模组更新");
-            if (PageHost.Content == null)
-                throw new InvalidOperationException("本地资源管理页面无法打开");
+            ArrangeLayoutProbe(1080, 680, "04-skin");
 
             // The optional MCIM page is built locally without calling its
             // service. Verify the complete visual search path and then restore
@@ -898,6 +1156,11 @@ namespace BlockCraftLauncher.Wpf
                 ApplyCurseForgeFilters();
                 if (cfSearchResults.Items.Count != 1)
                     throw new InvalidOperationException("CurseForge 本页结果绑定失效");
+                cfSearchResults.SelectedIndex = 0;
+                ShowCurseForgeDetails();
+                if (DetailHost.Content == null)
+                    throw new InvalidOperationException("CurseForge 图文详情未显示");
+                BackButton_Click(this, new RoutedEventArgs());
                 cfVersionFilter.Text = "1.20.1";
                 if (cfSearchResults.Items.Count != 0)
                     throw new InvalidOperationException("CurseForge 版本筛选未生效");
@@ -914,16 +1177,53 @@ namespace BlockCraftLauncher.Wpf
                 throw new InvalidOperationException("运行日志页无法打开");
 
             Navigate("设置");
-            if (settingsTheme == null || settingsZoom == null ||
-                settingsRoot == null || settingsNetworkMode == null ||
-                settingsDownloadThreads == null || settingsMemory == null ||
-                settingsUpdateChannel == null || settingsAutoCheck == null ||
-                settingsAutoDownload == null)
-                throw new InvalidOperationException("设置页面缺少字段或布局");
+            if (settingsRoot == null || settingsMemory == null || sidebarButtons.Count != 4)
+                throw new InvalidOperationException("启动设置或设置分类缺失");
+            var originalRoot = settingsRoot.Text;
+            settingsRoot.Text = "layout-probe";
+            Navigate("下载设置");
+            if (settingsNetworkMode == null || settingsDownloadThreads == null)
+                throw new InvalidOperationException("下载设置缺少字段");
+            ArrangeLayoutProbe(1080, 680, "05-settings");
+            Navigate("个性化");
+            if (settingsTheme == null || settingsZoom == null)
+                throw new InvalidOperationException("个性化设置缺少字段");
+            Navigate("更新设置");
+            if (settingsUpdateChannel == null || settingsAutoCheck == null || settingsAutoDownload == null)
+                throw new InvalidOperationException("更新设置缺少字段");
+            Navigate("设置");
+            if (settingsRoot.Text != "layout-probe")
+                throw new InvalidOperationException("切换设置分类时丢失未保存的修改");
+            settingsRoot.Text = originalRoot;
 
+            Navigate("关于");
+            settings.Profiles.Remove(sampleProfile);
+            activeProfile = originalProfile;
             Navigate("首页");
             if (currentPage != "首页" || PageHost.Content == null)
                 throw new InvalidOperationException("导航返回首页失败");
+        }
+
+        void ArrangeLayoutProbe(int width, int height, string captureName = null)
+        {
+            var root = (FrameworkElement)Content;
+            var size = new Size(width, height);
+            var rect = new Rect(size);
+            root.Measure(size);
+            root.Arrange(rect);
+            UpdateShellSize();
+            root.Measure(size);
+            root.Arrange(rect);
+            root.UpdateLayout();
+            string directory = Environment.GetEnvironmentVariable("BLOCKCRAFT_UI_CAPTURE_DIR");
+            if (captureName == null || string.IsNullOrWhiteSpace(directory)) return;
+            Directory.CreateDirectory(directory);
+            var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(root);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            using (var file = File.Create(Path.Combine(directory, captureName + ".png")))
+                encoder.Save(file);
         }
 
         /// <summary>
@@ -956,9 +1256,8 @@ namespace BlockCraftLauncher.Wpf
             };
             if (downloadCounter != null)
                 downloadCounter.Text = downloadList.Items.Count == 0 ?
-                    "当前筛选条件下没有任务。可清除条件或开始新的下载。" :
-                    "显示 " + downloadList.Items.Count + " / " + downloads.Jobs.Count +
-                    " 个任务 · 任务状态变化后可点击刷新列表。";
+                    "当前没有符合条件的任务。" :
+                    "显示 " + downloadList.Items.Count + " / " + downloads.Jobs.Count + " 个任务";
         }
 
         internal void VerifyDownloadPageBindings()
@@ -986,110 +1285,112 @@ namespace BlockCraftLauncher.Wpf
                 ProgressBar.IsIndeterminateProperty)?.UpdateTarget();
         }
 
+        static void WireResultActions(ListBox list, Action open, params Button[] actions)
+        {
+            void Refresh()
+            {
+                foreach (var action in actions) action.IsEnabled = list.SelectedItem != null;
+            }
+            list.SelectionChanged += (sender, args) => Refresh();
+            list.MouseDoubleClick += (sender, args) =>
+            {
+                if (args.OriginalSource is DependencyObject source &&
+                    ItemsControl.ContainerFromElement(list, source) is ListBoxItem)
+                    open();
+            };
+            list.KeyDown += (sender, args) =>
+            {
+                if (args.Key == System.Windows.Input.Key.Enter && list.SelectedItem != null)
+                {
+                    args.Handled = true;
+                    open();
+                }
+            };
+            Refresh();
+        }
+
+        static Border ProjectResults(TextBlock status, ListBox results, WrapPanel actions,
+            Button previous = null, Button next = null)
+        {
+            var content = Col(Txt("搜索结果", 16, true), status, results, actions);
+            if (previous != null && next != null)
+            {
+                var pages = Row(previous, next);
+                pages.HorizontalAlignment = HorizontalAlignment.Center;
+                content.Children.Add(pages);
+            }
+            return ResultsCard(content);
+        }
+
         UIElement BuildResources(string type)
         {
             resourceType = type;
             resourceResults.Clear();
             resourcePage = 0;
-
-            string title = type == "mod" ? "搜索 Mod" :
-                type == "shader" ? "搜索光影包" : "搜索资源包";
-            var root = Col(PageHeading("下载中心 / 社区资源", title,
-                "按名称、游戏版本、加载器、分类和下载来源查找资源；安装时自动核对兼容性与文件完整性。"));
-
-            resourceQuery = new TextBox {
-                ToolTip = "输入 Mod、光影或资源包名称；留空浏览热门项目"
-            };
-            ApplySearchInputStyle(resourceQuery, "输入资源名称、关键词或作者；按 Enter 搜索");
-            resourceQuery.KeyDown += async (sender, args) =>
+            bool isMod = type == "mod";
+            string title = isMod ? "搜索模组" : type == "shader" ? "搜索光影包" : "搜索资源包";
+            resourceQuery = new TextBox();
+            resourceVersion = new ComboBox
             {
-                if (args.Key == System.Windows.Input.Key.Enter)
-                {
-                    resourcePage = 0;
-                    await SearchResourcesAsync();
-                    args.Handled = true;
-                }
-            };
-
-            resourceVersion = new ComboBox {
                 IsEditable = true, IsTextSearchEnabled = true,
-                ItemsSource = (new[] { "全部（也可自行输入）", activeProfile?.BaseVersion,
+                ItemsSource = (new[] { "全部版本", activeProfile?.BaseVersion,
                     "1.21.11", "1.21.10", "1.21.8", "1.21.1", "1.20.1", "1.19.4" })
                     .Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().ToArray(),
-                SelectedIndex = 0,
-                ToolTip = "选择或输入 Minecraft Java 版本，例如 1.21.1"
+                SelectedIndex = 0
             };
-            resourceSource = new ComboBox {
-                ItemsSource = new[] { "Modrinth", "CurseForge（独立搜索）" },
-                SelectedIndex = 0,
-                ToolTip = "CurseForge 使用单独的可选 MCIM 服务，并非自动合并的搜索来源"
+            resourceSource = new ComboBox
+            {
+                ItemsSource = isMod ? new[] { "Modrinth", "CurseForge（通过 MCIM）" } : new[] { "Modrinth" },
+                SelectedIndex = 0, IsEnabled = isMod
             };
-            resourceCategory = new ComboBox {
-                ItemsSource = new[] {
-                    "全部类型", "性能优化", "科技", "冒险", "装饰", "实用工具",
-                    "世界生成", "生物", "支持库", "玩法", "装备", "存储", "管理"
-                },
-                SelectedIndex = 0,
-                IsEnabled = type == "mod"
+            resourceCategory = new ComboBox
+            {
+                ItemsSource = new[] { "全部类型", "性能优化", "科技", "冒险", "装饰",
+                    "实用工具", "世界生成", "生物", "支持库", "玩法", "装备", "存储", "管理" },
+                SelectedIndex = 0
             };
-            resourceMatchVersion = new CheckBox {
-                Content = "仅显示当前游戏实例兼容资源",
-                IsChecked = false,
-                IsEnabled = activeProfile != null,
-                ToolTip = "启用后按当前实例的 Minecraft 版本和加载器搜索"
-            };
-            resourceLoader = new ComboBox {
+            resourceLoader = new ComboBox
+            {
                 ItemsSource = new[] { "全部加载器", "Fabric", "Forge", "NeoForge", "Quilt" },
-                SelectedIndex = 0, Width = 130, IsEnabled = type == "mod",
-                ToolTip = "按加载器类别筛选；勾选当前实例兼容时优先使用实例的加载器"
+                SelectedIndex = 0
             };
-            resourceSort = new ComboBox {
+            resourceSort = new ComboBox
+            {
                 ItemsSource = new[] { "相关度", "下载量", "最近更新", "最新发布" },
-                SelectedIndex = 0, Width = 132
+                SelectedIndex = 0
             };
+            resourceMatchVersion = new CheckBox
+            {
+                Content = "仅显示与当前版本兼容的项目",
+                IsEnabled = activeProfile != null,
+                ToolTip = "使用当前游戏版本；搜索模组时同时匹配加载器。"
+            };
+            ApplySearchInputStyle(resourceQuery, "输入名称或关键词，留空可浏览推荐项目");
             ApplySearchInputStyle(resourceVersion, "可选择或输入 Minecraft 游戏版本");
-            ApplySearchInputStyle(resourceSource, "Modrinth 或单独的 CurseForge 搜索");
-            ApplySearchInputStyle(resourceCategory, "筛选资源类型");
-            ApplySearchInputStyle(resourceLoader, "选择模组加载器");
-            ApplySearchInputStyle(resourceSort, "设置搜索结果排序");
-
-            // 4-column search card: two rows of Name/Source and Version/Type,
-            // matching the reference information hierarchy without borrowing
-            // proprietary artwork or performing unsafe multi-provider merging.
-            var form = new Grid { Margin = new Thickness(3, 7, 3, 5) };
-            form.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(58) });
-            form.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            form.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });
-            form.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(208) });
-            form.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            form.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var labelName = Txt("名称", 13);
-            labelName.Margin = new Thickness(0, 9, 5, 0);
-            var labelSource = Txt("来源", 13);
-            labelSource.Margin = new Thickness(4, 9, 5, 0);
-            var labelVersion = Txt("版本", 13);
-            labelVersion.Margin = new Thickness(0, 9, 5, 0);
-            var labelCategory = Txt("类型", 13);
-            labelCategory.Margin = new Thickness(4, 9, 5, 0);
-            Place(form, labelName, 0, 0);
-            Place(form, resourceQuery, 0, 1);
-            Place(form, labelSource, 0, 2);
-            Place(form, resourceSource, 0, 3);
-            Place(form, labelVersion, 1, 0);
-            Place(form, resourceVersion, 1, 1);
-            Place(form, labelCategory, 1, 2);
-            Place(form, resourceCategory, 1, 3);
-
-            resourceSearchButton = Btn("搜索资源", async () =>
+            ApplySearchInputStyle(resourceSource, "选择搜索来源");
+            ApplySearchInputStyle(resourceCategory, "筛选模组类型");
+            ApplySearchInputStyle(resourceLoader, "筛选模组加载器");
+            ApplySearchInputStyle(resourceSort, "设置结果排序");
+            async Task SearchFirstPage()
             {
                 resourcePage = 0;
                 await SearchResourcesAsync();
-            }, true);
-            resourceSearchButton.MinWidth = 142;
-            var clearButton = Btn("重置条件", () =>
+            }
+            resourceQuery.KeyDown += async (sender, args) =>
+            {
+                if (args.Key != System.Windows.Input.Key.Enter) return;
+                args.Handled = true;
+                await SearchFirstPage();
+            };
+
+            resourceSearchButton = Btn("搜索", async () => await SearchFirstPage(), true);
+            resourceSearchButton.MinWidth = 120;
+            var clear = Btn("重置条件", () =>
             {
                 resourceSearchCancellation?.Cancel();
-                resourceQuery.Text = "";
+                resourceSearchCancellation = null;
+                resourceSearchButton.IsEnabled = true;
+                resourceQuery.Clear();
                 resourceVersion.SelectedIndex = 0;
                 resourceSource.SelectedIndex = 0;
                 resourceCategory.SelectedIndex = 0;
@@ -1098,72 +1399,53 @@ namespace BlockCraftLauncher.Wpf
                 resourceMatchVersion.IsChecked = false;
                 resourcePage = 0;
                 resourceResults.Clear();
-                if (resourceCounter != null)
-                    resourceCounter.Text = "条件已重置，点击搜索查看资源";
-                if (resourcePrevButton != null) resourcePrevButton.IsEnabled = false;
-                if (resourceNextButton != null) resourceNextButton.IsEnabled = false;
+                resourceCounter.Text = "点击“搜索”查看项目。";
+                resourcePrevButton.IsEnabled = resourceNextButton.IsEnabled = false;
             });
-            clearButton.MinWidth = 140;
-            var filters = Row(resourceMatchVersion, Txt("加载器", 12, false, true),
-                resourceLoader, Txt("排序", 12, false, true), resourceSort);
-            var quickSort = Row(Txt("快捷排序", 12, false, true),
-                FilterChipButton("最多下载", () => resourceSort.SelectedIndex = 1),
-                FilterChipButton("最近更新", () => resourceSort.SelectedIndex = 2),
-                FilterChipButton("最新发布", () => resourceSort.SelectedIndex = 3));
-            var searchCard = Col(Txt("筛选条件 · " + title, 18, true),
-                Txt("填写关键词、游戏版本和加载器，再点击搜索；条件变化不会自动安装资源。", 12, false, true),
-                form, filters, quickSort, Row(resourceSearchButton, clearButton));
-            root.Children.Add(SearchCard(searchCard));
+            var form = isMod ? SearchFields(("名称", resourceQuery), ("来源", resourceSource),
+                    ("版本", resourceVersion), ("类型", resourceCategory),
+                    ("加载器", resourceLoader), ("排序", resourceSort))
+                : SearchFields(("名称", resourceQuery), ("来源", resourceSource),
+                    ("版本", resourceVersion), ("排序", resourceSort));
+            var root = Col(SearchCard(Col(Txt(title, 16, true), form,
+                resourceMatchVersion, Row(resourceSearchButton, clear))));
 
-            resourceList = new ListBox {
-                ItemsSource = resourceResults,
-                ItemTemplate = (DataTemplate)FindResource("ResourceItemTemplate"),
-                Height = 470, HorizontalContentAlignment = HorizontalAlignment.Stretch
-            };
-            ScrollViewer.SetHorizontalScrollBarVisibility(resourceList, ScrollBarVisibility.Disabled);
-            resourceList.MouseDoubleClick += (sender, args) =>
+            resourceList = new ListBox
             {
-                if (resourceList.SelectedItem is ResourceHit hit)
-                    ShowResourceDetails(hit);
+                ItemsSource = resourceResults, ItemTemplate = (DataTemplate)FindResource("ResourceItemTemplate"),
+                MinHeight = 132, MaxHeight = 372
             };
-            resourceCounter = Txt("请输入名称或直接点击搜索，查看 Modrinth 项目", 12, false, true);
+            resourceCounter = Txt("点击“搜索”查看项目。", 12, false, true);
             resourcePrevButton = Btn("上一页", async () =>
             {
                 if (resourcePage <= 0) return;
                 resourcePage--;
                 await SearchResourcesAsync();
             });
-            resourcePrevButton.IsEnabled = false;
             resourceNextButton = Btn("下一页", async () =>
             {
                 resourcePage++;
                 await SearchResourcesAsync();
             });
-            resourceNextButton.IsEnabled = false;
-            var results = Col(
-                Txt("项目搜索结果", 18, true),
-                resourceCounter, resourceList,
-                Row(resourcePrevButton, resourceNextButton));
-            root.Children.Add(ResultsCard(results));
+            resourcePrevButton.IsEnabled = resourceNextButton.IsEnabled = false;
+            void Open() => ShowResourceDetails(resourceList.SelectedItem as ResourceHit);
+            var details = Btn("查看详情", Open);
+            var install = Btn("安装到当前版本", async () => await InstallResourceAsync(), true);
+            WireResultActions(resourceList, Open, details, install);
+            root.Children.Add(ProjectResults(resourceCounter, resourceList, Row(install, details),
+                resourcePrevButton, resourceNextButton));
 
             if (type == "shader")
-                root.Children.Add(Card(Col(Txt("光影运行组件", 17, true),
-                    Txt("Iris 与 Sodium 将按当前游戏实例的 Minecraft 版本及加载器匹配。"
-                        + "OptiFine 必须由用户访问其官方网站下载。", 12, false, true),
+                root.Children.Add(Card(Col(Txt("光影组件", 16, true),
+                    Txt("按当前版本安装 Iris 或 Sodium，也可前往 OptiFine 官网。", 12, false, true),
                     Row(Btn("安装 Iris", async () =>
                             await InstallGraphicsModAsync("YL57xq9U", "Iris Shaders"), true),
                         Btn("安装 Sodium", async () =>
                             await InstallGraphicsModAsync("AANobbMI", "Sodium")),
-                        Btn("OptiFine 官方下载", OpenOfficialOptiFine)))));
-
-            root.Children.Add(Card(Col(Txt("资源安装", 17, true),
-                Txt("单击选择资源；双击查看详情，再决定是否安装。安装流程仍会校验版本、依赖及 SHA-1。", 12, false, true),
-                Row(Btn("安装选中资源", async () => await InstallResourceAsync(), true),
-                    Btn("查看资源详情", () => ShowResourceDetails(resourceList?.SelectedItem as ResourceHit)),
-                    Btn("打开下载管理", () => Navigate("下载管理")),
-                    Btn("打开实例目录", OpenGameFolder)))));
+                        Btn("打开 OptiFine 官网", OpenOfficialOptiFine)))));
             return root;
         }
+
         async Task InstallGraphicsModAsync(string projectId, string name)
         {
             var profile = activeProfile;
@@ -1205,11 +1487,17 @@ namespace BlockCraftLauncher.Wpf
             // never promise merged results when CurseForge is not enabled.
             if (resourceSource?.SelectedIndex == 1)
             {
-                string query = resourceQuery?.Text ?? "";
+                string query = resourceQuery.Text;
+                string version = resourceMatchVersion.IsChecked == true
+                    ? activeProfile?.BaseVersion : resourceVersion.Text;
                 Navigate("CurseForge");
-                if (cfSearchQuery != null) cfSearchQuery.Text = query;
-                if (settings.McimEnabled && !string.IsNullOrWhiteSpace(query))
+                if (settings.McimEnabled)
+                {
+                    cfSearchQuery.Text = query;
+                    if (!string.IsNullOrWhiteSpace(version) && !version.StartsWith("全部", StringComparison.Ordinal))
+                        cfVersionFilter.Text = version;
                     await SearchCurseForgeAsync();
+                }
                 return;
             }
 
@@ -1232,9 +1520,9 @@ namespace BlockCraftLauncher.Wpf
                         string.IsNullOrWhiteSpace(selectedVersion) ||
                         selectedVersion.StartsWith("全部", StringComparison.Ordinal) ?
                         null : selectedVersion;
-                    string loader = compatible ? activeProfile.Loader :
-                        resourceLoader?.SelectedIndex > 0 ?
-                        (resourceLoader.SelectedItem as string)?.ToLowerInvariant() : null;
+                    string loader = resourceType != "mod" ? null :
+                        compatible ? activeProfile.Loader : resourceLoader.SelectedIndex > 0
+                            ? (resourceLoader.SelectedItem as string)?.ToLowerInvariant() : null;
                     string category = null;
                     if (resourceType == "mod" && resourceCategory != null &&
                         resourceCategory.SelectedIndex > 0)
@@ -1296,71 +1584,51 @@ namespace BlockCraftLauncher.Wpf
         }
         void ShowResourceDetails(ResourceHit hit)
         {
-            if (hit == null)
-            {
-                MessageBox.Show(this, "请先在搜索结果中选择一个项目。", "资源详情");
-                return;
-            }
-
-            var dialog = new Window {
-                Owner = this, Title = hit.Name + " · Modrinth 项目详情",
-                Width = 660, Height = 560, MinWidth = 490, MinHeight = 370,
-                WindowStartupLocation = WindowStartupLocation.CenterOwner
-            };
-            var description = Txt(hit.Description ?? "暂无项目介绍", 13, false, true);
-            description.TextWrapping = TextWrapping.Wrap;
-            var author = Txt("作者：" + (string.IsNullOrWhiteSpace(hit.Author)
-                ? "未提供" : hit.Author), 12, false, true);
-            var panel = Col(
-                Txt(hit.Name, 22, true),
-                Txt(hit.KindLabel + " · " + hit.SourceLabel, 12, false, true),
-                description, new Separator { Margin = new Thickness(0, 12, 0, 12) },
-                author,
-                Txt("分类：" + (hit.CategoryLabel ?? "未知"), 12),
-                Txt("加载器：" + (hit.LoaderLabel ?? "未指定"), 12),
-                Txt("游戏版本：" + (hit.VersionsLabel ?? "未指定"), 12),
-                Txt("下载量：" + (hit.DownloadsLabel ?? "未知"), 12),
-                Txt("更新时间：" + (hit.UpdatedLabel ?? "未知"), 12));
-            panel.Margin = new Thickness(21);
+            if (hit == null) return;
+            var description = Txt(hit.Description ?? "暂无项目简介。", 13);
+            var project = Col(Txt(hit.Name, 20, true),
+                Txt(hit.KindLabel + " · " + hit.SourceLabel + " · " + hit.Author,
+                    12, false, true),
+                description);
+            var overview = Card(Col(Txt("项目信息", 16, true),
+                Txt("游戏版本  " + (hit.VersionsLabel ?? "未标注"), 12),
+                Txt("加载器  " + (hit.LoaderLabel ?? "未标注"), 12),
+                Txt("类型  " + (hit.CategoryLabel ?? "未标注"), 12),
+                Txt("下载量  " + (hit.DownloadsLabel ?? "未知"), 12),
+                Txt("最近更新  " + (hit.UpdatedLabel ?? "未知"), 12)));
+            bool isPack = hit.Kind == "modpack";
             var actions = Row(
-                Btn("安装到当前游戏实例", async () =>
+                Btn(isPack ? "安装整合包" : "安装到当前版本", async () =>
                 {
-                    dialog.Close();
-                    await InstallResourceAsync();
+                    if (isPack) await InstallSelectedModpackAsync(hit);
+                    else await InstallResourceAsync(hit);
                 }, true),
-                Btn("打开 Modrinth 项目网页", () =>
+                Btn("打开 Modrinth 项目页", () =>
                 {
                     if (string.IsNullOrWhiteSpace(hit.ProjectId) ||
                         hit.ProjectId.Length > 64 ||
-                        hit.ProjectId.Any(c => !char.IsLetterOrDigit(c) &&
-                            c != '-' && c != '_'))
+                        hit.ProjectId.Any(c => !char.IsLetterOrDigit(c) && c != '-' && c != '_'))
                     {
-                        MessageBox.Show(dialog, "项目 ID 不合法，无法打开官方页面。");
+                        MessageBox.Show(this, "项目 ID 无效，无法打开项目页。", "项目详情");
                         return;
                     }
                     string path = hit.Kind == "shader" ? "shader" :
-                        hit.Kind == "resourcepack" ? "resourcepack" :
-                        hit.Kind == "modpack" ? "modpack" : "mod";
+                        hit.Kind == "resourcepack" ? "resourcepack" : isPack ? "modpack" : "mod";
                     try
                     {
                         Process.Start(new ProcessStartInfo(
-                            "https://modrinth.com/" + path + "/" +
-                            Uri.EscapeDataString(hit.ProjectId)) { UseShellExecute = true });
+                            "https://modrinth.com/" + path + "/" + Uri.EscapeDataString(hit.ProjectId))
+                            { UseShellExecute = true });
                     }
-                    catch (Exception ex) { ShowError("打开 Modrinth 官方项目页失败", ex); }
-                }),
-                Btn("关闭", dialog.Close));
-            panel.Children.Add(actions);
-            dialog.Content = new ScrollViewer {
-                Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
-            };
-            dialog.ShowDialog();
+                    catch (Exception ex) { ShowError("打开 Modrinth 项目页失败", ex); }
+                }));
+            project.Children.Add(actions);
+            ShowDetails(hit.Name, Col(Card(project), overview));
         }
 
-        async Task InstallResourceAsync()
+        async Task InstallResourceAsync(ResourceHit hit = null)
         {
-            var hit = resourceList?.SelectedItem as ResourceHit;
+            hit = hit ?? resourceList?.SelectedItem as ResourceHit;
             var profile = activeProfile;
             if (profile == null || hit == null) { MessageBox.Show("请先选择实例和资源。"); return; }
             downloads.Enqueue("Modrinth", hit.Name + " → " + profile.Name, async (token, progress, bytes) =>
@@ -1378,23 +1646,13 @@ namespace BlockCraftLauncher.Wpf
             Status("已将资源加入任务列表：" + hit.Name);
             await Task.CompletedTask;
         }
-        UIElement MigrationPanel(string title, string details)
-        {
-            return Col(Txt(title, 24, true), Card(Col(Txt("迁移状态：尚未完成", 18, true),
-                Txt(details, 14, false, true), Txt("为保证存档和账户安全，此处不会运行未经迁移验证的下载/安装逻辑。", 12, false, true))));
-        }
         UIElement BuildCurseForge()
         {
-            var root = Col(PageHeading("下载中心 / CurseForge", "CurseForge 模组",
-                "搜索模组、浏览真实项目图片、筛选游戏版本，再按已安装实例选择兼容文件。"));
+            cfLoadedHits.Clear();
             if (!settings.McimEnabled)
-                return Col(
-                    PageHeading("下载中心 / CurseForge", "开启 CurseForge 搜索",
-                        "此搜索通过第三方 MCIM 社区镜像获取项目列表，需要主动启用。"),
-                    SearchCard(Col(
-                        Txt("可选的第三方资源来源", 18, true),
-                        Txt("启用后才会从 MCIM 读取公开的项目名称、图标、截图及元数据。"
-                            + "不会使用其他启动器的私有 API Key；镜像可能限流或暂时不可用。", 12, false, true),
+                return Col(SearchCard(Col(
+                        Txt("搜索 CurseForge 模组", 16, true),
+                        Txt("启用 MCIM 社区镜像后，可搜索模组并查看项目图标和截图。", 12, false, true),
                         Row(Btn("启用 CurseForge 搜索", () =>
                         {
                             if (MessageBox.Show(this,
@@ -1414,9 +1672,9 @@ namespace BlockCraftLauncher.Wpf
                             }
                             Navigate("CurseForge");
                             Status("已启用 CurseForge 图文搜索。");
-                        }, true), Btn("查看下载设置", () => Navigate("设置"))))));
+                        }, true), Btn("下载设置", () => Navigate("下载设置"))))));
 
-            cfSearchQuery = new TextBox { Width = 310 };
+            cfSearchQuery = new TextBox();
             ApplySearchInputStyle(cfSearchQuery, "输入模组名称、作者或关键词；留空浏览热门模组");
             cfSearchQuery.KeyDown += async (sender, args) =>
             {
@@ -1426,60 +1684,52 @@ namespace BlockCraftLauncher.Wpf
                     await SearchCurseForgeAsync();
                 }
             };
-            cfVersionFilter = new TextBox { Width = 155 };
+            cfVersionFilter = new TextBox();
             ApplySearchInputStyle(cfVersionFilter, "在当前页筛选，例如输入 1.21.1");
             cfVersionFilter.TextChanged += (sender, args) => ApplyCurseForgeFilters();
             cfCategoryFilter = new ComboBox
             {
-                ItemsSource = new[] { "全部分类" }, SelectedIndex = 0, Width = 178
+                ItemsSource = new[] { "全部分类" }, SelectedIndex = 0
             };
             ApplySearchInputStyle(cfCategoryFilter, "当前页已有项目的分类");
             cfCategoryFilter.SelectionChanged += (sender, args) => ApplyCurseForgeFilters();
             cfSortMode = new ComboBox
             {
                 ItemsSource = new[] { "相关度", "最多下载", "按名称" },
-                SelectedIndex = 0, Width = 145
+                SelectedIndex = 0
             };
             ApplySearchInputStyle(cfSortMode, "排序只针对当前已加载的项目");
             cfSortMode.SelectionChanged += (sender, args) => ApplyCurseForgeFilters();
 
-            var filters = Row(
-                Txt("版本", 12, false, true), cfVersionFilter,
-                Txt("分类", 12, false, true), cfCategoryFilter,
-                Txt("排序", 12, false, true), cfSortMode);
-            root.Children.Add(SearchCard(Col(
-                Txt("搜索 Minecraft 模组", 18, true),
-                Txt("项目数据来自 CurseForge / MCIM；版本、分类和排序仅作用于当前加载的搜索结果。", 12, false, true),
-                Row(Txt("名称", 12, false, true), cfSearchQuery,
-                    Btn("搜索模组", async () => await SearchCurseForgeAsync(), true),
-                    Btn("重置筛选", () =>
-                    {
-                        cfSearchQuery.Text = "";
-                        cfVersionFilter.Text = "";
-                        cfCategoryFilter.SelectedIndex = 0;
-                        cfSortMode.SelectedIndex = 0;
-                        ApplyCurseForgeFilters();
-                    })),
-                filters)));
-
-            cfSearchStatus = Txt("输入关键词后点击搜索；空关键词可以浏览热门项目。", 12, false, true);
+            cfSearchStatus = Txt("点击“搜索”查看项目。", 12, false, true);
             cfSearchResults = new ListBox
             {
-                Height = 460,
-                ItemTemplate = (DataTemplate)FindResource("CurseForgeItemTemplate"),
-                ToolTip = "单击选中，双击查看原作者上传的模组截图"
+                MinHeight = 132, MaxHeight = 372,
+                ItemTemplate = (DataTemplate)FindResource("CurseForgeItemTemplate")
             };
-            cfSearchResults.MouseDoubleClick += (sender, args) => ShowCurseForgeDetails();
-            root.Children.Add(ResultsCard(Col(
-                Txt("CurseForge 搜索结果", 18, true),
-                cfSearchStatus, cfSearchResults)));
-
-            root.Children.Add(Card(Col(Txt("选择模组后", 18, true),
-                Row(Btn("查看模组图片与详情", ShowCurseForgeDetails),
-                    Btn("安装到当前游戏实例", async () => await InstallCurseForgeAsync(), true),
-                    Btn("查看下载任务", () => Navigate("下载管理"))),
-                Txt("图片来自作者提供的项目资料；项目是否兼容当前实例由安装前的实际文件检查决定。", 12, false, true))));
-            return root;
+            var search = Btn("搜索", async () => await SearchCurseForgeAsync(), true);
+            search.MinWidth = 120;
+            var reset = Btn("重置条件", () =>
+            {
+                cfSearchCancellation?.Cancel();
+                cfSearchQuery.Clear();
+                cfVersionFilter.Clear();
+                cfLoadedHits.Clear();
+                cfCategoryFilter.ItemsSource = new[] { "全部分类" };
+                cfCategoryFilter.SelectedIndex = 0;
+                cfSortMode.SelectedIndex = 0;
+                ApplyCurseForgeFilters();
+            });
+            var details = Btn("查看详情与截图", ShowCurseForgeDetails);
+            var install = Btn("安装到当前版本", async () => await InstallCurseForgeAsync(), true);
+            WireResultActions(cfSearchResults, ShowCurseForgeDetails, details, install);
+            return Col(
+                SearchCard(Col(Txt("搜索 CurseForge 模组", 16, true),
+                    SearchFields(("名称", cfSearchQuery), ("类型", cfCategoryFilter),
+                        ("版本", cfVersionFilter), ("排序", cfSortMode)),
+                    Txt("来源为 MCIM。版本、类型和排序仅筛选已加载的项目。", 12, false, true),
+                    Row(search, reset))),
+                ProjectResults(cfSearchStatus, cfSearchResults, Row(install, details)));
         }
 
         void ApplyCurseForgeFilters()
@@ -1504,22 +1754,16 @@ namespace BlockCraftLauncher.Wpf
             cfSearchResults.ItemsSource = visible;
             if (cfSearchStatus != null)
                 cfSearchStatus.Text = cfLoadedHits.Count == 0 ?
-                    "暂无项目；请搜索名称或检查 MCIM 网络设置。" :
-                    visible.Count == 0 ?
-                    "当前已加载的项目中没有匹配项；可清除版本/分类筛选，或尝试其他搜索词。" :
-                    "当前页显示 " + visible.Count + " / " + cfLoadedHits.Count +
-                    " 个模组 · 双击查看图片 · 安装时再次确认兼容性。";
+                    "暂无项目。试试更换关键词。" :
+                    visible.Count == 0 ? "已加载项目中没有匹配项。" :
+                    "显示 " + visible.Count + " / " + cfLoadedHits.Count + " 个模组";
         }
 
         void ShowCurseForgeDetails()
         {
             var hit = cfSearchResults?.SelectedItem as CurseForgeHit;
-            if (hit == null)
-            {
-                Status("请先从 CurseForge 搜索列表中选择一个模组。");
-                return;
-            }
-            var page = Col(Txt(hit.Name, 23, true),
+            if (hit == null) return;
+            var overview = Col(Txt(hit.Name, 20, true),
                 Txt(hit.AuthorLabel + "  ·  " + hit.DownloadsLabel + "  ·  " + hit.CategoryLabel, 12, false, true),
                 Txt(hit.Summary, 13),
                 Txt(hit.VersionsLabel, 12, false, true));
@@ -1531,9 +1775,9 @@ namespace BlockCraftLauncher.Wpf
                     Stretch = Stretch.UniformToFill, Margin = new Thickness(0, 0, 0, 12) };
                 cover.SetBinding(Image.SourceProperty, new Binding("IconUrl")
                 { Source = hit, Mode = BindingMode.OneWay });
-                page.Children.Add(cover);
+                overview.Children.Insert(0, cover);
             }
-            page.Children.Add(Txt("作者提供的模组截图", 17, true));
+
             var gallery = new WrapPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -1561,28 +1805,17 @@ namespace BlockCraftLauncher.Wpf
                     tile.Children.Add(Txt(shot.Title, 11, false, true));
                 gallery.Children.Add(tile);
             }
-            if (gallery.Children.Count == 0)
-                page.Children.Add(Txt("项目暂未提供可用的安全截图链接。", 12, false, true));
-            else page.Children.Add(gallery);
-
+            var actions = Row(Btn("安装到当前版本", async () => await InstallCurseForgeAsync(hit), true));
             if (!string.IsNullOrEmpty(hit.OfficialUrl))
-                page.Children.Add(Btn("在 CurseForge 官方页面查看完整详情", () =>
-                    Process.Start(new ProcessStartInfo(hit.OfficialUrl) { UseShellExecute = true })));
-            page.Children.Add(Txt("所显示的图标与截图来自项目元数据，不代表兼容性已验证。", 12, false, true));
-            var dialog = new Window
-            {
-                Owner = this, Title = "模组预览 · " + hit.Name,
-                Width = 820, Height = 630, MinWidth = 540, MinHeight = 380,
-                WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                Content = new ScrollViewer
+                actions.Children.Add(Btn("打开 CurseForge 项目页", () =>
                 {
-                    Padding = new Thickness(19),
-                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                    Content = page
-                }
-            };
-            dialog.ShowDialog();
+                    try { Process.Start(new ProcessStartInfo(hit.OfficialUrl) { UseShellExecute = true }); }
+                    catch (Exception ex) { ShowError("打开 CurseForge 项目页失败", ex); }
+                }));
+            overview.Children.Add(actions);
+            ShowDetails(hit.Name, Col(Card(overview),
+                Card(Col(Txt("项目截图", 16, true), gallery.Children.Count == 0
+                    ? (UIElement)Txt("作者暂未提供截图。", 12, false, true) : gallery))));
         }
 
         async Task SearchCurseForgeAsync()
@@ -1636,9 +1869,9 @@ namespace BlockCraftLauncher.Wpf
             }
         }
 
-        async Task InstallCurseForgeAsync()
+        async Task InstallCurseForgeAsync(CurseForgeHit hit = null)
         {
-            var hit = cfSearchResults?.SelectedItem as CurseForgeHit;
+            hit = hit ?? cfSearchResults?.SelectedItem as CurseForgeHit;
             var profile = activeProfile;
             if (hit == null || profile == null) { MessageBox.Show("请先选择模组和游戏实例"); return; }
             if (MessageBox.Show("将为 " + profile.Name + " 下载 " + hit.Name +
@@ -1660,95 +1893,84 @@ namespace BlockCraftLauncher.Wpf
 
         UIElement BuildModpacks()
         {
-            var root = Col(PageHeading("下载中心 / 整合包", "整合包下载",
-                "查找适合 Minecraft 的整合包，可根据游戏版本、下载量和更新时间筛选；安装到独立实例。"));
-
             packPage = 0;
-            packSearchQuery = new TextBox { Width = 305 };
-            ApplySearchInputStyle(packSearchQuery, "整合包名称、玩法或作者；按 Enter 搜索");
-            packSearchQuery.KeyDown += async (sender, args) =>
-            {
-                if (args.Key == System.Windows.Input.Key.Enter)
-                {
-                    args.Handled = true;
-                    packPage = 0;
-                    await SearchModpacksAsync();
-                }
-            };
+            packSearchQuery = new TextBox();
             packVersionFilter = new ComboBox
             {
                 IsEditable = true,
                 ItemsSource = (new[] { "全部版本", activeProfile?.BaseVersion, "1.21.1",
                     "1.20.1", "1.19.4", "1.18.2" })
                     .Where(value => !string.IsNullOrWhiteSpace(value)).Distinct().ToArray(),
-                SelectedIndex = 0, Width = 160
+                SelectedIndex = 0
             };
-            ApplySearchInputStyle(packVersionFilter, "按 Minecraft 游戏版本筛选，可手动输入");
             packSortMode = new ComboBox
             {
                 ItemsSource = new[] { "相关度", "下载量", "最近更新", "最新发布" },
-                SelectedIndex = 0, Width = 148
+                SelectedIndex = 0
             };
-            ApplySearchInputStyle(packSortMode, "整合包搜索结果排序");
-            packSearchButton = Btn("搜索整合包", async () =>
+            var source = new ComboBox { ItemsSource = new[] { "Modrinth" }, SelectedIndex = 0, IsEnabled = false };
+            ApplySearchInputStyle(packSearchQuery, "输入名称或关键词，按 Enter 搜索");
+            ApplySearchInputStyle(packVersionFilter, "可选择或输入 Minecraft 游戏版本");
+            ApplySearchInputStyle(packSortMode, "设置结果排序");
+            ApplySearchInputStyle(source, "Modrinth 整合包");
+            async Task SearchFirstPage()
             {
                 packPage = 0;
                 await SearchModpacksAsync();
-            }, true);
-            root.Children.Add(SearchCard(Col(
-                Txt("搜索 Modrinth 整合包", 18, true),
-                Txt("关键词与版本将用于在线搜索；下载源为 Modrinth，不混用未经授权的整合包镜像。", 12, false, true),
-                Row(Txt("名称", 12, false, true), packSearchQuery,
-                    Txt("版本", 12, false, true), packVersionFilter),
-                Row(Txt("排序", 12, false, true), packSortMode,
-                    packSearchButton,
-                    Btn("重置筛选", () =>
-                    {
-                        packSearchCancellation?.Cancel();
-                        packSearchQuery.Text = "";
-                        packVersionFilter.SelectedIndex = 0;
-                        packSortMode.SelectedIndex = 0;
-                        packPage = 0;
-                        packSearchResults.ItemsSource = null;
-                        if (packSearchStatus != null)
-                            packSearchStatus.Text = "筛选已重置，点击搜索重新加载整合包。";
-                        packPrevButton.IsEnabled = false;
-                        packNextButton.IsEnabled = false;
-                    })),
-                Row(FilterChipButton("最多下载", () => packSortMode.SelectedIndex = 1),
-                    FilterChipButton("最近更新", () => packSortMode.SelectedIndex = 2),
-                    FilterChipButton("使用当前游戏版本", () =>
-                    {
-                        if (activeProfile != null && !string.IsNullOrWhiteSpace(activeProfile.BaseVersion))
-                            packVersionFilter.Text = activeProfile.BaseVersion;
-                    })))));
-            packSearchResults = new ListBox { Height = 440,
-                ItemTemplate = (DataTemplate)FindResource("ResourceItemTemplate") };
-            packSearchStatus = Txt("输入名称或直接点击搜索，浏览可用的 Modrinth 整合包。", 12, false, true);
+            }
+            packSearchQuery.KeyDown += async (sender, args) =>
+            {
+                if (args.Key != System.Windows.Input.Key.Enter) return;
+                args.Handled = true;
+                await SearchFirstPage();
+            };
+            packSearchButton = Btn("搜索", async () => await SearchFirstPage(), true);
+            packSearchButton.MinWidth = 120;
+            var reset = Btn("重置条件", () =>
+            {
+                packSearchCancellation?.Cancel();
+                packSearchCancellation = null;
+                packSearchButton.IsEnabled = true;
+                packSearchQuery.Clear();
+                packVersionFilter.SelectedIndex = 0;
+                packSortMode.SelectedIndex = 0;
+                packPage = 0;
+                packSearchResults.ItemsSource = null;
+                packSearchStatus.Text = "点击“搜索”查看项目。";
+                packPrevButton.IsEnabled = packNextButton.IsEnabled = false;
+            });
+            var root = Col(SearchCard(Col(Txt("搜索整合包", 16, true),
+                SearchFields(("名称", packSearchQuery), ("来源", source),
+                    ("版本", packVersionFilter), ("排序", packSortMode)),
+                Row(packSearchButton, reset, Btn("导入已有整合包", ImportMrpackFromDisk)))));
+
+            packSearchResults = new ListBox
+            {
+                MinHeight = 132, MaxHeight = 372,
+                ItemTemplate = (DataTemplate)FindResource("ResourceItemTemplate")
+            };
+            packSearchStatus = Txt("点击“搜索”查看项目。", 12, false, true);
             packPrevButton = Btn("上一页", async () =>
             {
                 if (packPage == 0) return;
                 packPage--;
                 await SearchModpacksAsync();
             });
-            packPrevButton.IsEnabled = false;
             packNextButton = Btn("下一页", async () =>
             {
                 packPage++;
                 await SearchModpacksAsync();
             });
-            packNextButton.IsEnabled = false;
-            root.Children.Add(ResultsCard(Col(
-                Txt("整合包搜索结果", 18, true),
-                packSearchStatus, packSearchResults,
-                Row(packPrevButton, packNextButton))));
-            root.Children.Add(Card(Col(Txt("安装与导入", 18, true),
-                Row(Btn("安装选中整合包", async () => await InstallSelectedModpackAsync(), true),
-                    Btn("导入本地 .mrpack", ImportMrpackFromDisk),
-                    Btn("查看下载任务", () => Navigate("下载管理")),
-                    Btn("取消本地导入", () => currentOperation?.Cancel())),
-                Txt("整合包安装到新的独立游戏实例。下载失败时会清理未完成的新实例，"
-                    + "不会替换现有存档。CurseForge 整合包直装目前不在支持范围。", 12, false, true))));
+            packPrevButton.IsEnabled = packNextButton.IsEnabled = false;
+            void Open() => ShowResourceDetails(packSearchResults.SelectedItem as ResourceHit);
+            var details = Btn("查看详情", Open);
+            var install = Btn("安装整合包", async () => await InstallSelectedModpackAsync(), true);
+            WireResultActions(packSearchResults, Open, details, install);
+            root.Children.Add(ProjectResults(packSearchStatus, packSearchResults, Row(install, details),
+                packPrevButton, packNextButton));
+            root.Children.Add(Card(Col(Txt("本地导入", 16, true),
+                Txt("支持 .mrpack 文件，导入后会创建独立版本。", 12, false, true),
+                Row(Btn("取消本地导入", () => currentOperation?.Cancel())))));
             return root;
         }
 
@@ -1812,9 +2034,9 @@ namespace BlockCraftLauncher.Wpf
             }
         }
 
-        async Task InstallSelectedModpackAsync()
+        async Task InstallSelectedModpackAsync(ResourceHit hit = null)
         {
-            var hit = packSearchResults?.SelectedItem as ResourceHit;
+            hit = hit ?? packSearchResults?.SelectedItem as ResourceHit;
             if (hit == null) { MessageBox.Show("请先选择一个整合包"); return; }
             downloads.Enqueue("整合包", hit.Name, async (token, progress, bytes) =>
             {
@@ -1831,8 +2053,9 @@ namespace BlockCraftLauncher.Wpf
                     var profile = await new MrpackInstaller(settings).InstallAsync(archive, progress, token);
                     token.ThrowIfCancellationRequested();
                     settings.Profiles.Add(profile);
-                    activeProfile = profile;
-                    store.Save(settings);
+                    try { store.Save(settings); }
+                    catch { settings.Profiles.Remove(profile); throw; }
+                    UseInstalledProfile(profile);
                     progress.Report("已创建独立游戏实例：" + profile.Name);
                     Status("整合包安装完成：" + profile.Name);
                 }
@@ -1877,53 +2100,56 @@ namespace BlockCraftLauncher.Wpf
             var progress = new Progress<string>(Status);
             var profile = await installer.InstallAsync(archive, progress, ct);
             settings.Profiles.Add(profile);
+            try { store.Save(settings); }
+            catch { settings.Profiles.Remove(profile); throw; }
             activeProfile = profile;
-            store.Save(settings);
-            Status("已创建整合包实例：" + profile.Name);
             Navigate("首页");
+            Status("已创建整合包实例：" + profile.Name);
         }
 
 
         UIElement BuildModUpdates()
         {
-            var root = Col(PageHeading("游戏管理 / 本地资源", "模组与资源管理",
-                "查看当前实例的模组、光影和资源包；导入、启用和停用只作用于选中的文件。"));
-            if (activeProfile == null) return Col(Txt("请先在首页选择游戏实例。"), Btn("返回首页", () => Navigate("首页")));
-            root.Children.Add(Txt("当前实例：" + activeProfile.Name));
-            localResourceKind = new ComboBox { ItemsSource = new[] { "模组", "光影", "资源包" }, SelectedIndex = 0,
-                Width = 200, HorizontalAlignment = HorizontalAlignment.Left };
-            localResourceKind.SelectionChanged += (sender, e) => RefreshLocalResourceList();
-            root.Children.Add(Row(Txt("类型"), localResourceKind));
-            localResourceList = new ListBox { Height = 370, Margin = new Thickness(0, 8, 0, 14),
-                ItemTemplate = (DataTemplate)FindResource("LocalResourceItemTemplate") };
-            root.Children.Add(Card(localResourceList));
-            root.Children.Add(Card(Col(Txt("本地操作", 18, true),
+            if (activeProfile == null) return NoVersionSelected("模组与资源");
+            localResourceKind = new ComboBox
+            {
+                ItemsSource = new[] { "模组", "光影", "资源包" }, SelectedIndex = 0, MaxWidth = 160
+            };
+            localResourceList = new ListBox
+            {
+                MinHeight = 140, MaxHeight = 310,
+                ItemTemplate = (DataTemplate)FindResource("LocalResourceItemTemplate")
+            };
+            localResourceKind.SelectionChanged += (sender, args) => RefreshLocalResourceList();
+            var local = Card(Col(Txt("已安装资源", 16, true),
+                SearchFields(("类型", localResourceKind)), localResourceList,
                 Row(Btn("导入文件", ImportLocalResource, true),
-                    Btn("停用选中", () => ToggleLocalResource(false)),
-                    Btn("启用选中", () => ToggleLocalResource(true))),
-                Row(Btn("刷新列表", RefreshLocalResourceList),
-                    Btn("打开实例目录", OpenGameFolder)),
-                Txt("离线管理不等同于在线更新：自动版本匹配和更新前备份仍待完成。", 12, false, true))));
-            modUpgradeResults = new ListBox { Height = 210, Margin = new Thickness(0, 8, 0, 10) };
-            root.Children.Add(Card(Col(Txt("Modrinth 已登记资源更新", 18, true),
-                Btn("检查 Modrinth 更新", async () => await CheckManagedUpdatesAsync(), true),
+                    Btn("启用", () => ToggleLocalResource(true)),
+                    Btn("停用", () => ToggleLocalResource(false)),
+                    Btn("刷新列表", RefreshLocalResourceList),
+                    Btn("打开游戏目录", OpenGameFolder))));
+            modUpgradeResults = new ListBox { MinHeight = 92, MaxHeight = 212 };
+            var updates = Card(Col(Txt("Modrinth 更新", 16, true),
+                Txt("检查通过启动器安装的资源。更新前会备份旧文件。", 12, false, true),
                 modUpgradeResults,
-                Row(Btn("更新选中", async () => await ApplyManagedUpdatesAsync(false)),
-                    Btn("更新全部兼容资源", async () => await ApplyManagedUpdatesAsync(true))),
-                Txt("更新前备份；跳过旧文件哈希不符或未登记的资源。", 12, false, true))));
+                Row(Btn("检查更新", async () => await CheckManagedUpdatesAsync(), true),
+                    Btn("更新选中", async () => await ApplyManagedUpdatesAsync(false)),
+                    Btn("更新全部", async () => await ApplyManagedUpdatesAsync(true)))));
             RefreshLocalResourceList();
-            return root;
+            return Col(PageHeading("模组与资源", "当前版本  " + activeProfile.Name), local, updates);
         }
         async Task CheckManagedUpdatesAsync()
         {
-            if (activeProfile == null || modUpgradeResults == null) return;
+            var profile = activeProfile;
+            var results = modUpgradeResults;
+            if (profile == null || results == null) return;
             if (currentOperation != null) { MessageBox.Show("已有安装操作进行中"); return; }
             currentOperation = new CancellationTokenSource();
             try
             {
                 Status("正在检查已登记的 Modrinth 资源更新...");
-                var updates = await new ManagedModUpdateService(settings).CheckAsync(activeProfile, currentOperation.Token);
-                modUpgradeResults.ItemsSource = updates;
+                var updates = await new ManagedModUpdateService(settings).CheckAsync(profile, currentOperation.Token);
+                results.ItemsSource = updates;
                 Status("发现兼容更新：" + updates.Count + " 项");
             }
             catch (OperationCanceledException) { Status("更新检查已取消"); }
@@ -1932,11 +2158,13 @@ namespace BlockCraftLauncher.Wpf
         }
         async Task ApplyManagedUpdatesAsync(bool all)
         {
-            if (activeProfile == null || modUpgradeResults == null) return;
+            var profile = activeProfile;
+            var results = modUpgradeResults;
+            if (profile == null || results == null) return;
             if (currentOperation != null) { MessageBox.Show("已有安装操作进行中"); return; }
             var updates = all
-                ? modUpgradeResults.Items.OfType<ResourceUpgrade>().ToList()
-                : new[] { modUpgradeResults.SelectedItem as ResourceUpgrade }.Where(x => x != null).ToList();
+                ? results.Items.OfType<ResourceUpgrade>().ToList()
+                : new[] { results.SelectedItem as ResourceUpgrade }.Where(x => x != null).ToList();
             if (updates.Count == 0) { MessageBox.Show("没有选择可用更新"); return; }
             if (MessageBox.Show("将更新 " + updates.Count + " 个已登记资源，更新前自动备份旧文件。确认？",
                     "模组更新", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
@@ -1947,11 +2175,12 @@ namespace BlockCraftLauncher.Wpf
                 foreach (var item in updates)
                 {
                     Status("正在更新：" + item.Old.Title);
-                    await manager.ApplyAsync(activeProfile, item, currentOperation.Token);
+                    await manager.ApplyAsync(profile, item, currentOperation.Token);
                 }
                 Status("Modrinth 资源更新完成：" + updates.Count + " 项");
-                modUpgradeResults.ItemsSource = null;
-                RefreshLocalResourceList();
+                results.ItemsSource = null;
+                if (currentPage == "模组更新" && ReferenceEquals(profile, activeProfile))
+                    RefreshLocalResourceList();
             }
             catch (OperationCanceledException) { Status("模组更新已取消"); }
             catch (Exception ex) { ShowError("资源更新失败", ex); }
@@ -1994,39 +2223,54 @@ namespace BlockCraftLauncher.Wpf
 
         UIElement BuildMultiplayer()
         {
-            var root = Col(PageHeading("多人游戏 / 服务器", "多人联机",
-                "收藏常用服务器、查看本地联机世界并检查连接。服务器收藏不代表已经加入游戏。"));
-            serverList = new ListBox { Height = 270, Margin = new Thickness(0, 8, 0, 10),
-                ItemTemplate = (DataTemplate)FindResource("ServerItemTemplate") };
-            root.Children.Add(Card(serverList));
-            serverName = new TextBox { Width = 170, ToolTip = "收藏名称" };
-            serverAddress = new TextBox { Width = 310, ToolTip = "域名或 IP:端口" };
-            root.Children.Add(Card(Col(Txt("添加或编辑服务器", 17, true),
-                Row(Txt("名称"), serverName, Txt("地址"), serverAddress),
-                Row(Btn("保存服务器", SaveServer, true),
-                    Btn("删除选中", DeleteServer),
-                    Btn("复制地址", CopyServerAddress)),
-                Row(Btn("检查连通性", async () => await CheckServerAsync()),
-                    Btn("连接服务器", async () => await JoinServerAsync(), true),
-                    Btn("启动当前实例", async () => await LaunchAsync())),
-                Txt("连通性仅检查 TCP 端口，不能保证游戏版本/模组/正版要求匹配。", 12, false, true))));
-            lanWorldList = new ListBox { Height = 165,
-                ItemTemplate = (DataTemplate)FindResource("ServerItemTemplate") };
-            root.Children.Add(Card(Col(Txt("局域网世界", 18, true),
-                Txt("接收本地网络的 Minecraft UDP 多播公告（224.0.2.60:4445），不扫描其他设备端口。", 12, false, true),
-                Row(Btn("扫描局域网", async () => await ScanLanWorldsAsync()),
-                    Btn("连接局域网世界", async () => await JoinLanWorldAsync(), true)),
-                lanWorldList)));
+            serverList = new ListBox
+            {
+                MinHeight = 126, MaxHeight = 245,
+                ItemTemplate = (DataTemplate)FindResource("ServerItemTemplate")
+            };
+            serverName = new TextBox { ToolTip = "服务器在收藏列表中的名称" };
+            serverAddress = new TextBox { ToolTip = "输入域名或 IP，可附加端口" };
+            var saved = Card(Col(Txt("服务器收藏", 16, true), serverList,
+                Row(Btn("新增服务器", () =>
+                    {
+                        serverList.UnselectAll();
+                        serverName.Clear();
+                        serverAddress.Clear();
+                        serverName.Focus();
+                    }),
+                    Btn("复制地址", CopyServerAddress), Btn("删除收藏", DeleteServer))));
+            var form = Card(Col(Txt("服务器信息", 16, true),
+                SearchFields(("名称", serverName), ("地址", serverAddress)),
+                Row(Btn("加入服务器", async () => await JoinServerAsync(), true),
+                    Btn("保存收藏", SaveServer),
+                    Btn("检测连接", async () => await CheckServerAsync()),
+                    Btn("启动当前版本", async () => await LaunchAsync()))));
             serverList.SelectionChanged += (sender, args) =>
             {
                 if (serverList.SelectedItem is ServerEntry selected)
                 {
-                    serverName.Text = selected.Name; serverAddress.Text = selected.Address;
+                    serverName.Text = selected.Name;
+                    serverAddress.Text = selected.Address;
                 }
             };
             RefreshServers();
-            return root;
+            return Col(PageHeading("服务器", "使用当前 Minecraft Java 版本加入服务器。"),
+                saved, form);
         }
+
+        UIElement BuildLanWorlds()
+        {
+            lanWorldList = new ListBox
+            {
+                MinHeight = 150, MaxHeight = 300,
+                ItemTemplate = (DataTemplate)FindResource("ServerItemTemplate")
+            };
+            return Col(PageHeading("局域网", "查找同一网络中已开放的 Minecraft Java 世界。"),
+                Card(Col(Txt("可加入的世界", 16, true), lanWorldList,
+                    Row(Btn("查找局域网世界", async () => await ScanLanWorldsAsync(), true),
+                        Btn("加入选中世界", async () => await JoinLanWorldAsync())))));
+        }
+
         void RefreshServers()
         {
             if (serverList == null) return;
@@ -2081,12 +2325,13 @@ namespace BlockCraftLauncher.Wpf
         }
         async Task ScanLanWorldsAsync()
         {
+            var list = lanWorldList;
             try
             {
                 Status("正在扫描 Minecraft 局域网公告...");
                 var worlds = await multiplayer.ScanLanAsync(CancellationToken.None);
-                if (lanWorldList != null) lanWorldList.ItemsSource = worlds;
-                Status("局域网发现 " + worlds.Count + " 个世界；如无结果，请检查路由器和防火墙。");
+                if (list != null) list.ItemsSource = worlds;
+                Status("找到 " + worlds.Count + " 个局域网世界。");
             }
             catch (Exception ex) { ShowError("局域网扫描失败", ex); }
         }
@@ -2122,16 +2367,11 @@ namespace BlockCraftLauncher.Wpf
         }
         UIElement BuildLauncherUpdates()
         {
-            var root = Col(PageHeading("启动器 / 更新", "启动器更新",
-                "自动检查官方版本，支持校验后静默安装并打开新版；可选择不覆盖安装的临时试用。"));
-
-            root.Children.Add(Card(Col(
-                Txt("当前版本 · " + LauncherAutoUpdateService.CurrentTag, 18, true),
-                Txt("Windows x64 · C# / WPF · .NET Framework 4.8 · " +
-                    (LauncherAutoUpdateService.InstallMode == "onefile" ?
-                        "单文件 EXE 模式" : "完整 ZIP 文件夹模式"), 12, false, true),
-                Txt("检查来源：github.com/minecraftlu/BlockCraftLauncher。"
-                    + " 更新内容和校验清单必须来自同一个官方 GitHub Release。", 12, false, true))));
+            var root = Col(PageHeading("启动器更新", "从 BlockCraft Launcher 的 GitHub 发布页获取新版。"));
+            string package = LauncherAutoUpdateService.InstallMode == "onefile" ? "单文件 EXE" : "完整 ZIP";
+            root.Children.Add(Card(Col(Txt("当前版本", 16, true),
+                Txt(LauncherAutoUpdateService.CurrentTag + "  ·  " + package + "  ·  Windows x64",
+                    13, false, true))));
 
             updateStatusText = Txt("", 14, true);
             updateProgressBar = new ProgressBar
@@ -2142,31 +2382,27 @@ namespace BlockCraftLauncher.Wpf
             };
             updateProgressBar.SetResourceReference(ProgressBar.ForegroundProperty, "AccentBrush");
             updateNotesText = Txt("", 12, false, true);
-            updateNotesText.MaxHeight = 190;
-            updateNotesText.TextWrapping = TextWrapping.Wrap;
-            updateCheckButton = Btn("立即检查新版本", async () =>
+            var notes = new ScrollViewer
+            {
+                Content = updateNotesText, MaxHeight = 198,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+            };
+            updateCheckButton = Btn("检查更新", async () =>
                 await CheckLauncherUpdatesAsync(true), true);
-            updateInstallButton = Btn("下载并安装 · 完成后自动打开新版", async () =>
+            updateInstallButton = Btn("下载并安装", async () =>
                 await InstallLauncherUpdateAsync(), true);
-            updateDirectOpenButton = Btn("直接打开新版（不覆盖旧版）", async () =>
+            updateDirectOpenButton = Btn("直接打开新版", async () =>
                 await OpenDownloadedUpdateDirectlyAsync());
-            root.Children.Add(Card(Col(
-                Txt("更新状态", 18, true),
-                updateStatusText,
-                updateProgressBar,
-                updateNotesText,
-                Row(updateCheckButton, updateInstallButton,
-                    updateDirectOpenButton,
-                    Btn("打开官方发布页", () => LauncherReleaseService.OpenOfficialRelease(
-                        "https://github.com/minecraftlu/BlockCraftLauncher/releases"))),
-                Txt("“直接打开”会先下载并校验新版，从临时目录试用；旧安装保留。"
-                    + "正式覆盖更新请使用“下载并安装”，完成后会自动打开新版窗口。", 12, false, true))));
-            root.Children.Add(Card(Col(Txt("自动更新设置", 18, true),
-                Txt("设置中可切换稳定版或预览版、开启后台检查和预下载。"
-                    + "点击“下载并安装”即开始更新，不再弹出二次确认；旧启动器自动退出，"
-                    + "成功后打开新版，失败才显示错误提示。运行中的 Minecraft 游戏不会被结束。", 12, false, true),
-                Row(Btn("修改自动更新设置", () => Navigate("设置")),
-                    Btn("查看构建记录", () => LauncherReleaseService.OpenOfficialRelease(
+            root.Children.Add(Card(Col(Txt("更新状态", 16, true),
+                updateStatusText, updateProgressBar,
+                Row(updateCheckButton, updateInstallButton, updateDirectOpenButton),
+                notes,
+                Txt("下载并安装完成后会自动打开新版。“直接打开”可在临时目录试用新版。",
+                    12, false, true))));
+            root.Children.Add(Card(Col(Txt("更新选项", 16, true),
+                Row(Btn("更新设置", () => Navigate("更新设置")),
+                    Btn("查看发布记录", () => LauncherReleaseService.OpenOfficialRelease(
                         "https://github.com/minecraftlu/BlockCraftLauncher/releases"))))));
             RefreshLauncherUpdatePanel();
             return root;
@@ -2180,8 +2416,7 @@ namespace BlockCraftLauncher.Wpf
                 homeUpdateCard.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
                 if (homeUpdateText != null && available)
                     homeUpdateText.Text = "可用：" + offeredUpdate.Tag +
-                        " · " + (settings.UpdateChannel == "preview" ? "预览测试渠道" : "稳定渠道") +
-                        "。更新会校验完整性，安装前确认退出启动器。";
+                        "  ·  " + (settings.UpdateChannel == "preview" ? "预览版" : "稳定版");
             }
             if (currentPage == "启动器更新" && updateStatusText != null)
             {
@@ -2198,9 +2433,7 @@ namespace BlockCraftLauncher.Wpf
                     "  ·  来源：GitHub Releases\n" +
                     (offeredUpdate.Description ?? "") :
                     "当前通道：" + (settings.UpdateChannel == "preview" ?
-                        "预览版（只接收 BlockCraft WPF RC 测试包）" :
-                        "稳定版（不自动安装 Alpha、RC 或网易联机实验包）") +
-                    "。\n若只有测试版发布，可以在设置中主动切换更新通道。";
+                        "预览版" : "稳定版") + "。";
                 updateInstallButton.IsEnabled = available && !updatePreparing && !updateChecking;
                 updateDirectOpenButton.IsEnabled = available && !updatePreparing && !updateChecking;
                 updateCheckButton.IsEnabled = !updateChecking && !updatePreparing;
@@ -2397,7 +2630,7 @@ namespace BlockCraftLauncher.Wpf
         static Grid SettingsForm()
         {
             var form = new Grid { Margin = new Thickness(2, 7, 0, 0) };
-            form.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(164) });
+            form.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) });
             form.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             return form;
         }
@@ -2406,12 +2639,14 @@ namespace BlockCraftLauncher.Wpf
         {
             int row = form.RowDefinitions.Count;
             form.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var title = Txt(name, 13);
-            title.VerticalAlignment = VerticalAlignment.Top;
-            title.Margin = new Thickness(0, 9, 13, 14);
-            Grid.SetRow(title, row);
-            Grid.SetColumn(title, 0);
-            form.Children.Add(title);
+            var title = new Label
+            {
+                Content = name, Target = editor, Padding = new Thickness(0, 7, 9, 0),
+                FontSize = 13, VerticalAlignment = VerticalAlignment.Top
+            };
+            title.SetResourceReference(Control.ForegroundProperty, "TextBrush");
+            AutomationProperties.SetLabeledBy(editor, title);
+            Place(form, title, row, 0);
 
             var right = new StackPanel { Margin = new Thickness(0, 0, 0, 12) };
             editor.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -2429,25 +2664,29 @@ namespace BlockCraftLauncher.Wpf
                 note.Margin = new Thickness(0, 3, 0, 0);
                 right.Children.Add(note);
             }
-            Grid.SetRow(right, row);
-            Grid.SetColumn(right, 1);
-            form.Children.Add(right);
+            Place(form, right, row, 1);
         }
 
-        UIElement BuildSettings()
+        UIElement BuildSettings(string page)
         {
-            var root = Col(PageHeading("启动器 / 首选项", "启动器设置",
-                "个性化外观、下载线路、自动更新与游戏环境；独立保存，不影响已有游戏与账户。"));
+            if (settingsPages != null) return settingsPages[page];
+            settingsPages = new Dictionary<string, UIElement>();
+            void AddPage(string key, string title, string description, Grid form, params Button[] links)
+            {
+                var actions = Row(Btn("保存设置", SaveSettings, true));
+                foreach (var link in links) actions.Children.Add(link);
+                settingsPages.Add(key, Col(PageHeading(title, description), Card(Col(form, actions))));
+            }
 
             var appearance = SettingsForm();
-            settingsTheme = new ComboBox { ItemsSource = new[] { "深色", "浅色" },
+            settingsTheme = new ComboBox { ItemsSource = new[] { "浅色", "深色" },
                 SelectedItem = settings.Theme, MaxWidth = 240 };
             settingsTheme.SelectionChanged += (sender, args) =>
             {
                 settings.Theme = Convert.ToString(settingsTheme.SelectedItem);
                 ApplyTheme();
             };
-            SettingRow(appearance, "界面主题", settingsTheme, "使用系统原生字体、按钮和统一导航符号");
+            SettingRow(appearance, "界面主题", settingsTheme);
 
             zoomValue = Txt(settings.Zoom + "%", 13, true);
             zoomValue.VerticalAlignment = VerticalAlignment.Center;
@@ -2467,27 +2706,29 @@ namespace BlockCraftLauncher.Wpf
             var zoomRow = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
             zoomRow.Children.Add(settingsZoom);
             zoomRow.Children.Add(zoomValue);
-            SettingRow(appearance, "界面缩放", zoomRow, "80%～140%；调整后主页面和侧边栏同步缩放");
-            root.Children.Add(Card(Col(Txt("外观", 18, true), appearance)));
+            SettingRow(appearance, "界面缩放", zoomRow, "调整页面内容和侧栏的大小。");
+            AddPage("个性化", "个性化", "调整主题与缩放。", appearance,
+                Btn("恢复默认缩放", () => settingsZoom.Value = 100));
 
             var game = SettingsForm();
             settingsRoot = new TextBox { Text = settings.Root, ToolTip = "Minecraft 根目录（含 versions、libraries 等）" };
-            SettingRow(game, "游戏根目录", settingsRoot, "独立实例可使用自己的游戏文件夹");
+            SettingRow(game, "游戏根目录", settingsRoot, "作为下载和导入游戏的默认目录。");
             settingsJava = new TextBox { Text = settings.JavaPath, ToolTip = "留空时由启动组件自动选择 Java" };
-            SettingRow(game, "Java 路径", settingsJava, "留空则由 Minecraft 启动组件自动查找运行环境");
+            SettingRow(game, "Java 路径", settingsJava, "留空时自动查找 Java。");
             settingsPlayer = new TextBox { Text = settings.OfflineName, MaxWidth = 240 };
-            SettingRow(game, "离线玩家名", settingsPlayer, "3～16 位字母、数字或下划线；正版账号不受影响");
+            SettingRow(game, "离线玩家名", settingsPlayer, "3～16 位字母、数字或下划线。");
             settingsMemory = new TextBox { Text = settings.MemoryMb.ToString(), MaxWidth = 180 };
-            SettingRow(game, "游戏内存（MB）", settingsMemory, "例如 4096，启动时至少分配 512 MB");
-            root.Children.Add(Card(Col(Txt("游戏与账号", 18, true), game)));
+            SettingRow(game, "游戏内存（MB）", settingsMemory, "至少 512 MB，例如 4096。");
+            AddPage("设置", "启动设置", "配置游戏目录、Java 和运行内存。", game,
+                Btn("打开游戏目录", OpenGameFolder));
 
             var network = SettingsForm();
             var routes = new[]
             {
-                new KeyValuePair<string, string>("auto", "自动测速 · 智能择快"),
-                new KeyValuePair<string, string>("china", "中国大陆优先 · 镜像失败回官方"),
-                new KeyValuePair<string, string>("official", "仅官方 · 不使用镜像"),
-                new KeyValuePair<string, string>("mirror", "镜像优先 · 保留官方回退")
+                new KeyValuePair<string, string>("auto", "自动选择最快线路"),
+                new KeyValuePair<string, string>("china", "中国大陆优先"),
+                new KeyValuePair<string, string>("official", "仅官方"),
+                new KeyValuePair<string, string>("mirror", "镜像优先")
             };
             settingsNetworkMode = new ComboBox {
                 ItemsSource = routes,
@@ -2496,7 +2737,7 @@ namespace BlockCraftLauncher.Wpf
                 MaxWidth = 340 };
             if (settingsNetworkMode.SelectedIndex < 0) settingsNetworkMode.SelectedIndex = 0;
             SettingRow(network, "下载线路", settingsNetworkMode,
-                "国内优先支持 Mojang/BMCLAPI；可选 MCIM 仅用于获准的社区资源，不会更改微软登录通道。");
+                "镜像线路用于游戏下载，镜像不可用时可回退到官方线路。");
             settingsDownloadThreads = new TextBox { Text = settings.DownloadThreads.ToString(), MaxWidth = 130 };
             SettingRow(network, "并发连接", settingsDownloadThreads, "2～32 个连接");
             settingsDownloadRetries = new TextBox { Text = settings.DownloadRetries.ToString(), MaxWidth = 130 };
@@ -2513,14 +2754,14 @@ namespace BlockCraftLauncher.Wpf
                 }
             };
             SettingRow(network, "社区镜像", settingsMcim,
-                "MCIM 非官方服务，启用前请确认接入权限并遵守作者许可");
-            root.Children.Add(Card(Col(Txt("下载与网络", 18, true), network)));
+                "用于搜索和下载允许分发的 CurseForge 模组。");
+            AddPage("下载设置", "下载设置", "选择网络线路、并发数和资源来源。", network);
 
             var updates = SettingsForm();
             var channels = new[]
             {
-                new KeyValuePair<string, string>("stable", "稳定版 · 仅正式 GitHub Releases"),
-                new KeyValuePair<string, string>("preview", "预览版 · BlockCraft WPF RC 测试包")
+                new KeyValuePair<string, string>("stable", "稳定版"),
+                new KeyValuePair<string, string>("preview", "预览版")
             };
             settingsUpdateChannel = new ComboBox
             {
@@ -2531,30 +2772,24 @@ namespace BlockCraftLauncher.Wpf
             if (settingsUpdateChannel.SelectedIndex < 0)
                 settingsUpdateChannel.SelectedIndex = 0;
             SettingRow(updates, "更新通道", settingsUpdateChannel,
-                "默认稳定版；预览版可能包含尚未完成实机测试的新功能");
+                "预览版可接收 Windows WPF 候选版本。");
             settingsAutoCheck = new CheckBox
             {
                 IsChecked = settings.AutoCheckUpdates,
-                Content = "启动后后台自动检查新版本（最多每 6 小时一次）"
+                Content = "启动时检查更新"
             };
             SettingRow(updates, "自动检测", settingsAutoCheck,
-                "仅从官方 GitHub Releases 读取公开版本信息，不上传账号数据");
+                "每 6 小时最多检查一次。");
             settingsAutoDownload = new CheckBox
             {
                 IsChecked = settings.AutoDownloadUpdates,
-                Content = "发现新版本时自动下载并校验，等我确认后再安装"
+                Content = "自动下载可用更新"
             };
             SettingRow(updates, "自动下载", settingsAutoDownload,
-                "关闭为默认设置。即使启用自动下载，也不会自动结束游戏或强制重启。");
-            root.Children.Add(Card(Col(Txt("启动器自动更新", 18, true),
-                updates,
-                Row(Btn("前往更新中心", () => Navigate("启动器更新"))))));
-
-            root.Children.Add(Row(
-                Btn("保存设置", SaveSettings, true),
-                Btn("恢复 100% 缩放", () => { settingsZoom.Value = 100; }),
-                Btn("打开游戏目录", OpenGameFolder)));
-            return root;
+                "下载并校验新版，待你手动安装。");
+            AddPage("更新设置", "更新设置", "选择接收的版本和自动更新行为。", updates,
+                Btn("查看更新", () => Navigate("启动器更新")));
+            return settingsPages[page];
         }
         void SaveSettings()
         {
@@ -2593,19 +2828,57 @@ namespace BlockCraftLauncher.Wpf
             var box = new TextBox { Text = string.Join(Environment.NewLine, logs), IsReadOnly = true,
                 AcceptsReturn = true, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Height = 450,
                 TextWrapping = TextWrapping.Wrap };
-            return Col(PageHeading("启动器 / 诊断", "运行日志",
-                "查看本次运行记录，排查下载失败、登录状态与游戏启动问题。"),
-                Card(box), Btn("刷新日志", () => Navigate("运行日志")));
+            return Col(PageHeading("运行日志", "本次启动器运行记录。"),
+                Card(Col(Row(Btn("刷新日志", () => Navigate("运行日志")),
+                        Btn("复制日志", () =>
+                        {
+                            if (!string.IsNullOrEmpty(box.Text))
+                            {
+                                Clipboard.SetText(box.Text);
+                                Status("日志已复制。");
+                            }
+                        })),
+                    box)));
         }
         void EditOfflineAccount()
         {
-            var dialog = new Window { Owner = this, Title = "离线玩家设置", Width = 380, Height = 210, WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                Background = (Brush)Application.Current.Resources["PanelBrush"] };
-            var body = Col(Txt("离线玩家名（3–16 位字母/数字/下划线）"));
-            var entry = new TextBox { Text = settings.OfflineName }; body.Children.Add(entry);
-            body.Children.Add(Btn("确认", () => { if (!System.Text.RegularExpressions.Regex.IsMatch(entry.Text, "^[A-Za-z0-9_]{3,16}$")) { MessageBox.Show("玩家名不合法"); return; }
-                settings.OfflineName = entry.Text; settings.AccountMode = "offline"; store.Save(settings); dialog.Close(); BuildSidebar(); Navigate("首页"); }, true));
-            dialog.Content = new Border { Padding = new Thickness(18), Child = body }; dialog.ShowDialog();
+            var dialog = new Window
+            {
+                Owner = this, Title = "离线登录", Width = 395, SizeToContent = SizeToContent.Height,
+                ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterOwner
+            };
+            var entry = new TextBox { Text = settings.OfflineName, MaxLength = 16 };
+            AutomationProperties.SetName(entry, "玩家名");
+            var hint = Txt("玩家名可使用 3～16 位字母、数字或下划线。", 12, false, true);
+            var confirm = Btn("使用此玩家名", () =>
+            {
+                if (!System.Text.RegularExpressions.Regex.IsMatch(entry.Text, "^[A-Za-z0-9_]{3,16}$"))
+                {
+                    hint.Text = "请检查玩家名的长度和字符。";
+                    entry.Focus();
+                    return;
+                }
+                string previousName = settings.OfflineName;
+                string previousMode = settings.AccountMode;
+                settings.OfflineName = entry.Text;
+                settings.AccountMode = "offline";
+                try { store.Save(settings); }
+                catch (Exception ex)
+                {
+                    settings.OfflineName = previousName;
+                    settings.AccountMode = previousMode;
+                    hint.Text = "保存失败：" + ex.Message;
+                    return;
+                }
+                dialog.DialogResult = true;
+            }, true);
+            confirm.IsDefault = true;
+            var cancel = new Button { Content = "取消", IsCancel = true };
+            var body = Card(Col(Txt("玩家名", 16, true), hint, entry, Row(confirm, cancel)));
+            body.Margin = new Thickness(14);
+            dialog.Content = body;
+            dialog.Loaded += (sender, args) => { entry.Focus(); entry.SelectAll(); };
+            if (dialog.ShowDialog() == true) Navigate("首页");
         }
         async Task LoginMicrosoftAsync()
         {
@@ -2623,7 +2896,7 @@ namespace BlockCraftLauncher.Wpf
                 string name = await GetMicrosoftService().SignInAsync();
                 settings.AccountMode = "microsoft";
                 settings.AccountName = name;
-                store.Save(settings); BuildSidebar(); Navigate("首页");
+                store.Save(settings); Navigate("首页");
                 Status("已登录 Minecraft Java 正版账号：" + name);
             }
             catch (Exception ex) when (WebView2RuntimeSupport.IsRuntimeFailure(ex))
@@ -2641,37 +2914,53 @@ namespace BlockCraftLauncher.Wpf
                 if (settings.AccountMode == "microsoft")
                     await GetMicrosoftService().SignOutAsync(); // WPF preview token store and browser session
                 settings.AccountMode = "signed_out"; settings.AccountName = "";
-                store.Save(settings); BuildSidebar(); Navigate("首页");
+                store.Save(settings); Navigate("首页");
             }
             catch (Exception ex) { ShowError("退出账户失败", ex); }
         }
+        static string ProfileVersion(GameProfile profile)
+        {
+            string version = string.IsNullOrWhiteSpace(profile.BaseVersion)
+                ? profile.LaunchVersion : profile.BaseVersion;
+            string loader = string.IsNullOrWhiteSpace(profile.Loader) ||
+                string.Equals(profile.Loader, "vanilla", StringComparison.OrdinalIgnoreCase)
+                    ? "原版" : profile.Loader;
+            return string.Join("  ·  ", new[] { version, loader }.Where(v => !string.IsNullOrWhiteSpace(v)));
+        }
+
         void RefreshGameProcessStatus()
         {
             if (currentPage != "首页" || gameProcessText == null) return;
             var profile = activeProfile;
-            if (profile == null)
+            bool hasProfile = profile != null;
+            homeProfileName.Text = hasProfile ? profile.Name : "尚未选择游戏版本";
+            homeProfileInfo.Text = hasProfile ? ProfileVersion(profile) : "从左侧选择已安装的版本，或先下载游戏。";
+            homeVersionCaption.Text = hasProfile ? profile.Name : "Minecraft Java 版";
+            if (!hasProfile)
             {
-                gameProcessText.Text = "运行状态：未选择游戏实例";
-                if (homeLaunchButton != null) homeLaunchButton.IsEnabled = false;
+                homeLaunchButton.IsEnabled = true;
+                homeLaunchLabel.Text = "下载游戏";
+                AutomationProperties.SetName(homeLaunchButton, homeLaunchLabel.Text);
+                gameProcessText.Text = "";
                 return;
             }
 
             var state = gameProcesses.GetState(profile);
             bool launching = launchingProfiles.Contains(profile);
             bool running = state.Status == GameProcessStatus.Running;
-            if (homeLaunchButton != null) homeLaunchButton.IsEnabled = !launching && !running;
+            homeLaunchButton.IsEnabled = !launching && !running;
+            homeLaunchLabel.Text = launching ? "正在启动…" : running ? "游戏运行中" : "启动游戏";
+            AutomationProperties.SetName(homeLaunchButton, homeLaunchLabel.Text);
             if (launching)
-                gameProcessText.Text = "运行状态：正在准备或启动游戏...";
+                gameProcessText.Text = "正在准备游戏文件与运行环境。";
             else if (running)
-                gameProcessText.Text = "运行状态：游戏正在运行（本启动器启动，PID " +
-                    state.ProcessId + "）";
+                gameProcessText.Text = "进程 " + state.ProcessId;
             else if (state.Status == GameProcessStatus.Exited)
-                gameProcessText.Text = "运行状态：游戏已退出（PID " + state.ProcessId
-                    + "，退出码 " + (state.ExitCode?.ToString() ?? "未知") + "）";
+                gameProcessText.Text = "游戏已退出  ·  退出码 " + (state.ExitCode?.ToString() ?? "未知");
             else if (state.Status == GameProcessStatus.Unavailable)
-                gameProcessText.Text = "运行状态：进程信息暂不可读取，无法判断是否退出";
+                gameProcessText.Text = "暂时无法读取游戏进程状态。";
             else
-                gameProcessText.Text = "运行状态：尚未由本次启动器会话启动；外部游戏运行状态未知";
+                gameProcessText.Text = "";
         }
 
         async Task LaunchAsync(string serverAddress = null)
@@ -2785,94 +3074,113 @@ namespace BlockCraftLauncher.Wpf
             }
             catch (Exception ex) { ShowError("导入实例失败", ex); }
         }
-        void ManageInstance()
+        UIElement NoVersionSelected(string title)
         {
-            if (activeProfile == null)
+            return Card(Col(Txt(title, 16, true),
+                Txt("请先选择一个已安装的游戏版本。", 12, false, true),
+                Row(Btn("版本选择", () => Navigate("版本选择"), true),
+                    Btn("下载游戏", () => Navigate("游戏版本")))));
+        }
+
+        UIElement BuildInstanceOverview()
+        {
+            var profile = activeProfile;
+            if (profile == null) return NoVersionSelected("版本设置");
+            return Col(PageHeading(profile.Name, ProfileVersion(profile)),
+                Card(Col(Txt("版本信息", 16, true),
+                    Txt("启动版本  " + (string.IsNullOrWhiteSpace(profile.LaunchVersion)
+                        ? profile.BaseVersion : profile.LaunchVersion), 12),
+                    Txt("游戏目录", 12, false, true),
+                    Txt(string.IsNullOrWhiteSpace(profile.Directory) ? settings.Root : profile.Directory, 13),
+                    Row(Btn("打开游戏目录", OpenGameFolder),
+                        Btn("检查版本文件", CheckInstance)))),
+                Card(Col(Txt("管理此版本", 16, true),
+                    Row(Btn("模组与资源", () => Navigate("模组更新")),
+                        Btn("管理存档", () => Navigate("存档管理"))),
+                    Txt("从启动器列表移除时，游戏目录和存档会保留在原位置。", 12, false, true),
+                    Row(Btn("从列表移除", () => RemoveInstance(profile))))));
+        }
+
+        UIElement BuildInstanceSaves()
+        {
+            var profile = activeProfile;
+            if (profile == null) return NoVersionSelected("存档管理");
+            var result = Txt("", 12, false, true);
+            return Col(PageHeading("存档管理", "当前版本  " + profile.Name),
+                Card(Col(Txt("备份与恢复", 16, true),
+                    Txt("将世界备份为 ZIP。恢复时只导入新世界，遇到同名世界会取消本次恢复。", 12, false, true),
+                    Row(Btn("备份存档", async () => await BackupSavesAsync(profile, result), true),
+                        Btn("恢复存档", async () => await RestoreSavesAsync(profile, result)),
+                        Btn("打开游戏目录", OpenGameFolder)),
+                    result)));
+        }
+
+        async Task BackupSavesAsync(GameProfile profile, TextBlock result)
+        {
+            var file = new SaveFileDialog
             {
-                MessageBox.Show("请先选择游戏实例");
+                FileName = "saves-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".zip",
+                Filter = "ZIP 压缩包|*.zip"
+            };
+            if (file.ShowDialog(this) != true) return;
+            try
+            {
+                result.Text = "正在备份存档…";
+                string path = await Task.Run(() => LocalInstanceTools.BackupSaves(profile, file.FileName));
+                result.Text = "备份已保存  " + path;
+                Status("存档备份完成：" + profile.Name);
+            }
+            catch (Exception ex)
+            {
+                result.Text = "备份失败。";
+                ShowError("备份存档失败", ex);
+            }
+        }
+
+        async Task RestoreSavesAsync(GameProfile profile, TextBlock result)
+        {
+            var file = new OpenFileDialog
+            {
+                Filter = "ZIP 存档备份 (*.zip)|*.zip", Title = "选择存档备份"
+            };
+            if (file.ShowDialog(this) != true) return;
+            if (MessageBox.Show(this, "将把备份中的新世界恢复到“" + profile.Name +
+                "”。发现同名世界时将取消。继续恢复？", "恢复存档",
+                MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            try
+            {
+                result.Text = "正在检查备份并恢复存档…";
+                int worlds = await Task.Run(() => LocalInstanceTools.RestoreSaves(profile, file.FileName));
+                result.Text = "已恢复 " + worlds + " 个世界。";
+                Status("存档恢复完成：" + profile.Name);
+            }
+            catch (Exception ex)
+            {
+                result.Text = "恢复失败。";
+                ShowError("恢复存档失败", ex);
+            }
+        }
+
+        void RemoveInstance(GameProfile profile)
+        {
+            if (MessageBox.Show(this, "从启动器列表中移除“" + profile.Name +
+                "”？游戏和存档文件会保留在原目录。", "移除版本",
+                MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+            int index = settings.Profiles.IndexOf(profile);
+            if (index < 0) return;
+            settings.Profiles.RemoveAt(index);
+            try { store.Save(settings); }
+            catch (Exception ex)
+            {
+                settings.Profiles.Insert(index, profile);
+                ShowError("移除版本失败", ex);
                 return;
             }
-            var selected = activeProfile;
-            var window = new Window {
-                Owner = this, Title = "游戏实例与存档管理",
-                Width = 525, Height = 430, MinWidth = 460, MinHeight = 350,
-                WindowStartupLocation = WindowStartupLocation.CenterOwner
-            };
-            var actions = new StackPanel { Margin = new Thickness(20) };
-            actions.Children.Add(Txt("实例管理 · " + selected.Name, 19, true));
-            actions.Children.Add(Txt("以下操作只针对当前选择的 Minecraft 游戏实例。"
-                + "恢复备份不会覆盖已有世界，移除实例仅修改列表，不删除文件。", 12, false, true));
-            actions.Children.Add(Btn("打开实例目录", () => LocalInstanceTools.OpenFolder(selected)));
-            actions.Children.Add(Btn("备份当前实例的存档", async () =>
-            {
-                var file = new SaveFileDialog {
-                    FileName = "saves-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".zip",
-                    Filter = "ZIP 压缩包|*.zip"
-                };
-                if (file.ShowDialog(window) != true) return;
-                try
-                {
-                    Status("正在备份存档，请勿关闭启动器...");
-                    string path = await Task.Run(() => LocalInstanceTools.BackupSaves(selected, file.FileName));
-                    MessageBox.Show(window, "存档备份完成：\n" + path, "备份成功");
-                    Status("存档备份完成");
-                }
-                catch (Exception ex) { ShowError("备份失败", ex); }
-            }, true));
-            actions.Children.Add(Btn("从 ZIP 安全恢复存档（不覆盖已有世界）", async () =>
-            {
-                var file = new OpenFileDialog {
-                    Filter = "ZIP 存档备份 (*.zip)|*.zip",
-                    Title = "选择从 saves 文件夹创建的备份 ZIP"
-                };
-                if (file.ShowDialog(window) != true) return;
-                if (MessageBox.Show(window,
-                    "将把 ZIP 中的新世界恢复到当前实例。\n"
-                    + "已有同名世界将被保留，恢复会直接拒绝覆盖。\n\n确认继续？",
-                    "安全恢复存档", MessageBoxButton.YesNo, MessageBoxImage.Question)
-                    != MessageBoxResult.Yes) return;
-                try
-                {
-                    Status("正在检查 ZIP 并恢复新世界...");
-                    int worlds = await Task.Run(() => LocalInstanceTools.RestoreSaves(selected, file.FileName));
-                    MessageBox.Show(window, "成功恢复 " + worlds + " 个世界。\n已有存档未被覆盖。",
-                        "恢复完成");
-                    Status("已安全恢复存档：" + worlds + " 个世界");
-                }
-                catch (Exception ex) { ShowError("恢复失败", ex); }
-            }));
-            actions.Children.Add(new Separator { Margin = new Thickness(0, 10, 0, 12) });
-            actions.Children.Add(Btn("仅从列表移除实例（保留游戏与存档文件）", () =>
-            {
-                if (MessageBox.Show(window,
-                    "仅从 BlockCraft 启动器列表中移除“" + selected.Name + "”？\n\n"
-                    + "不会删除 Minecraft 游戏目录、已安装模组或任何存档。",
-                    "确认移除实例", MessageBoxButton.YesNo, MessageBoxImage.Warning)
-                    != MessageBoxResult.Yes) return;
-                settings.Profiles.Remove(selected);
-                activeProfile = settings.Profiles.FirstOrDefault();
-                try
-                {
-                    store.Save(settings);
-                    window.Close();
-                    BuildSidebar();
-                    Navigate("首页");
-                    Status("已从列表移除实例（没有删除任何游戏文件）");
-                }
-                catch (Exception ex)
-                {
-                    settings.Profiles.Add(selected);
-                    activeProfile = selected;
-                    ShowError("更新实例列表失败", ex);
-                }
-            }));
-            window.Content = new ScrollViewer {
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                Content = actions
-            };
-            window.ShowDialog();
+            activeProfile = settings.Profiles.FirstOrDefault();
+            Navigate("版本选择");
+            Status("已从启动器列表移除：" + profile.Name);
         }
+
         void CheckInstance()
         {
             if (activeProfile == null)
@@ -2955,24 +3263,20 @@ namespace BlockCraftLauncher.Wpf
             }
             catch (Exception ex) { ShowError("打开游戏目录失败", ex); }
         }
-        void ShowReleaseNotes()
+        UIElement BuildAbout()
         {
-            MessageBox.Show("BlockCraft Launcher v0.9.32 · 皮肤 DIY 工作室测试版\n\n"
-                + "· 左侧“管理 → 皮肤 DIY”新增内置 64×64 Minecraft Java 皮肤编辑器\n"
-                + "· 画笔、橡皮擦、取色器、油漆桶、RGB / HEX / 透明度及可缩放像素网格\n"
-                + "· 头部、身体、双臂、双腿、基础层与帽子/袖子/夹克外层分区编辑\n"
-                + "· 支持 Ctrl+Z 撤销、Ctrl+Y 重做、Steve 宽臂与 Alex 纤细模型\n"
-                + "· 实时查看人物正面和背面，可开关第二层显示\n"
-                + "· 导入 64×64 和旧版 64×32 PNG，导出标准 PNG 并保存到本地皮肤库\n"
-                + "· 自动备份未保存草稿，并可恢复上一次的编辑\n"
-                + "· 微软正版用户可单独确认后上传至 Minecraft 官方皮肤服务\n"
-                + "· 离线模式保留 PNG DIY 与本地管理，不伪称可自动同步服务器外观\n"
-                + "· 保留 v0.9.31 中文搜索界面、国内下载优化与成功更新免弹窗\n\n"
-                + "注意：人物预览是 2D 正反面，不是可旋转 3D 模型。"
-                + " 真实微软正版皮肤上传需在 Windows 实机上完成授权验收，"
-                + "当前发布仍是 RC 测试候选版本。",
-                "BlockCraft Launcher · 更新说明");
+            return Col(PageHeading("关于", "BlockCraft Launcher  ·  Minecraft Java 启动器"),
+                Card(Col(Txt(LauncherAutoUpdateService.CurrentTag, 17, true),
+                    Txt("Windows x64  ·  .NET Framework 4.8  ·  预览版", 12, false, true),
+                    Row(Btn("检查更新", () => Navigate("启动器更新")),
+                        Btn("查看发布记录", () => LauncherReleaseService.OpenOfficialRelease(
+                            "https://github.com/minecraftlu/BlockCraftLauncher/releases"))))),
+                Card(Col(Txt("本版更新", 16, true),
+                    Txt("启动页分为账号操作与游戏卡片，版本选择和设置使用独立页面。"),
+                    Txt("下载页统一筛选和图文列表，查看项目详情后可返回原搜索结果。"),
+                    Txt("设置按用途分组，多人游戏、皮肤编辑、更新和日志各有独立入口。"))));
         }
-        void ShowError(string title, Exception ex) { Log(title + "：" + ex); MessageBox.Show(ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Error); }
+
+        void ShowError(string title, Exception ex) { Log(title + "：" + ex); MessageBox.Show(this, ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Error); }
     }
 }

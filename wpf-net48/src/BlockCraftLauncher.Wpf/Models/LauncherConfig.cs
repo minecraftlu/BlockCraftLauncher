@@ -27,7 +27,7 @@ namespace BlockCraftLauncher.Wpf.Models
         public string UpdateChannel { get; set; } = "stable";
         public DateTime LastUpdateCheckUtc { get; set; } = DateTime.MinValue;
         public string NetworkMode { get; set; } = "auto";
-        public string Theme { get; set; } = "深色";
+        public string Theme { get; set; } = "浅色";
         public string Accent { get; set; } = "#1875CE";
         public int Zoom { get; set; } = 100;
         public int MemoryMb { get; set; } = 4096;

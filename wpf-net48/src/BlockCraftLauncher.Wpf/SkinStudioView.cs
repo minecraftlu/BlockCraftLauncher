@@ -117,18 +117,6 @@ namespace BlockCraftLauncher.Wpf
                 control is TextBox ? "SearchTextBox" : "SearchComboBox");
         }
 
-        static Slider MakeSlider(double low, double high, double initial)
-        {
-            return new Slider
-            {
-                Minimum = low, Maximum = high, Value = initial,
-                TickFrequency = 1, IsSnapToTickEnabled = true,
-                IsMoveToPointEnabled = true, Width = 130,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(7, 0, 12, 10)
-            };
-        }
-
         public SkinStudioView(
             Func<byte[], bool, System.Threading.Tasks.Task> uploadToMicrosoft = null,
             Func<string> accountName = null)
@@ -168,16 +156,19 @@ namespace BlockCraftLauncher.Wpf
 
         void Build()
         {
-            var page = Column(
-                Label("BLOCKCRAFT   /   外观自定义 / 皮肤 DIY", 11, true),
-                Label("Minecraft 皮肤工作室", 25, true),
-                Label("直接绘制 64×64 PNG，编辑头部、身体、四肢和第二层；可以自由导入、保存、撤销与预览。无需联网。"));
+            var page = Column(Card(Column(
+                Label("皮肤编辑", 20, true),
+                Label("绘制 Minecraft 皮肤，预览人物正反面，或导入已有 PNG。"),
+                Row(ActionButton("导入 PNG", ImportPng),
+                    ActionButton("保存到皮肤库", SaveToLibrary, true),
+                    ActionButton("导出 PNG", ExportPng),
+                    ActionButton("新建皮肤", ResetTemplate)))));
 
             var columns = new Grid();
             columns.ColumnDefinitions.Add(new ColumnDefinition {
                 Width = new GridLength(1, GridUnitType.Star) });
-            columns.ColumnDefinitions.Add(new ColumnDefinition {
-                Width = new GridLength(290) });
+            columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+            columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(249) });
 
             var editorLeft = Column();
             var toolRow = new WrapPanel();
@@ -190,18 +181,20 @@ namespace BlockCraftLauncher.Wpf
             layer.ItemsSource = new[] { "基础层", "外层", "全部图层" };
             layer.SelectedIndex = 0; layer.Width = 116;
             StyleSearch(layer);
-            toolRow.Children.Add(Label("工具"));
-            toolRow.Children.Add(tool);
-            toolRow.Children.Add(Label("部位"));
-            toolRow.Children.Add(part);
-            toolRow.Children.Add(Label("图层"));
-            toolRow.Children.Add(layer);
+            AddTool("工具", tool);
+            AddTool("部位", part);
+            AddTool("图层", layer);
+            void AddTool(string name, ComboBox control)
+            {
+                System.Windows.Automation.AutomationProperties.SetName(control, name);
+                toolRow.Children.Add(Column(Label(name), control));
+            }
             part.SelectionChanged += (sender, args) => DrawGuides();
             layer.SelectionChanged += (sender, args) => DrawGuides();
             editorLeft.Children.Add(Card(Column(
-                Label("像素绘制工具", 17, true), toolRow,
-                Row(ActionButton("撤销 Ctrl+Z", () => { document.Undo(); }),
-                    ActionButton("重做 Ctrl+Y", () => { document.Redo(); }),
+                Label("绘制工具", 16, true), toolRow,
+                Row(ActionButton("撤销（Ctrl+Z）", () => { document.Undo(); }),
+                    ActionButton("重做（Ctrl+Y）", () => { document.Redo(); }),
                     ActionButton("清除所选图层", ClearSelection)))) );
 
             texture.Stretch = Stretch.Fill;
@@ -217,13 +210,13 @@ namespace BlockCraftLauncher.Wpf
             paintingSurface.MouseRightButtonDown += OnPickRightClick;
             paintingSurface.LostMouseCapture += (sender, args) => EndStroke();
 
-            zoom.Minimum = 4; zoom.Maximum = 12; zoom.Value = 8;
+            zoom.Minimum = 4; zoom.Maximum = 12; zoom.Value = 6;
             zoom.TickFrequency = 1; zoom.IsSnapToTickEnabled = true;
-            zoom.Width = 175; zoom.Margin = new Thickness(8, 0, 12, 8);
+            zoom.Width = 102; zoom.Margin = new Thickness(8, 0, 12, 8);
             zoom.ValueChanged += (sender, args) => ResizeEditor();
             brush.Minimum = 1; brush.Maximum = 5; brush.Value = 1;
             brush.TickFrequency = 1; brush.IsSnapToTickEnabled = true;
-            brush.Width = 135; brush.Margin = new Thickness(8, 0, 12, 8);
+            brush.Width = 91; brush.Margin = new Thickness(8, 0, 12, 8);
             showGrid.Content = "像素网格"; showGrid.IsChecked = true;
             showGrid.Checked += (sender, args) => DrawGuides();
             showGrid.Unchecked += (sender, args) => DrawGuides();
@@ -232,12 +225,12 @@ namespace BlockCraftLauncher.Wpf
             {
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                MinHeight = 380, Height = 555, Content = paintingSurface
+                Height = 413, Content = paintingSurface
             };
             viewport.SetResourceReference(Control.BackgroundProperty, "SearchSurfaceBrush");
             editorLeft.Children.Add(Card(Column(
-                Label("皮肤贴图 UV 画布 · 拖动鼠标逐像素绘制", 17, true),
-                Label("蓝色标记是基础层，金色标记是外层。选择“部位/图层”可以避免误涂其他区域。"),
+                Label("像素画布", 16, true),
+                Label("蓝线标记基础层，金线标记外层。拖动鼠标可连续绘制。"),
                 Row(Label("缩放"), zoom, Label("画笔大小"), brush, showGrid),
                 viewport,
                 pointInfo)));
@@ -246,7 +239,7 @@ namespace BlockCraftLauncher.Wpf
 
             var rightPanel = Column();
             armModel.ItemsSource = new[] { "经典宽臂 · Steve（4px）", "纤细手臂 · Alex（3px）" };
-            armModel.SelectedIndex = 0; armModel.Width = 240;
+            armModel.SelectedIndex = 0;
             StyleSearch(armModel);
             armModel.SelectionChanged += (sender, args) =>
             {
@@ -257,10 +250,10 @@ namespace BlockCraftLauncher.Wpf
             showOuter.IsChecked = true;
             showOuter.Checked += (sender, args) => RefreshImages();
             showOuter.Unchecked += (sender, args) => RefreshImages();
-            rightPanel.Children.Add(Card(Column(Label("人物实时预览", 17, true),
-                armModel, showOuter, BuildPreview(), Label("预览由当前贴图生成：左侧正面，右侧背面。"))));
+            rightPanel.Children.Add(Card(Column(Label("人物预览", 16, true),
+                armModel, showOuter, BuildPreview())));
 
-            hex.Width = 135; hex.MaxLength = 9;
+            hex.Width = 124; hex.MaxLength = 9;
             StyleSearch(hex);
             hex.ToolTip = "输入 #RRGGBB 或 #AARRGGBB；A 是透明度";
             hex.KeyDown += (sender, args) =>
@@ -272,7 +265,8 @@ namespace BlockCraftLauncher.Wpf
                 }
             };
             hex.LostFocus += (sender, args) => ApplyHexColor();
-            colorSwatch.Width = 39; colorSwatch.Height = 39;
+            colorSwatch.Width = 35; colorSwatch.Height = 35;
+            colorSwatch.Margin = new Thickness(0, 0, 8, 8);
             colorSwatch.CornerRadius = new CornerRadius(7);
             colorSwatch.BorderThickness = new Thickness(1);
             colorSwatch.SetResourceReference(Border.BorderBrushProperty, "BorderBrushTheme");
@@ -281,7 +275,7 @@ namespace BlockCraftLauncher.Wpf
             red.Maximum = green.Maximum = blue.Maximum = transparency.Maximum = 255;
             red.Value = selected.R; green.Value = selected.G;
             blue.Value = selected.B; transparency.Value = selected.A;
-            red.Width = green.Width = blue.Width = transparency.Width = 155;
+            red.Width = green.Width = blue.Width = transparency.Width = 142;
             foreach (var slider in new[] { red, green, blue, transparency })
             {
                 slider.IsMoveToPointEnabled = true;
@@ -290,47 +284,31 @@ namespace BlockCraftLauncher.Wpf
             colorSliders.Children.Add(Row(Label("R"), red));
             colorSliders.Children.Add(Row(Label("G"), green));
             colorSliders.Children.Add(Row(Label("B"), blue));
-            colorSliders.Children.Add(Row(Label("透明度"), transparency));
-            rightPanel.Children.Add(Card(Column(Label("画笔颜色", 17, true),
-                Row(colorSwatch, hex), colorSliders, BuildPalette(),
-                Label("支持任意 RGB 和透明度；取色器可直接从贴图拾取颜色。"))));
+            colorSliders.Children.Add(Row(Label("不透明度"), transparency));
+            rightPanel.Children.Add(Card(Column(Label("画笔颜色", 16, true),
+                Row(colorSwatch, hex), colorSliders, BuildPalette())));
 
-            var manage = Column(Label("我的皮肤库", 17, true));
-            skinName.Text = "我的自定义皮肤"; skinName.Width = 205; skinName.MaxLength = 48;
+            var manage = Column(Label("皮肤库", 16, true));
+            skinName.Text = "我的自定义皮肤";
+            skinName.MaxLength = 48;
             StyleSearch(skinName);
-            manage.Children.Add(Label("皮肤名称"));
+            manage.Children.Add(Label("保存名称"));
             manage.Children.Add(skinName);
-            manage.Children.Add(Row(
-                ActionButton("保存到皮肤库", SaveToLibrary, true),
-                ActionButton("导出 PNG", ExportPng)));
-            manage.Children.Add(Row(ActionButton("导入 PNG", ImportPng),
-                ActionButton("重新开始", ResetTemplate)));
-            savedSkins.Width = 220;
             StyleSearch(savedSkins);
-            manage.Children.Add(Label("打开已保存的皮肤"));
+            manage.Children.Add(Label("已保存的皮肤"));
             manage.Children.Add(savedSkins);
             manage.Children.Add(Row(
-                ActionButton("打开选中", LoadFromLibrary),
+                ActionButton("打开选中皮肤", LoadFromLibrary),
                 ActionButton("刷新列表", RefreshLibrary)));
-            manage.Children.Add(ActionButton("上传到微软正版账号", async () =>
+            manage.Children.Add(ActionButton("上传到 Minecraft 账号", async () =>
                 await UploadToMicrosoftAsync(), true));
-            manage.Children.Add(ActionButton("打开 Minecraft 官方皮肤说明", () =>
-                Process.Start(new ProcessStartInfo(OfficialArticle) {
-                    UseShellExecute = true })));
-            manage.Children.Add(Label(
-                "可选正版上传：仅在确认后向 Minecraft 官方 API 提交 PNG。"
-                + "离线皮肤仍可保存或导出。编辑会自动备份为本地恢复草稿，切换页面不会丢失。"));
+            manage.Children.Add(ActionButton("查看官方皮肤说明", () =>
+                Process.Start(new ProcessStartInfo(OfficialArticle) { UseShellExecute = true })));
+            manage.Children.Add(Label("登录微软正版账号后可上传。编辑草稿会自动备份。"));
             rightPanel.Children.Add(Card(manage));
             rightPanel.Children.Add(Card(Column(Label("编辑状态", 16, true), info)));
-            var rightScroll = new ScrollViewer
-            {
-                Content = rightPanel,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                Height = 950
-            };
-            Grid.SetColumn(rightScroll, 1);
-            columns.Children.Add(rightScroll);
+            Grid.SetColumn(rightPanel, 2);
+            columns.Children.Add(rightPanel);
             page.Children.Add(columns);
             Content = page;
             ResizeEditor();
@@ -348,7 +326,7 @@ namespace BlockCraftLauncher.Wpf
             rightPanel.Children.Add(Label("背面", 12, true));
             foreach (var item in new[] { front, back })
             {
-                item.Width = 90; item.Height = 184;
+                item.Width = 75; item.Height = 151;
                 item.Stretch = Stretch.Uniform;
                 item.HorizontalAlignment = HorizontalAlignment.Center;
                 RenderOptions.SetBitmapScalingMode(item, BitmapScalingMode.NearestNeighbor);
