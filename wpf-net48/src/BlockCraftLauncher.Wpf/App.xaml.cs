@@ -40,6 +40,8 @@ namespace BlockCraftLauncher.Wpf
                 string.Equals(arg, "--ui-layout-selftest", StringComparison.OrdinalIgnoreCase));
             bool skinSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--skin-selftest", StringComparison.OrdinalIgnoreCase));
+            bool serverSearchSelfTest = e.Args.Any(arg =>
+                string.Equals(arg, "--server-search-selftest", StringComparison.OrdinalIgnoreCase));
             bool relaunchWindowSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--window-relaunch-selftest", StringComparison.OrdinalIgnoreCase));
             bool publicNetworkSelfTest = e.Args.Any(arg =>
@@ -47,6 +49,7 @@ namespace BlockCraftLauncher.Wpf
             smokeTest = publicNetworkSelfTest || authSelfTest || downloadSelfTest || dependencySelfTest ||
                 saveRestoreSelfTest || instanceDetectionSelfTest || modrinthSearchSelfTest ||
                 downloadPageSelfTest || layoutSelfTest || skinSelfTest ||
+                serverSearchSelfTest ||
                 relaunchWindowSelfTest ||
                 e.Args.Any(arg =>
                 string.Equals(arg, "--smoke-test", StringComparison.OrdinalIgnoreCase));
@@ -103,6 +106,21 @@ namespace BlockCraftLauncher.Wpf
                 {
                     WriteDiagnostic(ex);
                     Shutdown(33);
+                }
+                return;
+            }
+
+            if (serverSearchSelfTest)
+            {
+                try
+                {
+                    PublicServerDirectoryService.RunOfflineSelfTest();
+                    Shutdown(0);
+                }
+                catch (Exception error)
+                {
+                    WriteDiagnostic(error);
+                    Shutdown(34);
                 }
                 return;
             }
