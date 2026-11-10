@@ -1,8 +1,8 @@
 # Code signing policy — BlockCraft Launcher (Windows WPF)
 
-> **Status (2026-11-10): NOT SIGNED. SignPath Foundation approval has not been obtained.** This document describes the proposed process only. No release is claimed to carry a SignPath signature until a signed release is built and verified.
+> **Status (2026-11-10): NO WINDOWS AUTHENTICODE CERTIFICATE.** The maintainer reports that SignPath Foundation declined the application due to insufficient public popularity. No release is claimed to carry a SignPath Authenticode signature.
 
-**Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).** This attribution is a description of the intended program, not a claim of current participation.
+**Alternative at no cost:** [Sigstore/Cosign + GitHub provenance + SHA-256](FREE_RELEASE_SIGNING.md). This verifies file origin without a Windows-trusted Authenticode publisher. The SignPath discussion below is a historical proposal, not an active signing service or approval claim.
 
 ## Project, maintainer and scope
 
@@ -26,7 +26,7 @@ Only binaries built **from the project's own source** in this repository may be 
 
 Third-party Minecraft binaries, mod loaders, downloaded mods, resources, skins, game files, and upstream DLLs **are not to be signed as if they were this project's own software**.
 
-Release workflow: [wpf-net48-controlled-release.yml](../../.github/workflows/wpf-net48-controlled-release.yml). It currently builds and tests on GitHub-hosted Windows runners, creates checksums, and publishes stable or candidate release assets. **It does not yet submit signing requests**, and changes to the workflow are required only after SignPath approves the project and provides configuration.
+Release workflow: [wpf-net48-controlled-release.yml](../../.github/workflows/wpf-net48-controlled-release.yml). It builds and tests on GitHub-hosted Windows runners and creates SHA-256 checksums. The new flow must generate and verify **Sigstore keyless bundles** and **GitHub build provenance** before publishing. It does **not** submit SignPath signing requests. SignPath re-application would require fresh approval and a separately reviewed workflow.
 
 The intended release-signing sequence is:
 
@@ -62,7 +62,7 @@ The version in the example is for illustrating command syntax; **v0.9.35 is not 
 - [ ] Confirm license and redistribution permissions for all distributed components and document any excluded components.
 - [ ] Verify the privacy statement and external dependencies against current source and binary output.
 - [ ] Confirm GitHub multi-factor authentication and secure contributor/reviewer permissions.
-- [ ] Submit the application personally as the project's GitHub maintainer at https://signpath.org/apply.
-- [ ] Obtain SignPath Foundation acceptance; acceptance is discretionary and depends on public project reputation.
+- [x] Submit the application personally as the project's GitHub maintainer at https://signpath.org/apply (maintainer reports it was reviewed and declined).
+- [ ] Obtain SignPath Foundation acceptance; current application was rejected because public project popularity was considered too low.
 - [ ] Configure the SignPath GitHub app, SignPath organization/project/signing-policy details and the API token in repository secrets.
 - [ ] Integrate official signing action into the release workflow, preserve its tests, verify signed artifacts, and update release notes.

@@ -16,6 +16,9 @@ jobs:
     runs-on: windows-2022
     permissions:
       contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       - uses: actions/checkout@v4
       - uses: microsoft/setup-msbuild@v2
@@ -516,6 +519,56 @@ jobs:
           if (!(Test-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe')) { throw 'EXE not produced' }
           if (!(Test-Path 'dist/BlockCraftLauncher-v0.9.36-WPF-net48-Windows-x64.zip')) { throw 'ZIP not produced' }
           if (!(Test-Path 'dist/BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe')) { throw 'One-file EXE not produced' }
+      - name: Verify public CI build hashes before provenance attestation
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $names = @(
+            'BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe',
+            'BlockCraftLauncher-v0.9.36-WPF-net48-Windows-x64.zip'
+          )
+          $lines = @(Get-Content -LiteralPath 'dist/RELEASE-SHA256SUMS.txt')
+          if ($lines.Count -ne 2) { throw 'Expected exactly two release hashes' }
+          foreach ($name in $names) {
+            $hash = (Get-FileHash -LiteralPath (Join-Path 'dist' $name) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($lines -cnotcontains "$hash  $name") { throw "Release hash mismatch: $name" }
+          }
+
+      - name: Attest the exact CI-built Windows EXE and ZIP with GitHub/Sigstore
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe
+            wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-net48-Windows-x64.zip
+
+      # Exercise the same real keyless signing service on the CI branch, so
+      # stable publishing does not become the first time Cosign is tried.
+      - name: Install Sigstore Cosign for branch CI signature smoke test
+        uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Generate and verify CI Sigstore bundles + GitHub provenance
+        working-directory: wpf-net48
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $identity = 'https://github.com/${{ github.workflow_ref }}'
+          $signer = 'github.com/${{ github.repository }}/.github/workflows/wpf-net48-alpha-build.yml'
+          foreach ($name in @(
+            'BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe',
+            'BlockCraftLauncher-v0.9.36-WPF-net48-Windows-x64.zip'
+          )) {
+            $file = Join-Path 'dist' $name
+            & cosign sign-blob --yes --bundle "$file.sigstore.json" $file
+            if ($LASTEXITCODE -ne 0) { throw "CI Cosign sign failed: $name" }
+            & cosign verify-blob $file --bundle "$file.sigstore.json" --certificate-identity $identity --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+            if ($LASTEXITCODE -ne 0) { throw "CI Cosign verify failed: $name" }
+            & gh attestation verify $file --repo '${{ github.repository }}' --source-ref '${{ github.ref }}' --signer-workflow $signer
+            if ($LASTEXITCODE -ne 0) { throw "CI GitHub attestation verify failed: $name" }
+          }
+
       - uses: actions/upload-artifact@v4
         with:
           name: BlockCraftLauncher-v0.9.36-WPF-net48-Windows
@@ -523,5 +576,8 @@ jobs:
             wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-net48-Windows-x64.zip
             wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe
             wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe.sha256
+            wpf-net48/dist/RELEASE-SHA256SUMS.txt
+            wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe.sigstore.json
+            wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-net48-Windows-x64.zip.sigstore.json
           if-no-files-found: error
           retention-days: 14

@@ -29,6 +29,9 @@ jobs:
     runs-on: windows-2022
     permissions:
       contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     defaults:
       run:
         shell: pwsh
@@ -161,7 +164,8 @@ jobs:
           - 第三方目录服务的网络可达性、缓存状态、服务器白名单及授权取决于提供方，不能保证所有地区和服务器都可用。
 
           正式发行文件为 Windows-x64 的 EXE 与 ZIP。下载后请核对 RELEASE-SHA256SUMS.txt。
-          注意：SignPath Foundation 免费代码签名仍待审批，此版本并未获得有效的 Windows Authenticode 签名，SmartScreen 仍可能提示未知发布者。
+          安全：发布的 EXE 与 ZIP 提供 SHA-256、Sigstore Cosign 无密钥签名包（*.sigstore.json）与 GitHub SLSA 构建来源证明。它们可校验文件和构建来源，但不是 Windows Authenticode，SmartScreen 仍可能显示“未知发布者”。
+          验证说明：https://github.com/minecraftlu/BlockCraftLauncher/blob/main/wpf-net48/docs/FREE_RELEASE_SIGNING.md
           问题反馈：https://github.com/minecraftlu/BlockCraftLauncher/issues
           "@
           $text | Set-Content -LiteralPath (Join-Path $dist 'RELEASE-NOTES.txt') -Encoding UTF8
@@ -172,6 +176,40 @@ jobs:
         timeout-minutes: 4
         run: ./tests/check_v0936_promotion.ps1 -Phase Preflight
 
+      # Build-provenance and keyless signatures bind the shipped file bytes to
+      # this GitHub Actions workflow. They are not Windows Authenticode.
+      - name: Install open-source Cosign (verified binary)
+        uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Generate Sigstore keyless signatures for the release EXE and ZIP
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in @($env:RELEASE_EXE, $env:RELEASE_ZIP)) {
+            $asset = Join-Path 'dist' $name
+            & cosign sign-blob --yes --bundle "$asset.sigstore.json" $asset
+            if ($LASTEXITCODE -ne 0) { throw "Cosign signing failed: $name" }
+            if (-not (Test-Path -LiteralPath "$asset.sigstore.json")) {
+              throw "Cosign bundle not written: $name"
+            }
+          }
+
+      - name: Record independent GitHub/Sigstore build-provenance attestation
+        uses: actions/attest@v4
+        with:
+          # Exact immutable release binaries; do not attest a path wildcard.
+          subject-path: |
+            wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe
+            wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-net48-Windows-x64.zip
+
+      - name: Block publication unless SHA-256, Cosign and provenance all verify
+        working-directory: wpf-net48
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./build/verify-sigstore-release.ps1 -ReleaseTag $env:RELEASE_TAG -DistPath ./dist
+
       - name: Publish a GitHub release only after all checks
         working-directory: wpf-net48
         env:
@@ -179,7 +217,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $files = @("dist/$env:RELEASE_EXE", "dist/$env:RELEASE_EXE.sha256",
-            "dist/$env:RELEASE_ZIP", 'dist/RELEASE-SHA256SUMS.txt')
+            "dist/$env:RELEASE_ZIP", 'dist/RELEASE-SHA256SUMS.txt',
+            "dist/$env:RELEASE_EXE.sigstore.json",
+            "dist/$env:RELEASE_ZIP.sigstore.json")
           foreach ($file in $files) {
             if (-not (Test-Path $file)) { throw "Missing publish file: $file" }
           }
