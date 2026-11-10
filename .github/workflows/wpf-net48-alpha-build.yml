@@ -1,0 +1,483 @@
+name: WPF net48 (Windows build)
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'wpf-net48/src/BlockCraftLauncher.Wpf/**'
+      - 'wpf-net48/updater/**'
+      - 'wpf-net48/onefile/**'
+      - 'wpf-net48/BlockCraftLauncher-WPF.sln'
+      - 'wpf-net48/build/**'
+      - 'wpf-net48/tests/**'
+      - '.github/workflows/wpf-net48-alpha-build.yml'
+
+jobs:
+  build:
+    runs-on: windows-2022
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - name: Static migration checks (not a substitute for WPF build)
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          # PowerShell otherwise only reports the exit code of the final
+          # Python command, masking earlier failures in static checks.
+          $ErrorActionPreference = 'Stop'
+          foreach ($check in @(
+            'check_project.py',
+            'check_phase2.py',
+            'check_windows_packaging.py',
+            'check_v0926_features.py',
+            'check_onefile.py',
+            'check_pcl_downloads.py',
+            'check_download_bindings.py',
+            'check_auth_recovery.py',
+            'check_pcl_unified_ui.py'
+          )) {
+            python "tests/$check"
+            if ($LASTEXITCODE -ne 0) { throw "Static check failed: $check (exit $LASTEXITCODE)" }
+          }
+      - name: Restore, compile and package with Visual Studio MSBuild
+        shell: cmd
+        working-directory: wpf-net48
+        run: call build\build-windows.bat
+      - name: Standalone updater safe file replacement / rollback selftest
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Updater.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--selftest' -PassThru
+          if (-not $process.WaitForExit(35000)) {
+            $process.Kill()
+            throw 'Updater rollback selftest timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            throw "Updater rollback selftest failed: $($process.ExitCode)"
+          }
+      - name: Minecraft skin DIY pixel editor and PNG safety (WPF and OneFile)
+        working-directory: wpf-net48
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $launchers = @(
+            'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe',
+            'dist/BlockCraftLauncher-v0.9.35-WPF-OneFile-Windows-x64.exe'
+          )
+          foreach ($launcher in $launchers) {
+            $exe = (Resolve-Path $launcher).Path
+            $process = Start-Process -FilePath $exe -ArgumentList '--skin-selftest' -PassThru
+            if (-not $process.WaitForExit(60000)) {
+              $process.Kill()
+              throw "Skin DIY PNG selftest timeout: $launcher"
+            }
+            $process.Refresh()
+            if ($process.ExitCode -ne 0) {
+              $diagnostics = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+              if (Test-Path $diagnostics) {
+                Write-Host '----- Offline skin selftest diagnostics -----'
+                Get-Content $diagnostics -Tail 40 | Write-Host
+              }
+              throw "Skin DIY PNG selftest failed: $launcher (exit $($process.ExitCode))"
+            }
+          }
+
+      - name: Confirm updated WPF window really renders and reopens (normal and OneFile)
+        working-directory: wpf-net48
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./tests/check_window_relaunch.ps1
+
+      - name: Smoke test WPF startup and dependency resolution
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--smoke-test' -PassThru
+          if (-not $process.WaitForExit(35000)) {
+            $process.Kill()
+            throw 'WPF startup smoke test timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 35 }
+            throw "WPF startup smoke test failed: exit code $($process.ExitCode)"
+          }
+          Write-Host 'PASS: WPF MainWindow initialized and CmlLib dependencies loaded'
+      - name: PCL-style UI navigation and text-layout regression (no network)
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        env:
+          BLOCKCRAFT_UI_CAPTURE_DIR: ${{ runner.temp }}/blockcraft-ui-check
+        run: |
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--ui-layout-selftest' -PassThru
+          if (-not $process.WaitForExit(40000)) {
+            $process.Kill()
+            throw 'PCL-style WPF layout selftest timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 55 }
+            throw "PCL WPF layout selftest failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: PCL-style navigation, installed mod icons and fallback, resource and version templates'
+
+      - name: Upload Windows layout verification captures
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlockCraftLauncher-WPF-layout-check
+          path: ${{ runner.temp }}/blockcraft-ui-check/*.png
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Offline downloader self-tests (no game downloads)
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--download-selftest' -PassThru
+          if (-not $process.WaitForExit(30000)) {
+            $process.Kill()
+            throw 'Download selftest timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 35 }
+            throw "Offline downloader selftest failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: Mojang/BMCLAPI routes and Minecraft release/snapshot categorization'
+      - name: Smoke test download management page and read-only progress binding
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--download-ui-selftest' -PassThru
+          if (-not $process.WaitForExit(35000)) {
+            $process.Kill()
+            throw 'WPF download page smoke test timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 35 }
+            throw "WPF download page binding test failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: WPF download page binds read-only Percent using OneWay'
+      - name: Smoke test download page from single EXE
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.35-WPF-OneFile-Windows-x64.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--download-ui-selftest' -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            $process.Kill()
+            throw 'Single EXE download page binding test timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/onefile/bootstrap-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 35 }
+            throw "Single EXE download page binding test failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: single EXE opens download management page without readonly binding error'
+      - name: PCL-style UI navigation regression from single EXE
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.35-WPF-OneFile-Windows-x64.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--ui-layout-selftest' -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            $process.Kill()
+            throw 'Single EXE PCL-style layout test timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/onefile/bootstrap-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 40 }
+            $wpfLog = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $wpfLog) { Get-Content $wpfLog -Tail 40 }
+            throw "Single EXE PCL WPF layout test failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: single EXE PCL UI navigation, resource cards and theme controls'
+
+      - name: Single EXE offline mirror fallback and resume header tests
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.35-WPF-OneFile-Windows-x64.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--download-selftest' -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            $process.Kill()
+            throw 'Single EXE mirror routing selftest timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/onefile/bootstrap-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 25 }
+            $wpfLog = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $wpfLog) { Get-Content $wpfLog -Tail 30 }
+            throw "Single EXE mirror routing selftest failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: single EXE preserves HTTP Range and isolates credentials on mirror fallback'
+      - name: PCL-like Modrinth search card metadata parsing (offline)
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--modrinth-search-selftest' -PassThru
+          if (-not $process.WaitForExit(30000)) {
+            $process.Kill()
+            throw 'Modrinth metadata selftest timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 40 }
+            throw "Modrinth metadata selftest failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: project icon validation, downloads, Minecraft versions, update dates and paging'
+
+      - name: PCL-like Modrinth search metadata from single EXE
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.35-WPF-OneFile-Windows-x64.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--modrinth-search-selftest' -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            $process.Kill()
+            throw 'OneFile Modrinth search metadata selftest timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 40 }
+            throw "OneFile Modrinth metadata selftest failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: OneFile project icon hosts, localized category labels and search total counts'
+
+      - name: Offline Modrinth required dependency and atomic registry regression
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--modrinth-deps-selftest' -PassThru
+          if (-not $process.WaitForExit(40000)) {
+            $process.Kill()
+            throw 'Modrinth dependency regression timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 40 }
+            throw "Modrinth dependency validation failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: transitive required dependencies, cycles, compatibility, SHA-1, batch registration'
+
+      - name: Offline Modrinth dependencies from single EXE
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.35-WPF-OneFile-Windows-x64.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--modrinth-deps-selftest' -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            $process.Kill()
+            throw 'OneFile Modrinth dependency regression timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 40 }
+            throw "OneFile Modrinth dependency regression failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: OneFile Modrinth dependency planner and atomic registry'
+
+      - name: Offline Minecraft world backup and safe ZIP restore
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--saves-restore-selftest' -PassThru
+          if (-not $process.WaitForExit(40000)) {
+            $process.Kill()
+            throw 'Minecraft saves restore selftest timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 35 }
+            throw "Minecraft save restore selftest failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: safe Minecraft save backup/restore and no-overwrite protection'
+
+      - name: Offline Minecraft save restore from single EXE
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.35-WPF-OneFile-Windows-x64.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--saves-restore-selftest' -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            $process.Kill()
+            throw 'OneFile Minecraft saves restore selftest timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 35 }
+            throw "OneFile Minecraft save restore selftest failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: OneFile backup/restore with ZIP path hardening and no overwrite'
+
+      - name: Offline Minecraft instance detection matches actual launch root
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--instance-detection-selftest' -PassThru
+          if (-not $process.WaitForExit(35000)) {
+            $process.Kill()
+            throw 'Instance root detection selftest timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 45 }
+            throw "Instance detection test failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: shared root, isolated modpacks and missing metadata report the same root as game launch'
+
+      - name: Offline Minecraft instance detection from single EXE
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.35-WPF-OneFile-Windows-x64.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--instance-detection-selftest' -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            $process.Kill()
+            throw 'Single EXE instance root detection test timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 45 }
+            throw "Single EXE instance detection test failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: OneFile instance detection matches Minecraft launch root without network'
+
+      - name: Offline Microsoft refresh-token recovery tests
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--auth-selftest' -PassThru
+          if (-not $process.WaitForExit(30000)) {
+            $process.Kill()
+            throw 'Microsoft auth recovery selftest timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 20 }
+            throw "Microsoft auth selftest failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: refresh-token recovery classification without real account credentials'
+      - name: Microsoft recovery test from single EXE
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.35-WPF-OneFile-Windows-x64.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--auth-selftest' -PassThru
+          if (-not $process.WaitForExit(45000)) {
+            $process.Kill()
+            throw 'Single EXE Microsoft auth recovery selftest timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0)
+          {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/onefile/bootstrap-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 20 }
+            throw "Single EXE Microsoft auth selftest failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: single EXE refresh-token recovery classifier'
+      - name: Smoke test single EXE payload extraction and startup
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        run: |
+          $exe = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.35-WPF-OneFile-Windows-x64.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--smoke-test' -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            $process.Kill()
+            throw 'Single-file startup smoke test timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/onefile/bootstrap-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 30 }
+            throw "Single-file startup smoke test failed: $($process.ExitCode)"
+          }
+          Write-Host 'PASS: single EXE extracted, verified and started WPF MainWindow'
+      - name: Probe public services and verify real game metadata (no sign-in)
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 2
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:BLOCKCRAFT_PUBLIC_NETWORK_REPORT = Join-Path $env:RUNNER_TEMP 'blockcraft-public-network.txt'
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--public-network-selftest' -PassThru
+          if (-not $process.WaitForExit(75000)) {
+            $process.Kill()
+            throw 'Public network probe timed out'
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 30 }
+            throw "Public network probe failed: $($process.ExitCode)"
+          }
+          Get-Content -Encoding UTF8 $env:BLOCKCRAFT_PUBLIC_NETWORK_REPORT
+      - name: Check release artifact
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          if (!(Test-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe')) { throw 'EXE not produced' }
+          if (!(Test-Path 'dist/BlockCraftLauncher-v0.9.35-WPF-net48-Windows-x64.zip')) { throw 'ZIP not produced' }
+          if (!(Test-Path 'dist/BlockCraftLauncher-v0.9.35-WPF-OneFile-Windows-x64.exe')) { throw 'One-file EXE not produced' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BlockCraftLauncher-v0.9.35-WPF-net48-Windows
+          path: |
+            wpf-net48/dist/BlockCraftLauncher-v0.9.35-WPF-net48-Windows-x64.zip
+            wpf-net48/dist/BlockCraftLauncher-v0.9.35-WPF-OneFile-Windows-x64.exe
+            wpf-net48/dist/BlockCraftLauncher-v0.9.35-WPF-OneFile-Windows-x64.exe.sha256
+          if-no-files-found: error
+          retention-days: 14
