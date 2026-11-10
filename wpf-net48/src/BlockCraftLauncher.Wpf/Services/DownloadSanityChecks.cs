@@ -123,6 +123,7 @@ namespace BlockCraftLauncher.Wpf.Services
             // This runs a simulated HTTP transport (no DNS or credentials)
             // through the SAME CmlLib game routing handler as production.
             ChinaDownloadAndCurseForgeSanityChecks.Run();
+            GitHubOpenSourceModSanityChecks.Run();
             LauncherAutoUpdateSanityChecks.Run();
             MinecraftRouteSanityChecks.RunAsync().GetAwaiter().GetResult();
             RegionalNetworkSanityChecks.RunAsync().GetAwaiter().GetResult();
