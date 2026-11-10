@@ -407,7 +407,7 @@ namespace BlockCraftLauncher.Wpf
             onlineSource.ItemsSource = new[] {
                 "自由授权图库（Mosaicary）", "全部图库（多来源）",
                 "社区图库（DP-Plugins）", "玩家皮肤（Mojang）" };
-            onlineSource.SelectedIndex = 0;
+            onlineSource.SelectedIndex = 1; // all supported galleries, by default
             onlineSource.Width = 186;
             StyleSearch(onlineSource);
             onlineQuery.MaxLength = 60;
