@@ -1,0 +1,215 @@
+name: Publish verified v0.9.34 WPF preview
+
+on:
+  push:
+    branches:
+      - release/v0.9.34-wpf-rc.1
+    paths:
+      - .github/workflows/publish-v0934-wpf-preview.yml
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: release-v0934-wpf-preview
+  cancel-in-progress: false
+
+jobs:
+  publish-preview:
+    if: github.repository == 'minecraftlu/BlockCraftLauncher'
+    runs-on: windows-2022
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      BCL_TAG: v0.9.34-wpf-rc.1
+      BCL_SOURCE: 5d62a3276fd868d3b0a9b1d2cba97079bb71dd85
+      BCL_SINGLE: BlockCraftLauncher-v0.9.34-WPF-OneFile-Windows-x64.exe
+      BCL_ZIP: BlockCraftLauncher-v0.9.34-WPF-net48-Alpha-Windows-x64.zip
+      BCL_SINGLE_SHA: 78735040ac744124ffece2fa9f5ecbaa0d61ba411bf619ffd54aa39c9a50a9b4
+      BCL_ZIP_SHA: bd6502cd47c48ef72f9ad191a10701a06331e860c8d39b5f7223ebf5be0e387c
+    steps:
+      - name: Retrieve the successful Windows builds
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Get-TestedBuild($run, $commit, $version, $directory) {
+            $details = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$run"
+            if ($LASTEXITCODE -ne 0) { throw "Unable to look up Windows build $run" }
+            $details = $details | ConvertFrom-Json
+            if ($details.head_sha -ne $commit -or $details.status -ne 'completed' -or
+                $details.conclusion -ne 'success' -or
+                $details.path -ne '.github/workflows/wpf-net48-alpha-build.yml') {
+              throw "Windows build $run does not match the tested revision"
+            }
+            gh run download $run --repo $env:GITHUB_REPOSITORY --dir $directory `
+              --name "BlockCraftLauncher-v$version-WPF-net48-Windows-Alpha"
+            if ($LASTEXITCODE -ne 0) { throw "Could not download Windows build $run" }
+          }
+          Get-TestedBuild 42749341990 $env:BCL_SOURCE '0.9.34' (Join-Path $env:RUNNER_TEMP 'bcl-candidate')
+          Get-TestedBuild 42745748138 'da51ab3d6587d753ccbbb258070a8dbc0f14ac3f' '0.9.33' `
+            (Join-Path $env:RUNNER_TEMP 'bcl-legacy')
+
+      - name: Verify exact release bytes and the v0.9.33 channel rules
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dist = Join-Path $env:RUNNER_TEMP 'bcl-candidate'
+          $legacy = Join-Path $env:RUNNER_TEMP 'bcl-legacy'
+          $oldSingle = Join-Path $legacy 'BlockCraftLauncher-v0.9.33-WPF-OneFile-Windows-x64.exe'
+          $oldZip = Join-Path $legacy 'BlockCraftLauncher-v0.9.33-WPF-net48-Alpha-Windows-x64.zip'
+          function Assert-Sha256($path, $expected) {
+            $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+            if ($actual -ne $expected) { throw "SHA-256 mismatch for $(Split-Path $path -Leaf)" }
+          }
+          Assert-Sha256 (Join-Path $dist $env:BCL_SINGLE) $env:BCL_SINGLE_SHA
+          Assert-Sha256 (Join-Path $dist $env:BCL_ZIP) $env:BCL_ZIP_SHA
+          Assert-Sha256 $oldSingle 'cea104ca53fe646b4e657f0e5f5dca90cd2e7897775034e8aa43654d12f5a566'
+          Assert-Sha256 $oldZip 'af5537e8ddefa454b259d061e9fd2f4ce9e018381ef2cc50b3545dc78c507d3f'
+          $assets = @($env:BCL_SINGLE, $env:BCL_ZIP, 'RELEASE-SHA256SUMS.txt')
+          [IO.File]::WriteAllLines((Join-Path $dist $assets[2]),
+            [string[]]@("$env:BCL_SINGLE_SHA  $env:BCL_SINGLE", "$env:BCL_ZIP_SHA  $env:BCL_ZIP"),
+            [Text.Encoding]::ASCII)
+          $notes = @'
+          Windows x64 · .NET Framework 4.8 · 预览版
+
+          - 新增中国大陆优先和海外优先线路，统一原版、加载器和整合包的下载设置。
+          - 首选线路超时或文件校验失败时尝试备用线路。已完整安装的游戏可离线启动。
+          - 在「设置 → 下载设置」可检测 Mojang、BMCLAPI、社区资源和更新服务的连接。
+          - 在「设置 → 更新设置」选择「预览版」，保存后可检查并下载本次更新。
+
+          [Windows 构建与测试记录](https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42749341990)
+          '@
+          $notes | Set-Content -LiteralPath (Join-Path $dist 'RELEASE-NOTES.txt') -Encoding utf8
+          $page = "https://github.com/$env:GITHUB_REPOSITORY/releases"
+          $candidate = @(@{
+            tag_name = $env:BCL_TAG
+            prerelease = $true
+            draft = $false
+            html_url = "$page/tag/$env:BCL_TAG"
+            body = $notes
+            assets = @($assets | ForEach-Object {
+              @{
+                name = $_
+                size = (Get-Item -LiteralPath (Join-Path $dist $_)).Length
+                browser_download_url = "$page/download/$env:BCL_TAG/$_"
+              }
+            })
+          })
+          $fixture = Join-Path $legacy 'candidate.json'
+          ConvertTo-Json -InputObject $candidate -Depth 6 -Compress | Set-Content -LiteralPath $fixture -Encoding utf8
+
+          $unpacked = Join-Path $legacy 'unpacked'
+          Expand-Archive -LiteralPath $oldZip -DestinationPath $unpacked
+          $oldWpf = @(Get-ChildItem -LiteralPath $unpacked -Recurse -File -Filter 'BlockCraftLauncher.Wpf.exe')
+          if ($oldWpf.Count -ne 1) { throw 'Expected one v0.9.33 WPF payload' }
+          $oldRoot = $oldWpf[0].DirectoryName
+          $probe = Join-Path $oldRoot 'ReleaseProbe.exe'
+          $probeSource = Join-Path $legacy 'ReleaseProbe.cs'
+          @'
+          using System;
+          using System.IO;
+          using System.Threading;
+          using BlockCraftLauncher.Wpf.Models;
+          using BlockCraftLauncher.Wpf.Services;
+
+          public static class ReleaseProbe
+          {
+              public static int Main(string[] args)
+              {
+                  try
+                  {
+                      string mode = args[0], tag = args[1];
+                      if (mode == "fixture")
+                      {
+                          string json = File.ReadAllText(args[2]);
+                          foreach (string package in new[] { "zip", "onefile" })
+                          {
+                              var offer = LauncherAutoUpdateService.SelectOffer(json, "preview", package, "v0.9.33-wpf-rc.1");
+                              if (offer == null || offer.Tag != tag ||
+                                  LauncherAutoUpdateService.SelectOffer(json, "stable", package, "v0.9.33-wpf-rc.1") != null ||
+                                  LauncherAutoUpdateService.SelectOffer(json, "preview", package, tag) != null)
+                                  throw new InvalidOperationException("Invalid channel selection for " + package);
+                              Console.WriteLine("PASS: v0.9.33 selects " + offer.AssetName + " only as a newer preview");
+                          }
+                          return 0;
+                      }
+                      if (mode == "onefile")
+                          Environment.SetEnvironmentVariable("BLOCKCRAFT_SINGLEFILE_BOOTSTRAP", args[3]);
+                      if (LauncherAutoUpdateService.InstallMode != mode)
+                          throw new InvalidOperationException("Unexpected package mode");
+                      var updater = new LauncherAutoUpdateService(new LauncherConfig { UpdateChannel = "preview" });
+                      using (var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(110)))
+                      {
+                          LauncherUpdateOffer offer = null;
+                          for (int attempt = 0; attempt < 4; attempt++)
+                          {
+                              offer = updater.CheckAsync(deadline.Token).GetAwaiter().GetResult();
+                              if (offer != null && offer.Tag == tag) break;
+                              Thread.Sleep(3000);
+                          }
+                          if (offer == null || offer.Tag != tag)
+                              throw new InvalidOperationException("The public preview feed did not offer " + tag);
+                          var prepared = updater.PrepareAsync(offer, deadline.Token).GetAwaiter().GetResult();
+                          if (!string.Equals(prepared.Sha256, args[2], StringComparison.OrdinalIgnoreCase))
+                              throw new InvalidOperationException("Prepared update hash mismatch");
+                          Console.WriteLine("PASS: v0.9.33 " + mode + " found, downloaded, verified and started " + tag);
+                      }
+                      return 0;
+                  }
+                  catch (Exception error)
+                  {
+                      Console.Error.WriteLine(error);
+                      return 1;
+                  }
+              }
+          }
+          '@ | Set-Content -LiteralPath $probeSource -Encoding utf8
+          $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /target:exe /platform:x64 "/out:$probe" "/reference:$($oldWpf[0].FullName)" $probeSource
+          if ($LASTEXITCODE -ne 0) { throw 'Could not compile the updater probe' }
+          Copy-Item -LiteralPath ($oldWpf[0].FullName + '.config') -Destination ($probe + '.config')
+          & $probe fixture $env:BCL_TAG $fixture
+          if ($LASTEXITCODE -ne 0) { throw 'v0.9.33 did not accept the candidate metadata' }
+
+          $start = Start-Process -FilePath $oldSingle -ArgumentList '--smoke-test' -PassThru
+          if (-not $start.WaitForExit(70000)) {
+            $start.Kill()
+            throw 'v0.9.33 OneFile preflight timed out'
+          }
+          $start.Refresh()
+          if ($start.ExitCode -ne 0) { throw "v0.9.33 OneFile preflight failed: $($start.ExitCode)" }
+          $cache = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/onefile'
+          $oldCache = @(Get-ChildItem -LiteralPath $cache -Directory -Filter 'v0.9.33-*')
+          if ($oldCache.Count -ne 1 -or -not (Test-Path -LiteralPath (Join-Path $oldCache[0].FullName '.blockcraft-ready'))) {
+            throw 'Could not locate the extracted v0.9.33 OneFile launcher'
+          }
+          Copy-Item -LiteralPath $probe, ($probe + '.config') -Destination $oldCache[0].FullName
+          "BCL_OLD_ZIP_PROBE=$probe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "BCL_OLD_SINGLE_PROBE=$(Join-Path $oldCache[0].FullName 'ReleaseProbe.exe')" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "BCL_OLD_SINGLE=$oldSingle" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Publish the checked packages as a prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dist = Join-Path $env:RUNNER_TEMP 'bcl-candidate'
+          $files = @($env:BCL_SINGLE, $env:BCL_ZIP, 'RELEASE-SHA256SUMS.txt', "$env:BCL_SINGLE.sha256") |
+            ForEach-Object { Join-Path $dist $_ }
+          $options = @('--repo', $env:GITHUB_REPOSITORY, '--prerelease', '--latest=false',
+            '--target', $env:BCL_SOURCE, '--title', "BlockCraft Launcher $env:BCL_TAG 预览版",
+            '--notes-file', (Join-Path $dist 'RELEASE-NOTES.txt'))
+          gh release create $env:BCL_TAG @files @options
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub prerelease publication failed' }
+
+      - name: Verify public updates with both v0.9.33 packages
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:BCL_OLD_ZIP_PROBE zip $env:BCL_TAG $env:BCL_ZIP_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'Live ZIP update verification failed' }
+          & $env:BCL_OLD_SINGLE_PROBE onefile $env:BCL_TAG $env:BCL_SINGLE_SHA $env:BCL_OLD_SINGLE
+          if ($LASTEXITCODE -ne 0) { throw 'Live OneFile update verification failed' }
