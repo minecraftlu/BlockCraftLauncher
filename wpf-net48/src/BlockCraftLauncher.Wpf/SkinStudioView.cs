@@ -4,6 +4,9 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -45,6 +48,19 @@ namespace BlockCraftLauncher.Wpf
         readonly TextBox hex = new TextBox();
         readonly TextBox skinName = new TextBox();
         readonly ComboBox savedSkins = new ComboBox();
+        readonly ComboBox onlineSource = new ComboBox();
+        readonly TextBox onlineQuery = new TextBox();
+        readonly ListBox onlineResults = new ListBox();
+        readonly Image onlinePreview = new Image();
+        readonly TextBlock onlineStatus = new TextBlock();
+        readonly TextBlock onlineAttribution = new TextBlock();
+        Button onlineSearchButton;
+        Button onlineSaveButton;
+        Button onlineEditButton;
+        OnlineSkinEntry selectedOnlineSkin;
+        byte[] selectedOnlinePng;
+        int onlineRequestNumber;
+        bool searchingOnline;
         readonly Border colorSwatch = new Border();
         readonly TextBlock info = new TextBlock();
         readonly TextBlock pointInfo = new TextBlock();
@@ -168,6 +184,7 @@ namespace BlockCraftLauncher.Wpf
                     ActionButton("保存到皮肤库", SaveToLibrary, true),
                     ActionButton("导出 PNG", ExportPng),
                     ActionButton("新建皮肤", ResetTemplate)))));
+            page.Children.Add(BuildOnlineSearch());
 
             var columns = new Grid();
             columns.ColumnDefinitions.Add(new ColumnDefinition {
@@ -312,6 +329,237 @@ namespace BlockCraftLauncher.Wpf
             page.Children.Add(columns);
             Content = page;
             ResizeEditor();
+        }
+
+
+        UIElement BuildOnlineSearch()
+        {
+            var root = Column(
+                Label("在线皮肤搜索与下载", 16, true),
+                Label("按 Minecraft Java 玩家名查找当前皮肤，或按关键词搜索社区公开皮肤。只下载 PNG，不需要登录账号。"));
+            onlineSource.ItemsSource = new[] { "玩家皮肤（Mojang）", "社区皮肤（DP-Plugins）" };
+            onlineSource.SelectedIndex = 0;
+            onlineSource.Width = 174;
+            StyleSearch(onlineSource);
+            onlineQuery.MaxLength = 60;
+            onlineQuery.Width = 242;
+            onlineQuery.Text = "jeb_";
+            StyleSearch(onlineQuery);
+            onlineQuery.ToolTip = "玩家模式输入游戏名或 UUID；社区模式输入皮肤主题关键词";
+            onlineQuery.KeyDown += async (sender, e) =>
+            {
+                if (e.Key == Key.Enter)
+                {
+                    e.Handled = true;
+                    await SearchOnlineAsync();
+                }
+            };
+            onlineSearchButton = ActionButton("搜索皮肤", async () => await SearchOnlineAsync(), true);
+            root.Children.Add(Row(onlineSource, onlineQuery, onlineSearchButton));
+
+            onlineResults.Width = 300;
+            onlineResults.Height = 144;
+            onlineResults.MinHeight = 120;
+            onlineResults.SelectionChanged += async (sender, args) =>
+                await PreviewOnlineSelectionAsync();
+
+            onlinePreview.Width = 90;
+            onlinePreview.Height = 175;
+            onlinePreview.Stretch = Stretch.Uniform;
+            onlinePreview.HorizontalAlignment = HorizontalAlignment.Left;
+            RenderOptions.SetBitmapScalingMode(onlinePreview, BitmapScalingMode.NearestNeighbor);
+            onlineAttribution.MaxWidth = 280;
+            onlineAttribution.TextWrapping = TextWrapping.Wrap;
+            onlineAttribution.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
+            onlineSaveButton = ActionButton("下载到皮肤库", async () =>
+                await SaveOnlineSkinAsync(), true);
+            onlineEditButton = ActionButton("使用并编辑", async () =>
+                await UseOnlineSkinAsync());
+            onlineSaveButton.IsEnabled = false;
+            onlineEditButton.IsEnabled = false;
+
+            var preview = Column(Label("人物预览"), onlinePreview);
+            var detail = Column(Label("下载与使用"), onlineAttribution,
+                Row(onlineSaveButton, onlineEditButton));
+            root.Children.Add(Row(Column(Label("搜索结果"), onlineResults), preview, detail));
+            onlineStatus.Text = "搜索 Mojang 玩家皮肤，或切换至社区皮肤搜索。网络不可用时仍可继续离线 DIY。";
+            onlineStatus.TextWrapping = TextWrapping.Wrap;
+            onlineStatus.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
+            root.Children.Add(onlineStatus);
+            return Card(root, true);
+        }
+
+        async Task SearchOnlineAsync()
+        {
+            if (searchingOnline) return;
+            string query = (onlineQuery.Text ?? "").Trim();
+            bool community = onlineSource.SelectedIndex == 1;
+            ++onlineRequestNumber;
+            selectedOnlineSkin = null;
+            selectedOnlinePng = null;
+            onlineSaveButton.IsEnabled = onlineEditButton.IsEnabled = false;
+            onlinePreview.Source = null;
+            onlineResults.ItemsSource = null;
+            onlineAttribution.Text = "";
+            searchingOnline = true;
+            onlineSearchButton.IsEnabled = false;
+            onlineStatus.Text = "正在搜索在线皮肤...";
+            try
+            {
+                IReadOnlyList<OnlineSkinEntry> skins = community ?
+                    await OnlineSkinSearchService.SearchCommunityAsync(query, CancellationToken.None) :
+                    await OnlineSkinSearchService.FindPlayerAsync(query, CancellationToken.None);
+                onlineResults.ItemsSource = skins;
+                onlineStatus.Text = skins.Count == 0 ?
+                    "未找到匹配的公开皮肤。可更换关键词或尝试玩家名。" :
+                    "找到 " + skins.Count + " 个皮肤。选中条目后可预览、下载或进入 DIY 编辑。";
+                if (skins.Count > 0) onlineResults.SelectedIndex = 0;
+            }
+            catch (Exception ex)
+            {
+                onlineStatus.Text = "在线搜索失败：" + ex.GetBaseException().Message +
+                    "。可检查网络，稍后重试，或继续导入本地 PNG。";
+            }
+            finally
+            {
+                searchingOnline = false;
+                onlineSearchButton.IsEnabled = true;
+            }
+        }
+
+        static string TemporarySkinFile(byte[] png)
+        {
+            string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "BlockCraft-Skin-" + Guid.NewGuid().ToString("N") + ".png");
+            File.WriteAllBytes(path, png);
+            return path;
+        }
+
+        static SkinEditorDocument DecodeOnlineSkin(byte[] png, bool slim)
+        {
+            string temporary = TemporarySkinFile(png);
+            try
+            {
+                var preview = new SkinEditorDocument();
+                preview.LoadPng(temporary, slim);
+                return preview;
+            }
+            finally
+            {
+                try { File.Delete(temporary); }
+                catch (IOException) { }
+            }
+        }
+
+        async Task PreviewOnlineSelectionAsync()
+        {
+            int request = ++onlineRequestNumber;
+            var item = onlineResults.SelectedItem as OnlineSkinEntry;
+            selectedOnlineSkin = null;
+            selectedOnlinePng = null;
+            onlineSaveButton.IsEnabled = onlineEditButton.IsEnabled = false;
+            onlinePreview.Source = null;
+            if (item == null) return;
+            onlineAttribution.Text = item.Name + "\n" + item.Attribution;
+            onlineStatus.Text = "正在下载皮肤预览（只下载公开 PNG）...";
+            try
+            {
+                byte[] png = await OnlineSkinSearchService.DownloadPngAsync(
+                    item, CancellationToken.None);
+                if (request != onlineRequestNumber ||
+                    !ReferenceEquals(onlineResults.SelectedItem, item)) return;
+                var preview = DecodeOnlineSkin(png, item.SlimArms);
+                onlinePreview.Source = preview.AvatarImage(false, true);
+                selectedOnlineSkin = item;
+                selectedOnlinePng = png;
+                onlineSaveButton.IsEnabled = onlineEditButton.IsEnabled = true;
+                onlineStatus.Text = "预览成功。可以下载到本地皮肤库，也可以加载到现有 DIY 编辑器。";
+            }
+            catch (Exception ex)
+            {
+                if (request == onlineRequestNumber)
+                    onlineStatus.Text = "无法预览该皮肤：" +
+                        ex.GetBaseException().Message + "。请选择其他皮肤。";
+            }
+        }
+
+        string SafeOnlineName(OnlineSkinEntry item)
+        {
+            string name = Regex.Replace(item.Name ?? "", @"[\\/:*?""<>|\p{C}]", "-")
+                .Trim().TrimEnd('.', ' ');
+            if (name.Length > 25) name = name.Substring(0, 25);
+            if (name.Length == 0) name = "Minecraft";
+            return "在线-" + name + "-" +
+                DateTime.Now.ToString("MMdd-HHmmss", CultureInfo.InvariantCulture);
+        }
+
+        async Task SaveOnlineSkinAsync()
+        {
+            var item = selectedOnlineSkin;
+            var png = selectedOnlinePng;
+            if (item == null || png == null) return;
+            onlineSaveButton.IsEnabled = false;
+            try
+            {
+                var preview = DecodeOnlineSkin(png, item.SlimArms);
+                Directory.CreateDirectory(SkinEditorDocument.LocalLibrary);
+                string name = SafeOnlineName(item);
+                string path = SkinEditorDocument.SafeLibraryPath(name);
+                if (File.Exists(path))
+                {
+                    name = name.Substring(0, Math.Min(name.Length, 38)) + "-" +
+                        Guid.NewGuid().ToString("N").Substring(0, 6);
+                    path = SkinEditorDocument.SafeLibraryPath(name);
+                }
+                preview.SavePng(path); // strips remote metadata; produces normalized PNG
+                RefreshLibrary();
+                onlineStatus.Text = "皮肤已下载到本地：" + path +
+                    "\n来源：" + item.Attribution;
+            }
+            catch (Exception ex)
+            {
+                onlineStatus.Text = "无法保存皮肤：" + ex.GetBaseException().Message;
+            }
+            finally { onlineSaveButton.IsEnabled = selectedOnlinePng != null; }
+            await Task.CompletedTask;
+        }
+
+        async Task UseOnlineSkinAsync()
+        {
+            var item = selectedOnlineSkin;
+            var png = selectedOnlinePng;
+            if (item == null || png == null || !ConfirmDiscard()) return;
+            onlineEditButton.IsEnabled = false;
+            string temporary = null;
+            try
+            {
+                temporary = TemporarySkinFile(png);
+                document.LoadPng(temporary, item.SlimArms);
+                ClearRecoveryDraft();
+                skinName.Text = SafeOnlineName(item);
+                armModel.SelectedIndex = document.SlimArms ? 1 : 0;
+                DrawGuides();
+                RefreshImages();
+                // A downloaded preview is not yet a saved local skin.
+                document.MarkUnsaved();
+                onlineStatus.Text = "已导入 DIY 编辑器。请点击“保存到皮肤库”或“导出 PNG”留存。";
+                info.Text = "已载入在线皮肤：" + item.Name +
+                    "\n来源：" + item.Attribution;
+            }
+            catch (Exception ex)
+            {
+                onlineStatus.Text = "无法打开在线皮肤：" + ex.GetBaseException().Message;
+            }
+            finally
+            {
+                if (temporary != null)
+                {
+                    try { File.Delete(temporary); }
+                    catch (IOException) { }
+                }
+                onlineEditButton.IsEnabled = selectedOnlinePng != null;
+            }
+            await Task.CompletedTask;
         }
 
         UIElement BuildPreview()
@@ -876,6 +1124,8 @@ namespace BlockCraftLauncher.Wpf
                 guideCanvas == null || tool.SelectedIndex != 0 ||
                 part.SelectedIndex != 0 || layer.SelectedIndex != 0 ||
                 savedSkins == null || hex == null ||
+                onlineResults == null || onlineSource.SelectedIndex != 0 ||
+                onlineSearchButton == null || onlineSaveButton == null ||
                 document.TextureImage().PixelWidth != 64)
                 throw new InvalidOperationException("皮肤 DIY 工具、贴图、图层或预览窗口未初始化");
             int before = guideCanvas.Children.Count;
