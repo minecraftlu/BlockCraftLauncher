@@ -2,7 +2,7 @@
 
 **v0.9.35 正式版 · Windows x64 · .NET Framework 4.8**
 
-从 [v0.9.35 发布页](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.35) 下载单文件 EXE，或完整解压 ZIP 后运行 `BlockCraftLauncher.Wpf.exe`。
+从 [v0.9.36 正式版](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.36) 下载单文件 EXE，或完整解压 ZIP 后运行 `BlockCraftLauncher.Wpf.exe`。
 
 从 RC1 升级时，在「设置 → 更新设置」选择「稳定版」，保存后打开「启动器更新」检查新版。从 Python 版迁移时，在独立目录启动 WPF 版，再选择已有游戏实例。
 
@@ -81,7 +81,7 @@ v0.9.35 仍为正式版。预览通道内已安装 RC1 的用户可以更新到 
 模组加载器元数据三重验证的 JAR 直装。GitHub 项目没有统一依赖格式，
 遇到缺少可验证的兼容文件时会提示手动查看作者说明，**不保证所有开源模组都可直装**。
 
-此功能还处于下一正式版开发候选阶段，已发布的 v0.9.36 不包含它。
+此功能的 v0.9.37 源码和测试包尚在开发；已发布的 v0.9.36 不包含它。正式发布仍需真实设备验收。
 
 ### v0.9.36 中国内地和海外下载/搜索优化（正式版候选）
 
