@@ -542,6 +542,33 @@ jobs:
             wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe
             wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-net48-Windows-x64.zip
 
+      # Exercise the same real keyless signing service on the CI branch, so
+      # stable publishing does not become the first time Cosign is tried.
+      - name: Install Sigstore Cosign for branch CI signature smoke test
+        uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Generate and verify CI Sigstore bundles + GitHub provenance
+        working-directory: wpf-net48
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $identity = 'https://github.com/${{ github.workflow_ref }}'
+          $signer = 'github.com/${{ github.repository }}/.github/workflows/wpf-net48-alpha-build.yml'
+          foreach ($name in @(
+            'BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe',
+            'BlockCraftLauncher-v0.9.36-WPF-net48-Windows-x64.zip'
+          )) {
+            $file = Join-Path 'dist' $name
+            & cosign sign-blob --yes --bundle "$file.sigstore.json" $file
+            if ($LASTEXITCODE -ne 0) { throw "CI Cosign sign failed: $name" }
+            & cosign verify-blob $file --bundle "$file.sigstore.json" --certificate-identity $identity --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+            if ($LASTEXITCODE -ne 0) { throw "CI Cosign verify failed: $name" }
+            & gh attestation verify $file --repo '${{ github.repository }}' --source-ref '${{ github.ref }}' --signer-workflow $signer
+            if ($LASTEXITCODE -ne 0) { throw "CI GitHub attestation verify failed: $name" }
+          }
+
       - uses: actions/upload-artifact@v4
         with:
           name: BlockCraftLauncher-v0.9.36-WPF-net48-Windows
@@ -550,5 +577,7 @@ jobs:
             wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe
             wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe.sha256
             wpf-net48/dist/RELEASE-SHA256SUMS.txt
+            wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe.sigstore.json
+            wpf-net48/dist/BlockCraftLauncher-v0.9.36-WPF-net48-Windows-x64.zip.sigstore.json
           if-no-files-found: error
           retention-days: 14
