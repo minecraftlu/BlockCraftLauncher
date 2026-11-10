@@ -53,11 +53,16 @@ namespace BlockCraftLauncher.Wpf.Services
         public event PropertyChangedEventHandler PropertyChanged;
 
         public bool OpenLicense => OnlineSkinSearchService.IsFreeLicense(License);
-        public bool CanDownload => OpenLicense || Source == "Mojang 玩家";
+        // Downloadability means that a provider serves a public PNG; it does
+        // NOT assert a copyright licence, upload permission or redistribution.
+        public bool CanDownload => !string.IsNullOrWhiteSpace(TextureUrl) &&
+            (Source == "Mosaicary" || Source == "DP-Plugins" ||
+             Source == "Mojang 玩家");
+        public bool RequiresLicenseNotice => CanDownload && !OpenLicense;
         public string LicenseLabel => OpenLicense ? "自由许可：" + License :
-            Source == "Mojang 玩家" ? "公开玩家皮肤 · 许可未声明" :
-            string.IsNullOrWhiteSpace(License) ? "许可未声明 · 请先确认" :
-            "受限制许可：" + License;
+            Source == "Mojang 玩家" ? "公开玩家皮肤 · 授权未知" :
+            string.IsNullOrWhiteSpace(License) ? "许可未声明 · 下载不代表获授权" :
+            "非自由许可：" + License + " · 使用受限制";
         public string ModelLabel => SlimArms ? "Alex · 细手臂" : "Steve · 经典手臂";
         public string AuthorLabel => string.IsNullOrWhiteSpace(Author) ?
             "作者未知" : "作者：" + Author;
@@ -354,13 +359,14 @@ namespace BlockCraftLauncher.Wpf.Services
                     name.Length == 0 || Number(model, "width") != 64 ||
                     (Number(model, "height") != 64 && Number(model, "height") != 32) ||
                     Str(model, "png").Length == 0) continue;
-                // Reject unlicensed, rights-reserved and non-commercial skins.
+                // Free-only views filter by licence. Other PUBLIC views can
+                // show restricted entries; the UI warns before manual downloads.
                 string license = Short(Str(model, "license"), 48);
                 if (freeOnly && !IsFreeLicense(license)) continue;
                 bool foundSkin = model.TryGetValue("found", out var found) &&
                     found is bool isFound && isFound;
-                // Found player skins are for opt-in browsing ONLY: never mark
-                // them as open-license works or enable Save/Use permissions.
+                // Found player skins are opt-in and must never be labelled
+                // open-licence. Individual downloads require a rights notice.
                 if (foundSkin && !includeFound) continue;
                 string author = foundSkin ? "原作者未知" :
                     Short(Str(Object(model, "author"), "name"), 70);
@@ -382,7 +388,7 @@ namespace BlockCraftLauncher.Wpf.Services
                     Downloads = Math.Max(0, Number(model, "downloads")),
                     SlimArms = Str(model, "arms") == "slim",
                     Attribution = "来源：Mosaicary · 作者：" + author +
-                        " · 许可证：" + (foundSkin ? "未声明（仅预览）" :
+                        " · 许可证：" + (foundSkin ? "未声明（非自由许可）" :
                             (license.Length > 0 ? license : "未声明")) +
                         " · 详情：" + detail
                 });
@@ -474,7 +480,10 @@ namespace BlockCraftLauncher.Wpf.Services
                 "Name: " + Short(item.Name, 80) + "\n" +
                 "Author: " + Short(item.Author, 70) + "\n" +
                 "Source: " + Short(item.Source, 40) + "\n" +
-                "License: " + Short(item.License, 48) + "\n" +
+                "License: " + (string.IsNullOrWhiteSpace(item.License) ?
+                    "Unknown / not stated" : Short(item.License, 48)) + "\n" +
+                "Permissions: " + (item.OpenLicense ? "See listed licence" :
+                    "Not verified; saving does not grant reuse or redistribution rights") + "\n" +
                 "License link: " + LicenseLink(item.License) + "\n" +
                 "Original page: " + Short(item.DetailUrl, 512) + "\n" +
                 "Creative Commons licenses may require credit and share-alike on redistribution.\n";
@@ -548,8 +557,8 @@ namespace BlockCraftLauncher.Wpf.Services
                 VerifyPng(preview);
                 return preview;
             }
-            // Browsing an unlicensed community entry may display its public
-            // image, but does not enable Save or Use in the UI.
+            // A selected public community entry may be previewed without
+            // implying a licence or automatically saving a copy.
             var previewUrl = SafePublicSkinUri(skin.TextureUrl);
             byte[] raw = await GetBytes(previewUrl, MaxPngBytes, ct).ConfigureAwait(false);
             VerifyPng(raw);
@@ -562,7 +571,7 @@ namespace BlockCraftLauncher.Wpf.Services
         {
             if (skin == null) throw new ArgumentNullException(nameof(skin));
             if (!skin.CanDownload)
-                throw new InvalidOperationException("此皮肤未声明可下载许可，请先查看原作者授权");
+                throw new InvalidOperationException("此来源没有公开可访问的皮肤 PNG");
             var uri = SafePublicSkinUri(skin.TextureUrl);
             byte[] png = await GetBytes(uri, MaxPngBytes, ct, progress).ConfigureAwait(false);
             VerifyPng(png);
@@ -580,7 +589,7 @@ namespace BlockCraftLauncher.Wpf.Services
             IProgress<DownloadBytes> progress = null)
         {
             if (skin == null || !skin.CanDownload)
-                throw new InvalidOperationException("这张皮肤没有可验证的下载权限");
+                throw new InvalidOperationException("没有受支持的公开 PNG 下载地址");
             byte[] png = await DownloadPngAsync(skin, ct, progress).ConfigureAwait(true);
             ct.ThrowIfCancellationRequested();
             string directory = SkinEditorDocument.LocalLibrary;
@@ -704,8 +713,17 @@ namespace BlockCraftLauncher.Wpf.Services
             var publicCatalog = ParseMosaicaryPage(sample, 1, false, true);
             Require(publicCatalog.Entries.Count == 3 &&
                 publicCatalog.Entries.Any(x => x.Name == "Found player" &&
-                    !x.OpenLicense && !x.CanDownload),
-                "公开发现的玩家皮肤可以查看，但绝不能被当作开放许可下载");
+                    !x.OpenLicense && x.CanDownload && x.RequiresLicenseNotice) &&
+                publicCatalog.Entries.Any(x => x.Name == "Restricted" &&
+                    !x.OpenLicense && x.RequiresLicenseNotice) &&
+                publicCatalog.Entries.Any(x => x.Name == "Open hood" &&
+                    x.OpenLicense && !x.RequiresLicenseNotice),
+                "公开 PNG 可单张手动下载，但未授权内容必须标注风险，不能伪装开源");
+            Require(!new OnlineSkinEntry { Source = "Mosaicary",
+                TextureUrl = "" }.CanDownload &&
+                !new OnlineSkinEntry { Source = "任意来源",
+                TextureUrl = "https://example.org/skin.png" }.CanDownload,
+                "无公开来源或无图片地址必须禁用下载");
             Require(ValidPlayerInput("jeb_") && ValidPlayerInput(
                 "853c80ef3c3749fdaa49938b674adae6"), "玩家名和 UUID");
             Require(!ValidPlayerInput("../secret") && !ValidPlayerInput("bad?"),
