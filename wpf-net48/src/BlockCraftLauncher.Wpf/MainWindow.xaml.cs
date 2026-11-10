@@ -1479,7 +1479,7 @@ namespace BlockCraftLauncher.Wpf
             };
             resourceSource = new ComboBox
             {
-                ItemsSource = isMod ? new[] { "Modrinth", "CurseForge（通过 MCIM）" } : new[] { "Modrinth" },
+                ItemsSource = isMod ? new[] { "Modrinth", "CurseForge（通过 MCIM）", "GitHub 开源项目（Releases）" } : new[] { "Modrinth" },
                 SelectedIndex = 0, IsEnabled = isMod
             };
             resourceCategory = new ComboBox
@@ -1640,6 +1640,8 @@ namespace BlockCraftLauncher.Wpf
                 return;
             }
 
+            bool searchGitHub = resourceType == "mod" &&
+                resourceSource?.SelectedIndex == 2;
             var oldRequest = resourceSearchCancellation;
             oldRequest?.Cancel();
             using (var request = new CancellationTokenSource(TimeSpan.FromSeconds(35)))
@@ -1647,8 +1649,11 @@ namespace BlockCraftLauncher.Wpf
                 resourceSearchCancellation = request;
                 if (resourceSearchButton != null) resourceSearchButton.IsEnabled = false;
                 if (resourceCounter != null)
-                    resourceCounter.Text = "正在向 Modrinth 搜索项目...";
-                Status("正在搜索 Modrinth...");
+                    resourceCounter.Text = searchGitHub
+                        ? "正在搜索具有明确开源许可证的 GitHub 仓库..."
+                        : "正在向 Modrinth 搜索项目...";
+                Status(searchGitHub ? "正在搜索 GitHub 开源模组仓库..."
+                    : "正在搜索 Modrinth...");
                 try
                 {
                     string sort = new[] { "relevance", "downloads", "updated", "newest" }
@@ -1672,30 +1677,44 @@ namespace BlockCraftLauncher.Wpf
                         category = categories[Math.Min(resourceCategory.SelectedIndex,
                             categories.Length - 1)];
                     }
-                    using (var client = new ModrinthClient(settings))
+                    ModrinthSearchPage result;
+                    if (searchGitHub)
                     {
-                        var result = await client.SearchPageAsync(resourceQuery.Text,
-                            resourceType, request.Token, gameVersion, loader, sort,
-                            resourcePage * 20, category);
-                        if (request.IsCancellationRequested ||
-                            !ReferenceEquals(resourceSearchCancellation, request))
-                            return;
-                        resourceResults.Clear();
-                        foreach (var item in result.Hits) resourceResults.Add(item);
-                        int total = Math.Min(2000, result.TotalHits);
-                        if (resourceCounter != null)
-                            resourceCounter.Text = total == 0
-                                ? "没有找到匹配的项目，请尝试清除筛选条件"
-                                : "Modrinth 搜索结果  ·  第 " + (resourcePage + 1) +
-                                  " 页  ·  共 " + result.TotalHits + " 项";
-                        if (resourcePrevButton != null)
-                            resourcePrevButton.IsEnabled = resourcePage > 0;
-                        if (resourceNextButton != null)
-                            resourceNextButton.IsEnabled = result.Hits.Count == 20 &&
-                                (resourcePage + 1) * 20 < total;
-                        Status("Modrinth 第 " + (resourcePage + 1) + " 页，"
-                            + result.Hits.Count + " 个资源");
+                        using (var client = new GitHubOpenSourceModClient(settings))
+                            result = await client.SearchAsync(resourceQuery.Text,
+                                resourcePage, request.Token);
                     }
+                    else
+                    {
+                        using (var client = new ModrinthClient(settings))
+                            result = await client.SearchPageAsync(resourceQuery.Text,
+                                resourceType, request.Token, gameVersion, loader, sort,
+                                resourcePage * 20, category);
+                    }
+                    if (request.IsCancellationRequested ||
+                        !ReferenceEquals(resourceSearchCancellation, request))
+                        return;
+                    resourceResults.Clear();
+                    foreach (var item in result.Hits) resourceResults.Add(item);
+                    int total = Math.Min(2000, result.TotalHits);
+                    int pageSize = searchGitHub ? 40 : 20;
+                    string provider = searchGitHub ? "GitHub 开源仓库" : "Modrinth";
+                    if (resourceCounter != null)
+                        resourceCounter.Text = result.Hits.Count == 0
+                            ? "当前页没有符合条件的开源项目；请尝试其他关键词或翻页"
+                            : provider + "  ·  第 " + (resourcePage + 1) +
+                              " 页  ·  " + result.Hits.Count + " 项" +
+                              (searchGitHub ? "（安装前核对版本、加载器及 SHA-256）" :
+                                  "  ·  共 " + result.TotalHits + " 项");
+                    if (resourcePrevButton != null)
+                        resourcePrevButton.IsEnabled = resourcePage > 0;
+                    if (resourceNextButton != null)
+                        resourceNextButton.IsEnabled = searchGitHub
+                            ? (resourcePage + 1) * pageSize < total && resourcePage < 50
+                            : result.Hits.Count == 20 &&
+                              (resourcePage + 1) * 20 < total;
+                    Status(provider + " 第 " + (resourcePage + 1) + " 页，"
+                        + result.Hits.Count + " 个结果");
                 }
                 catch (OperationCanceledException)
                 {
@@ -1708,7 +1727,8 @@ namespace BlockCraftLauncher.Wpf
                     if (!ReferenceEquals(resourceSearchCancellation, request)) return;
                     if (resourceCounter != null)
                         resourceCounter.Text = "搜索失败，请调整关键词或网络设置";
-                    ShowError("Modrinth 搜索失败", ex);
+                    ShowError(searchGitHub ? "GitHub 开源模组搜索失败（可能有 API 限流）"
+                        : "Modrinth 搜索失败", ex);
                 }
                 finally
                 {
@@ -1742,8 +1762,28 @@ namespace BlockCraftLauncher.Wpf
                     if (isPack) await InstallSelectedModpackAsync(hit);
                     else await InstallResourceAsync(hit);
                 }, true),
-                Btn("打开 Modrinth 项目页", () =>
+                Btn(hit.Source == "GitHub" ? "打开 GitHub 项目页" : "打开 Modrinth 项目页", () =>
                 {
+                    if (hit.Source == "GitHub")
+                    {
+                        string repository = hit.ProjectId ?? "";
+                        var parts = repository.Split('/');
+                        if (parts.Length != 2 || parts[0].Length < 1 || parts[0].Length > 39 ||
+                            parts[1].Length < 1 || parts[1].Length > 100 ||
+                            parts.Any(value => value.Any(c =>
+                                !char.IsLetterOrDigit(c) && c != '-' && c != '_' && c != '.')))
+                        {
+                            MessageBox.Show(this, "GitHub 项目路径无效，无法打开。", "开源模组");
+                            return;
+                        }
+                        try
+                        {
+                            Process.Start(new ProcessStartInfo(
+                                "https://github.com/" + repository) { UseShellExecute = true });
+                        }
+                        catch (Exception ex) { ShowError("打开 GitHub 项目页失败", ex); }
+                        return;
+                    }
                     if (string.IsNullOrWhiteSpace(hit.ProjectId) ||
                         hit.ProjectId.Length > 64 ||
                         hit.ProjectId.Any(c => !char.IsLetterOrDigit(c) && c != '-' && c != '_'))
@@ -1774,6 +1814,30 @@ namespace BlockCraftLauncher.Wpf
                 string.Equals(profile.Loader, "vanilla", StringComparison.OrdinalIgnoreCase) || profile.Loader == "原版"))
             {
                 Status("安装模组前，请选择已安装 Fabric、Forge、NeoForge 或 Quilt 的版本。");
+                return;
+            }
+            if (hit.Source == "GitHub")
+            {
+                if (MessageBox.Show(this,
+                    "GitHub 开源搜索仅检索具有公开 SPDX 许可证的项目。\n" +
+                    "自动安装必须具有兼容版本 JAR、匹配的模组加载器元数据和有效的 SHA-256。\n" +
+                    "GitHub 发布文件可能缺少必需依赖，安装后请阅读项目说明。\n\n" +
+                    "是否继续尝试安装？",
+                    "安装 GitHub 开源模组", MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+                downloads.Enqueue("GitHub 开源", hit.Name + " → " + profile.Name,
+                    async (token, progress, bytes) =>
+                    {
+                        progress.Report("正在检查开源许可证、官方 Releases、版本与 SHA-256...");
+                        using (var client = new GitHubOpenSourceModClient(settings))
+                        {
+                            string file = await client.DownloadAsync(hit, profile, token, bytes);
+                            progress.Report("已验证 SHA-256 和加载器信息，安装：" + file +
+                                "；GitHub 项目依赖需遵循作者说明。");
+                            Status("已安装 GitHub 开源模组：" + hit.Name);
+                        }
+                    });
+                Status("已加入 GitHub 开源模组安装任务：" + hit.Name);
                 return;
             }
             downloads.Enqueue("Modrinth", hit.Name + " → " + profile.Name, async (token, progress, bytes) =>

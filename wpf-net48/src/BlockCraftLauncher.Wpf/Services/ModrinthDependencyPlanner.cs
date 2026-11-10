@@ -128,14 +128,26 @@ namespace BlockCraftLauncher.Wpf.Services
                 return version;
             }
             if (!ValidId(projectId)) throw new InvalidDataException("Modrinth 项目 ID 不合法");
-            var data = await getJson("https://api.modrinth.com/v2/project/" +
-                Uri.EscapeDataString(projectId) + "/version", ct);
+            // Ask Modrinth to filter BEFORE fetching a project's version list.
+            // Popular open-source mods can have thousands of old versions; an
+            // unfiltered 200-row hard cap previously blocked valid downloads.
+            string url = "https://api.modrinth.com/v2/project/" +
+                Uri.EscapeDataString(projectId) + "/version?loaders=" +
+                Uri.EscapeDataString(json.Serialize(new[] { loader })) +
+                "&game_versions=" +
+                Uri.EscapeDataString(json.Serialize(new[] { minecraftVersion })) +
+                "&include_changelog=false";
+            var data = await getJson(url, ct);
             var rows = json.DeserializeObject(data ?? "") as object[];
-            if (rows == null || rows.Length > 200)
-                throw new InvalidDataException("Modrinth 项目版本列表无效或过长");
+            if (rows == null || rows.Length > 500)
+                throw new InvalidDataException("Modrinth 兼容版本列表无效或过长");
             var matching = rows.OfType<Dictionary<string, object>>().FirstOrDefault(v =>
-                string.Equals(Field(v, "project_id"), projectId, StringComparison.OrdinalIgnoreCase)
-                && Compatible(v));
+            {
+                if (!string.Equals(Field(v, "project_id"), projectId,
+                    StringComparison.OrdinalIgnoreCase) || !Compatible(v)) return false;
+                try { ResolveFile(v); return true; }
+                catch (InvalidDataException) { return false; }
+            });
             if (matching == null)
                 throw new InvalidDataException("模组或必需依赖没有兼容当前 Minecraft 版本和加载器的版本：" + projectId);
             return matching;
@@ -146,19 +158,43 @@ namespace BlockCraftLauncher.Wpf.Services
             var files = Array(version, "files")?.OfType<Dictionary<string, object>>().ToArray();
             if (files == null || files.Length == 0 || files.Length > 30)
                 throw new InvalidDataException("模组版本没有合法的 JAR 下载文件");
-            var selectedFile = files.FirstOrDefault(f => f.TryGetValue("primary", out var primary) &&
-                primary is bool flag && flag) ?? files[0];
-            string filename = SafeFilename(Field(selectedFile, "filename"));
-            var hashes = Dict(selectedFile.TryGetValue("hashes", out var hashesObject) ?
-                hashesObject : null);
-            return new PlannedModrinthFile {
-                ProjectId = Field(version, "project_id"),
-                VersionId = Field(version, "id"),
-                Title = Field(version, "name"),
-                Filename = filename,
-                DownloadUrl = TrustedUrl(Field(selectedFile, "url")),
-                Sha1 = Sha1(Field(hashes, "sha1"))
-            };
+            // A primary download may be a sources/dev/Javadoc JAR on some
+            // open-source projects. Select a validated runnable JAR instead
+            // of failing or accidentally installing a source archive.
+            foreach (var candidate in files.OrderByDescending(f =>
+                f.TryGetValue("primary", out var primary) &&
+                primary is bool isPrimary && isPrimary))
+            {
+                string name = Field(candidate, "filename");
+                string kind = Field(candidate, "file_type");
+                if (!name.EndsWith(".jar", StringComparison.OrdinalIgnoreCase) ||
+                    kind == "sources-jar" || kind == "dev-jar" ||
+                    kind == "javadoc-jar" ||
+                    name.EndsWith("-sources.jar", StringComparison.OrdinalIgnoreCase) ||
+                    name.EndsWith("-javadoc.jar", StringComparison.OrdinalIgnoreCase) ||
+                    name.EndsWith("-dev.jar", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                try
+                {
+                    string filename = SafeFilename(name);
+                    var hashes = Dict(candidate.TryGetValue("hashes", out var rawHashes) ?
+                        rawHashes : null);
+                    return new PlannedModrinthFile {
+                        ProjectId = Field(version, "project_id"),
+                        VersionId = Field(version, "id"),
+                        Title = Field(version, "name"),
+                        Filename = filename,
+                        DownloadUrl = TrustedUrl(Field(candidate, "url")),
+                        Sha1 = Sha1(Field(hashes, "sha1"))
+                    };
+                }
+                catch (InvalidDataException)
+                {
+                    // Try the next provider-declared file, without weakening
+                    // checksum or trusted CDN validation.
+                }
+            }
+            throw new InvalidDataException("该版本没有带有效哈希的可安装模组 JAR 文件");
         }
 
         async Task Visit(string projectId, string versionId, int depth, CancellationToken ct)
@@ -227,8 +263,10 @@ namespace BlockCraftLauncher.Wpf.Services
                 string.IsNullOrWhiteSpace(modLoader) ||
                 string.Equals(modLoader, "vanilla", StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException("请为模组选择有效的 Minecraft 版本和 Fabric/Forge/NeoForge/Quilt 实例");
-            minecraftVersion = gameVersion;
-            loader = modLoader;
+            minecraftVersion = gameVersion.Trim();
+            loader = modLoader.Trim().ToLowerInvariant();
+            if (!new[] { "fabric", "forge", "neoforge", "quilt" }.Contains(loader))
+                throw new ArgumentException("此 Minecraft 模组加载器暂不支持自动安装");
             await Visit(rootProjectId, null, 0, ct);
             return ordered.AsReadOnly();
         }
