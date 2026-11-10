@@ -20,3 +20,5 @@ download failures while retaining checksum and loader verification.
   compatibility and user Windows environments require end-to-end testing.
 
 This trigger is intentionally separate from the mainline stable workflow.
+
+Retry: fix prerelease version regex so RC2 checks RC2, not RC1. No release was created by the previous failed run.
