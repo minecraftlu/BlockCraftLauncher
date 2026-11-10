@@ -15,3 +15,5 @@ Publish v0.9.37 stable exactly once from main using the isolated full release ga
 - Confirm SHA-256, Sigstore and GitHub provenance; check v0.9.36 upgrade preflight.
 - Keep v0.9.37 RC5 as prerelease; do not delete it, alter v0.9.36 or modify user game data.
 - Do not treat CI success as evidence all third-party mod servers are permanently reachable.
+
+Retry after blocked source-lock preflight: the first attempt used a shallow Git checkout and could not inspect the reviewed CI commit. The gate now checks a full history and still rejects any source file changes since the reviewed commit. No release was published by the failed attempt.
