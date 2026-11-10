@@ -1441,8 +1441,11 @@ namespace BlockCraftLauncher.Wpf
                 guideCanvas == null || tool.SelectedIndex != 0 ||
                 part.SelectedIndex != 0 || layer.SelectedIndex != 0 ||
                 savedSkins == null || hex == null ||
-                onlineResults == null || onlineSource.SelectedIndex != 0 ||
+                onlineResults == null || onlineSource.SelectedIndex != 1 ||
                 onlineSearchButton == null || onlineSaveButton == null ||
+                editorPage == null || downloadPage == null ||
+                editorPage.Visibility != (downloadMode ? Visibility.Collapsed : Visibility.Visible) ||
+                downloadPage.Visibility != (downloadMode ? Visibility.Visible : Visibility.Collapsed) ||
                 document.TextureImage().PixelWidth != 64)
                 throw new InvalidOperationException("皮肤 DIY 工具、贴图、图层或预览窗口未初始化");
             int before = guideCanvas.Children.Count;
