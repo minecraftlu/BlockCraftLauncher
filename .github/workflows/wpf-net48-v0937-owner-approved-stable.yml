@@ -47,7 +47,7 @@ jobs:
           if ($actual.Count -ne 2 -or (Compare-Object $actual $expected)) {
             throw 'Source changed after main CI; refusing stable release'
           }
-          $record = Get-Content -LiteralPath 'wpf-net48/docs/V0937_STABLE_OWNER_ACCEPTANCE_TRIGGER.md' -Raw
+          $record = (Get-Content -LiteralPath 'wpf-net48/docs/V0937_STABLE_OWNER_ACCEPTANCE_TRIGGER.md' -Raw) -replace "`r`n", "`n"
           if ($record -notmatch '(?m)^REAL_DEVICE_ACCEPTANCE: true$' -or
               $record -notmatch '(?m)^RELEASE_TAG: v0\.9\.37$' -or
               $record -notmatch '(?m)^REVIEWED_MAIN_SHA: 709f6640c6c8a4702c2460b08fa14df2daf04dcd$') {
