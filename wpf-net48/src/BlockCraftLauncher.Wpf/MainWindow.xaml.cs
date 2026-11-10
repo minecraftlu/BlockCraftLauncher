@@ -1749,6 +1749,34 @@ namespace BlockCraftLauncher.Wpf
                 Txt(hit.KindLabel + " · " + hit.SourceLabel + " · " + hit.Author,
                     12, false, true),
                 description);
+            // Always show a recognizable mod symbol. Overlay trusted artwork
+            // when available; invalid network images leave the symbol visible.
+            var artworkFrame = new Border {
+                Width = 68, Height = 68, CornerRadius = new CornerRadius(9),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(0, 0, 0, 10), ClipToBounds = true
+            };
+            artworkFrame.SetResourceReference(Border.BackgroundProperty, "BadgeBrush");
+            var artworkGrid = new Grid();
+            var fallbackIcon = new TextBlock {
+                Text = "", FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                FontSize = 29, HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            fallbackIcon.SetResourceReference(TextBlock.ForegroundProperty, "AccentInkBrush");
+            artworkGrid.Children.Add(fallbackIcon);
+            if (!string.IsNullOrEmpty(hit.IconUrl))
+            {
+                var remoteIcon = new Image {
+                    Width = 68, Height = 68, Stretch = Stretch.UniformToFill,
+                    ToolTip = hit.IconDescription
+                };
+                remoteIcon.SetBinding(Image.SourceProperty,
+                    new Binding("IconUrl") { Source = hit, Mode = BindingMode.OneWay });
+                artworkGrid.Children.Add(remoteIcon);
+            }
+            artworkFrame.Child = artworkGrid;
+            project.Children.Insert(0, artworkFrame);
             var overview = Card(Col(Txt("项目信息", 16, true),
                 Txt("游戏版本  " + (hit.VersionsLabel ?? "未标注"), 12),
                 Txt("加载器  " + (hit.LoaderLabel ?? "未标注"), 12),
