@@ -154,7 +154,6 @@ namespace BlockCraftLauncher.Wpf.Services
                 rejected = false;
                 try { GitHubOpenSourceModClient.ValidateJar(fake, "fabric"); }
                 catch (InvalidDataException) { rejected = true; }
-                catch (InvalidZipFileException) { rejected = true; }
                 Require(rejected, "GitHub 错误文件不得通过 JAR 验证");
             }
             finally
