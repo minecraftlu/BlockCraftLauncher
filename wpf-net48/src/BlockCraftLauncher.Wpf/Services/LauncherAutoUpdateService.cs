@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
@@ -50,7 +49,7 @@ namespace BlockCraftLauncher.Wpf.Services
     /// </summary>
     public sealed class LauncherAutoUpdateService
     {
-        internal const string CurrentTag = "v0.9.33-wpf-rc.1";
+        internal const string CurrentTag = "v0.9.34-wpf-rc.1";
         internal const string ReleasesApi =
             "https://api.github.com/repos/minecraftlu/BlockCraftLauncher/releases?per_page=100";
         internal const string OfficialReleaseRoot =
@@ -156,7 +155,7 @@ namespace BlockCraftLauncher.Wpf.Services
 
         static string ExpectedAsset(string tag, string mode)
         {
-            string version = tag.Split('-')[0]; // v0.9.33-wpf-rc.1 -> v0.9.33
+            string version = tag.Split('-')[0]; // v0.9.34-wpf-rc.1 -> v0.9.34
             if (mode == "onefile")
                 return "BlockCraftLauncher-" + version + "-WPF-OneFile-Windows-x64.exe";
             if (mode == "zip")
@@ -225,11 +224,10 @@ namespace BlockCraftLauncher.Wpf.Services
 
         public async Task<LauncherUpdateOffer> CheckAsync(CancellationToken ct)
         {
+            string channel = settings.UpdateChannel;
             using (var network = new NetworkDownloader(settings))
-            {
-                string json = await network.GetStringWithFallbackAsync(ReleasesApi, "official", ct);
-                return SelectOffer(json, settings.UpdateChannel, InstallMode);
-            }
+                return await network.GetMetadataWithFallbackAsync(ReleasesApi, "official",
+                    body => SelectOffer(body, channel, InstallMode), ct).ConfigureAwait(false);
         }
 
         internal static string ChecksumFromManifest(string content, string assetName)
@@ -280,15 +278,10 @@ namespace BlockCraftLauncher.Wpf.Services
         async Task DownloadOfficialAsync(string url, string destination,
             long maxBytes, CancellationToken ct, IProgress<LauncherUpdateProgress> progress)
         {
-            using (var handler = new HttpClientHandler
-            {
-                AllowAutoRedirect = false, UseCookies = false,
-                Proxy = string.IsNullOrWhiteSpace(settings.Proxy) ? null : new WebProxy(settings.Proxy),
-                UseProxy = !string.IsNullOrWhiteSpace(settings.Proxy)
-            })
+            using (var handler = NetworkDownloader.CreateHttpHandler(settings, allowRedirects: false))
             using (var http = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(12) })
             {
-                http.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher-WPF-Update/0.9.33");
+                http.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher-WPF-Update/0.9.34");
                 Uri current = new Uri(url);
                 if (!TrustedRedirect(current) ||
                     !current.AbsolutePath.StartsWith(
@@ -299,8 +292,8 @@ namespace BlockCraftLauncher.Wpf.Services
                 {
                     ct.ThrowIfCancellationRequested();
                     using (var request = new HttpRequestMessage(HttpMethod.Get, current))
-                    using (var response = await http.SendAsync(request,
-                        HttpCompletionOption.ResponseHeadersRead, ct))
+                    using (var response = await NetworkDownloader.SendWithHeaderTimeoutAsync(
+                        http, request, NetworkDownloader.HeaderTimeout, ct).ConfigureAwait(false))
                     {
                         int status = (int)response.StatusCode;
                         if (status == 301 || status == 302 || status == 303 ||
@@ -318,28 +311,16 @@ namespace BlockCraftLauncher.Wpf.Services
                         long? expected = response.Content.Headers.ContentLength;
                         if (expected.HasValue && expected.Value > maxBytes)
                             throw new InvalidDataException("更新包大小超过限制");
-                        using (var input = await response.Content.ReadAsStreamAsync())
+                        IProgress<DownloadBytes> relay = progress == null ? null :
+                            new Progress<DownloadBytes>(value => progress.Report(new LauncherUpdateProgress
+                            {
+                                Completed = value.Completed, Total = value.Total,
+                                Message = "正在从 GitHub 下载更新..."
+                            }));
                         using (var output = new FileStream(destination, FileMode.Create,
                             FileAccess.Write, FileShare.None, 128 * 1024, true))
-                        {
-                            byte[] buffer = new byte[128 * 1024];
-                            long done = 0;
-                            int count;
-                            while ((count = await input.ReadAsync(buffer, 0, buffer.Length, ct)) > 0)
-                            {
-                                done += count;
-                                if (done > maxBytes)
-                                    throw new InvalidDataException("更新包大小超过限制");
-                                await output.WriteAsync(buffer, 0, count, ct);
-                                progress?.Report(new LauncherUpdateProgress
-                                {
-                                    Completed = done, Total = expected ?? 0,
-                                    Message = "正在从 GitHub 下载更新..."
-                                });
-                            }
-                            if (expected.HasValue && expected.Value != done)
-                                throw new IOException("更新文件下载不完整");
-                        }
+                            await NetworkDownloader.CopyBodyAsync(response, output, maxBytes, 0, expected,
+                                relay, NetworkDownloader.TransferIdleTimeout, ct).ConfigureAwait(false);
                         return;
                     }
                 }

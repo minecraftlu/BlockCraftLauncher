@@ -1,13 +1,12 @@
 using System;
 using System.IO;
-using System.Net;
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using CmlLib.Core;
 using CmlLib.Core.ModLoaders.FabricMC;
 using CmlLib.Core.ModLoaders.QuiltMC;
 using CmlLib.Core.Installer.Forge;
+using CmlLib.Core.Installer.Forge.Versions;
 using CmlLib.Core.Installer.NeoForge;
 using BlockCraftLauncher.Wpf.Models;
 
@@ -22,6 +21,12 @@ namespace BlockCraftLauncher.Wpf.Services
         readonly LauncherConfig settings;
         public ModLoaderInstaller(LauncherConfig settings) { this.settings = settings; }
 
+        ForgeInstallOptions ForgeOptions(CancellationToken token) => new ForgeInstallOptions
+        {
+            CancellationToken = token,
+            JavaPath = string.IsNullOrWhiteSpace(settings.JavaPath) ? null : settings.JavaPath
+        };
+
         public Task<GameProfile> InstallAsync(string minecraftVersion, string loader,
             IProgress<string> progress, CancellationToken token)
             => InstallAsync(minecraftVersion, loader, null, progress, token);
@@ -33,12 +38,16 @@ namespace BlockCraftLauncher.Wpf.Services
         public async Task<GameProfile> InstallAsync(string minecraftVersion, string loader, string loaderVersion,
             IProgress<string> progress, IProgress<DownloadBytes> bytes, CancellationToken token)
         {
-            if (string.IsNullOrWhiteSpace(minecraftVersion)) throw new ArgumentException("未选择游戏版本");
+            if (!LoaderNetworkCatalog.ValidVersionId(minecraftVersion))
+                throw new ArgumentException("Minecraft 版本号无效");
+            if (!string.IsNullOrEmpty(loaderVersion) && !LoaderNetworkCatalog.ValidVersionId(loaderVersion))
+                throw new ArgumentException("模组加载器版本号无效");
             if (loader != "原版" && loader != "Fabric" && loader != "Quilt" && loader != "Forge" && loader != "NeoForge")
                 throw new ArgumentException("不支持的加载器：" + loader);
             token.ThrowIfCancellationRequested();
             var path = new MinecraftPath(settings.Root);
-            var launcher = MinecraftDownloadFactory.Create(path, settings);
+            using var download = MinecraftDownloadFactory.Create(path, settings, token);
+            var launcher = download.Launcher;
             launcher.ByteProgressChanged += (sender, e) =>
                 bytes?.Report(new DownloadBytes(e.ProgressedBytes, e.TotalBytes));
             launcher.FileProgressChanged += (sender, e) =>
@@ -54,37 +63,38 @@ namespace BlockCraftLauncher.Wpf.Services
                 await launcher.InstallAsync(minecraftVersion, token);
                 token.ThrowIfCancellationRequested();
                 progress?.Report("正在安装 " + loader + " 加载器...");
-                if (loader == "Fabric" || loader == "Quilt")
+                switch (loader)
                 {
-                    using (var handler = new HttpClientHandler())
-                    using (var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(40) })
-                    {
-                        if (!string.IsNullOrWhiteSpace(settings.Proxy))
+                    case "Fabric":
+                        var fabric = new FabricInstaller(download.Http);
+                        installedId = string.IsNullOrWhiteSpace(loaderVersion)
+                            ? await fabric.Install(minecraftVersion, path)
+                            : await fabric.Install(minecraftVersion, loaderVersion, path);
+                        break;
+                    case "Quilt":
+                        var quilt = new QuiltInstaller(download.Http);
+                        installedId = string.IsNullOrWhiteSpace(loaderVersion)
+                            ? await quilt.Install(minecraftVersion, path)
+                            : await quilt.Install(minecraftVersion, loaderVersion, path);
+                        break;
+                    case "Forge":
+                        using (var catalog = new LoaderNetworkCatalog(settings, download.Http, token, loaderVersion))
                         {
-                            handler.Proxy = new WebProxy(settings.Proxy);
-                            handler.UseProxy = true;
+                            var forge = new ForgeInstaller(launcher, catalog, new ForgeInstallerVersionMapper());
+                            var options = ForgeOptions(token);
+                            installedId = string.IsNullOrWhiteSpace(loaderVersion)
+                                ? await forge.Install(minecraftVersion, options)
+                                : await forge.Install(minecraftVersion, loaderVersion, options);
                         }
-                        if (loader == "Fabric")
-                            installedId = string.IsNullOrWhiteSpace(loaderVersion)
-                                ? await new FabricInstaller(http).Install(minecraftVersion, path)
-                                : await new FabricInstaller(http).Install(minecraftVersion, loaderVersion, path);
-                        else
-                            installedId = string.IsNullOrWhiteSpace(loaderVersion)
-                                ? await new QuiltInstaller(http).Install(minecraftVersion, path)
-                                : await new QuiltInstaller(http).Install(minecraftVersion, loaderVersion, path);
-                    }
-                }
-                else if (loader == "Forge")
-                {
-                    installedId = string.IsNullOrWhiteSpace(loaderVersion)
-                        ? await new ForgeInstaller(launcher).Install(minecraftVersion, new ForgeInstallOptions())
-                        : await new ForgeInstaller(launcher).Install(minecraftVersion, loaderVersion, new ForgeInstallOptions());
-                }
-                else
-                {
-                    installedId = string.IsNullOrWhiteSpace(loaderVersion)
-                        ? await new NeoForgeInstaller(launcher).Install(minecraftVersion, new ForgeInstallOptions())
-                        : await new NeoForgeInstaller(launcher).Install(minecraftVersion, loaderVersion, new ForgeInstallOptions());
+                        break;
+                    case "NeoForge":
+                        using (var catalog = new LoaderNetworkCatalog(settings, download.Http, token, loaderVersion))
+                        {
+                            var version = await catalog.FindNeoForgeVersionAsync(minecraftVersion);
+                            installedId = await new NeoForgeInstaller(launcher, download.Http)
+                                .Install(version, ForgeOptions(token));
+                        }
+                        break;
                 }
             }
             token.ThrowIfCancellationRequested();
