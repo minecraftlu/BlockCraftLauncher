@@ -263,8 +263,10 @@ namespace BlockCraftLauncher.Wpf.Services
                 string.IsNullOrWhiteSpace(modLoader) ||
                 string.Equals(modLoader, "vanilla", StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException("请为模组选择有效的 Minecraft 版本和 Fabric/Forge/NeoForge/Quilt 实例");
-            minecraftVersion = gameVersion;
-            loader = modLoader;
+            minecraftVersion = gameVersion.Trim();
+            loader = modLoader.Trim().ToLowerInvariant();
+            if (!new[] { "fabric", "forge", "neoforge", "quilt" }.Contains(loader))
+                throw new ArgumentException("此 Minecraft 模组加载器暂不支持自动安装");
             await Visit(rootProjectId, null, 0, ct);
             return ordered.AsReadOnly();
         }
