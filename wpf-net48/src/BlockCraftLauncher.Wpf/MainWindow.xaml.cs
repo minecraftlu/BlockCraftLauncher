@@ -1231,6 +1231,7 @@ namespace BlockCraftLauncher.Wpf
                 throw new InvalidOperationException("皮肤 DIY 未独立于下载分类");
             skinStudio.VerifyOfflineLayout();
             ArrangeLayoutProbe(1080, 680, "04-skin");
+            skinStudio.Verify3DRenderedPixels();
 
             // The optional MCIM page is built locally without calling its
             // service. Verify the complete visual search path and then restore
