@@ -227,14 +227,16 @@ namespace BlockCraftLauncher.Wpf
                 // 3D ImageBrush atlas sampling fails: render each base texel
                 // using a solid-color geometry instead of a texture sampler.
                 // Outer clothing still uses the face-cropped texture path.
-                var part = region.Overlay ?
-                    BuildPart(region, x, y,
+                Model3DGroup part;
+                int visible;
+                if (region.Overlay)
+                    part = BuildPart(region, x, y,
                         region.Width + extra, region.Height + extra,
-                        region.Depth + extra, normalized, pixels, out int visibleOuter) :
-                    BuildPixelPart(region, x, y,
+                        region.Depth + extra, normalized, pixels, out visible);
+                else
+                    part = BuildPixelPart(region, x, y,
                         region.Width, region.Height, region.Depth,
-                        pixels, out int visibleBase);
-                int visible = region.Overlay ? visibleOuter : visibleBase;
+                        pixels, out visible);
                 if (region.Overlay) VisibleOuterQuads += visible;
                 // Keep exactly six base groups + six outer groups for the
                 // existing skin editor UI selftest and outer-layer switch.
