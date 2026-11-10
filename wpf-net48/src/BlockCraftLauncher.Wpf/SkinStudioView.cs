@@ -1498,6 +1498,18 @@ namespace BlockCraftLauncher.Wpf
                 editor3D.PartCount != 12 || online3D == null)
                 throw new InvalidOperationException("皮肤 DIY 工具、贴图、图层或 360° 预览窗口未初始化");
             Skin3DPreview.VerifyGeometry();
+            double originalYaw = editor3D.Yaw;
+            editor3D.RotateBy(150, 1000);
+            if (Math.Abs(editor3D.Yaw - originalYaw) < 1 ||
+                editor3D.Pitch != 55)
+                throw new InvalidOperationException("皮肤 360° 旋转或垂直角度限制失效");
+            editor3D.ZoomByWheelDelta(12000);
+            if (editor3D.CameraDistance != 44)
+                throw new InvalidOperationException("皮肤 360° 视角缩放限制失效");
+            editor3D.ResetView();
+            if (Math.Abs(editor3D.Yaw + 22) > 0.01 ||
+                editor3D.CameraDistance != 58)
+                throw new InvalidOperationException("皮肤 360° 重置视角失效");
             int before = guideCanvas.Children.Count;
             layer.SelectedIndex = 1;
             if (guideCanvas.Children.Count < 12)
