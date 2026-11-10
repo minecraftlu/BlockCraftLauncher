@@ -338,7 +338,8 @@ namespace BlockCraftLauncher.Wpf.Services
         /// Each result includes an explicit per-skin license and author.
         /// </summary>
         internal static OnlineSkinPage ParseMosaicaryPage(
-            Dictionary<string, object> data, int requestedPage, bool freeOnly)
+            Dictionary<string, object> data, int requestedPage, bool freeOnly,
+            bool includeFound = false)
         {
             if (data == null || !data.TryGetValue("skins", out var raw) ||
                 !(raw is object[] skins))
@@ -356,19 +357,21 @@ namespace BlockCraftLauncher.Wpf.Services
                 // Reject unlicensed, rights-reserved and non-commercial skins.
                 string license = Short(Str(model, "license"), 48);
                 if (freeOnly && !IsFreeLicense(license)) continue;
-                // Defensive source validation: avoid mixing scraped, no-license
-                // player skins into the explicitly licensed gallery.
-                if (model.TryGetValue("found", out var found) && found is bool isFound && isFound)
-                    continue;
-                string author = Short(Str(Object(model, "author"), "name"), 70);
-                if (author.Length == 0)
+                bool foundSkin = model.TryGetValue("found", out var found) &&
+                    found is bool isFound && isFound;
+                // Found player skins are for opt-in browsing ONLY: never mark
+                // them as open-license works or enable Save/Use permissions.
+                if (foundSkin && !includeFound) continue;
+                string author = foundSkin ? "原作者未知" :
+                    Short(Str(Object(model, "author"), "name"), 70);
+                if (author.Length == 0 && !foundSkin)
                     author = Short(Str(Object(model, "publisher"), "name"), 70);
                 if (author.Length == 0) author = "未署名";
                 string detail = "https://mosaicary.com/models/" + id;
                 entries.Add(new OnlineSkinEntry
                 {
                     Id = id, Name = name, Source = "Mosaicary",
-                    Author = author, License = license,
+                    Author = author, License = foundSkin ? "" : license,
                     Description = Short(Str(model, "category") +
                         (JoinTags(model).Length > 0 ? " · " + JoinTags(model) : ""), 130),
                     Category = Short(Str(model, "category"), 30),
@@ -379,7 +382,8 @@ namespace BlockCraftLauncher.Wpf.Services
                     Downloads = Math.Max(0, Number(model, "downloads")),
                     SlimArms = Str(model, "arms") == "slim",
                     Attribution = "来源：Mosaicary · 作者：" + author +
-                        " · 许可证：" + (license.Length > 0 ? license : "未声明") +
+                        " · 许可证：" + (foundSkin ? "未声明（仅预览）" :
+                            (license.Length > 0 ? license : "未声明")) +
                         " · 详情：" + detail
                 });
             }
@@ -394,13 +398,15 @@ namespace BlockCraftLauncher.Wpf.Services
 
         public static async Task<OnlineSkinPage> BrowseMosaicaryAsync(
             string text, int page, string category, string arms,
-            string sort, bool freeOnly, CancellationToken ct)
+            string sort, bool freeOnly, CancellationToken ct,
+            bool includeFound = false)
         {
             string query = (text ?? "").Trim();
             if (query.Length > 60) throw new ArgumentException("搜索关键词不得超过 60 个字符");
             if (page < 1 || page > 10000)
                 throw new ArgumentOutOfRangeException(nameof(page));
-            var args = new List<string> { "source=published", "size=64", "per=24",
+            var args = new List<string> {
+                includeFound ? "source=all" : "source=published", "size=64", "per=24",
                 "page=" + page.ToString(CultureInfo.InvariantCulture) };
             if (query.Length > 0) args.Add("q=" + Uri.EscapeDataString(query));
             if (new[] { "girls", "boys", "characters", "creatures" }.Contains(category))
@@ -409,7 +415,7 @@ namespace BlockCraftLauncher.Wpf.Services
             if (sort == "popular" || sort == "downloads") args.Add("sort=" + sort);
             return ParseMosaicaryPage(await GetJson(new Uri(
                 "https://mosaicary.com/api/skins?" + string.Join("&", args)), ct)
-                .ConfigureAwait(false), page, freeOnly);
+                .ConfigureAwait(false), page, freeOnly, includeFound);
         }
 
         internal static async Task<byte[]> DownloadThumbnailAsync(
