@@ -4,10 +4,10 @@ Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $dist = Join-Path $root 'dist'
-$stage = Join-Path $dist 'BlockCraftLauncher-v0.9.35-WPF-net48-Windows-x64'
+$stage = Join-Path $dist 'BlockCraftLauncher-v0.9.36-WPF-net48-Windows-x64'
 $payload = Join-Path $dist 'BlockCraftLauncher.OneFile.Payload.zip'
 $project = Join-Path $root 'onefile\BlockCraftLauncher.SingleFile.csproj'
-$name = 'BlockCraftLauncher-v0.9.35-WPF-OneFile-Windows-x64.exe'
+$name = 'BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe'
 if (!(Test-Path (Join-Path $stage 'SHA256SUMS.txt'))) { throw 'Staged WPF files missing' }
 if (Test-Path $payload) { Remove-Item $payload -Force }
 [System.IO.Compression.ZipFile]::CreateFromDirectory($stage,$payload,[System.IO.Compression.CompressionLevel]::Optimal,$false)

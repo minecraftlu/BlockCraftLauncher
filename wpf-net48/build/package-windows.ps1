@@ -65,7 +65,7 @@ Write-Host 'Verified standalone x64 update helper'
 
 $dist = Join-Path $root 'dist'
 New-Item -Path $dist -ItemType Directory -Force | Out-Null
-$name = 'BlockCraftLauncher-v0.9.35-WPF-net48-Windows-x64'
+$name = 'BlockCraftLauncher-v0.9.36-WPF-net48-Windows-x64'
 $staging = Join-Path $dist $name
 if (Test-Path $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }
 New-Item -Path $staging -ItemType Directory | Out-Null
@@ -114,11 +114,11 @@ $stagedExe = Join-Path $staging 'BlockCraftLauncher.Wpf.exe'
 $hash = (Get-FileHash -LiteralPath $stagedExe -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  BlockCraftLauncher.Wpf.exe" | Set-Content -LiteralPath "$stagedExe.sha256" -Encoding ASCII
 @'
-BlockCraft Launcher v0.9.35 正式版
+BlockCraft Launcher v0.9.36 正式版（皮肤下载、DIY、Java 服务器搜索）
 
 运行环境为 Windows 10/11 x64 和 .NET Framework 4.8。Microsoft 登录需要 WebView2 Runtime。
 请完整解压 ZIP，在解压目录中打开 BlockCraftLauncher.Wpf.exe，并保留同目录的 DLL。
-从 RC1 升级时，在「设置 → 更新设置」中选择「稳定版」，保存后进入「启动器更新」。
+从 RC1–RC5 预览版或 v0.9.35 正式版升级时，在「设置 → 更新设置」中选择「稳定版」，保存后进入「启动器更新」。
 从旧版 Python 启动器迁移时，请将 WPF 启动器放在独立目录中，并选择已有游戏实例。
 SHA256SUMS.txt 包含包内 EXE 和 DLL 的校验值。
 '@ | Set-Content -LiteralPath (Join-Path $staging 'README.txt') -Encoding UTF8

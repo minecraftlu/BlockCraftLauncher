@@ -431,6 +431,45 @@
         </Grid>
       </Border>
     </DataTemplate>
+    <!-- Public server search: text only; no untrusted remote image URLs are
+         automatically loaded from catalogue listings. -->
+    <DataTemplate x:Key="PublicServerResultTemplate">
+      <Border Padding="11,11" BorderBrush="{DynamicResource BorderBrushTheme}"
+              BorderThickness="0,0,0,1" MinHeight="90" Background="Transparent">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="43"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <Border Width="32" Height="32" CornerRadius="8"
+                  Background="{DynamicResource BadgeBrush}" VerticalAlignment="Top">
+            <TextBlock Text="&#xE902;" FontFamily="Segoe MDL2 Assets" FontSize="17"
+                       Foreground="{DynamicResource AccentInkBrush}"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Border>
+          <StackPanel Grid.Column="1">
+            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14"
+                       TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"/>
+            <TextBlock Text="{Binding Summary}" FontSize="11"
+                       Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                       MaxHeight="34" Margin="0,4,0,6" ToolTip="{Binding Summary}"/>
+            <WrapPanel>
+              <TextBlock Text="{Binding Address}" FontSize="11"
+                         Foreground="{DynamicResource AccentInkBrush}"
+                         Margin="0,0,10,3"/>
+              <TextBlock Text="{Binding StatusLabel}" FontSize="11"
+                         Foreground="{DynamicResource MutedBrush}" Margin="0,0,10,3"/>
+              <TextBlock Text="{Binding PlayerLabel}" FontSize="11"
+                         Foreground="{DynamicResource MutedBrush}" Margin="0,0,10,3"/>
+              <TextBlock Text="{Binding VersionLabel}" FontSize="11"
+                         Foreground="{DynamicResource MutedBrush}" Margin="0,0,10,3"/>
+              <TextBlock Text="{Binding SourceLabel}" FontSize="11"
+                         Foreground="{DynamicResource MutedBrush}" Margin="0,0,10,3"/>
+            </WrapPanel>
+          </StackPanel>
+        </Grid>
+      </Border>
+    </DataTemplate>
     <DataTemplate x:Key="ServerItemTemplate">
       <Border Padding="12,11" BorderBrush="{DynamicResource BorderBrushTheme}"
               BorderThickness="0,0,0,1" MinHeight="60">
@@ -520,6 +559,59 @@
               </Style>
             </TextBlock.Style>
           </TextBlock>
+        </Grid>
+      </Border>
+    </DataTemplate>
+    <!-- Skin downloads use the same rich image/title/metadata layout as Modrinth.
+         Thumbnails are decoded with strict limits by OnlineSkinSearchService,
+         not fetched automatically from an arbitrary Binding URL. -->
+    <DataTemplate x:Key="OnlineSkinResultTemplate">
+      <Border Padding="9,9" MinHeight="95"
+              BorderBrush="{DynamicResource BorderBrushTheme}"
+              BorderThickness="0,0,0,1" Background="Transparent">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="78"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <Border Width="62" Height="69" VerticalAlignment="Top"
+                  CornerRadius="7" ClipToBounds="True"
+                  Background="{DynamicResource BadgeBrush}">
+            <Grid>
+              <TextBlock Text="&#xE7F4;" FontFamily="Segoe MDL2 Assets" FontSize="21"
+                         Foreground="{DynamicResource AccentInkBrush}"
+                         HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              <Image Source="{Binding Thumbnail}" Stretch="Uniform"
+                     RenderOptions.BitmapScalingMode="HighQuality"
+                     Width="62" Height="69"/>
+            </Grid>
+          </Border>
+          <StackPanel Grid.Column="1" VerticalAlignment="Center">
+            <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
+                       TextTrimming="CharacterEllipsis" MaxHeight="22"
+                       ToolTip="{Binding Name}" Margin="0,0,0,4"/>
+            <TextBlock Text="{Binding Summary}" FontSize="12" TextWrapping="Wrap"
+                       MaxHeight="33" TextTrimming="CharacterEllipsis"
+                       Foreground="{DynamicResource MutedBrush}"
+                       ToolTip="{Binding Summary}" Margin="0,0,0,6"/>
+            <WrapPanel>
+              <TextBlock Text="{Binding Source}" FontSize="11"
+                         Foreground="{DynamicResource AccentInkBrush}"
+                         Margin="0,0,9,2"/>
+              <TextBlock Text="{Binding AuthorLabel}" FontSize="11"
+                         Foreground="{DynamicResource MutedBrush}"
+                         Margin="0,0,9,2" TextTrimming="CharacterEllipsis"
+                         MaxWidth="135"/>
+              <TextBlock Text="{Binding ModelLabel}" FontSize="11"
+                         Foreground="{DynamicResource MutedBrush}"
+                         Margin="0,0,9,2"/>
+              <TextBlock Text="{Binding DownloadsLabel}" FontSize="11"
+                         Foreground="{DynamicResource MutedBrush}" Margin="0,0,9,2"/>
+              <TextBlock Text="{Binding LicenseLabel}" FontSize="11"
+                         Foreground="{DynamicResource AccentInkBrush}"
+                         Margin="0,0,9,2"/>
+            </WrapPanel>
+          </StackPanel>
         </Grid>
       </Border>
     </DataTemplate>

@@ -1,32 +1,26 @@
 name: WPF controlled release (candidate / stable gate)
 
 on:
-  # Candidate requests run on the WPF development branch.
-  # Stable requires an explicit dispatch on reviewed main.
-  push:
-    branches:
-      - feature/wpf-net48-alpha-v0.9.27
-    paths:
-      - wpf-net48/RELEASE_CANDIDATE_REQUEST.md
+  # Stable releases require the owner to explicitly start the workflow on main.
+  # Preview releases remain on their isolated existing RC branch workflows.
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Tag matching the checked-out build'
+        description: 'Stable tag (must match the compiled updater version)'
         required: true
-        default: 'v0.9.35-wpf-rc.1'
+        default: 'v0.9.36'
         type: string
       channel:
-        description: 'Candidate for testing; stable only after real Windows acceptance'
+        description: 'Stable release only; preview uses the RC branch workflows'
         required: true
-        default: candidate
+        default: stable
         type: choice
         options:
-          - candidate
           - stable
       real_device_acceptance:
-        description: 'Project owner confirmed Windows, account, Minecraft and LAN acceptance'
+        description: 'Owner confirms actual Windows/Minecraft/login/network smoke tests'
+        required: true
         type: boolean
-        required: false
         default: false
 
 jobs:
@@ -39,8 +33,8 @@ jobs:
       run:
         shell: pwsh
     env:
-      RELEASE_TAG: ${{ github.event_name == 'push' && 'v0.9.35-wpf-rc.1' || inputs.release_tag }}
-      RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'candidate' || inputs.channel }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      RELEASE_CHANNEL: ${{ inputs.channel }}
       REAL_DEVICE_ACCEPTANCE: ${{ inputs.real_device_acceptance }}
     steps:
       - uses: actions/checkout@v4
@@ -49,26 +43,15 @@ jobs:
       - name: Verify release tag and stability gates
         run: |
           $ErrorActionPreference = 'Stop'
-          if ($env:RELEASE_CHANNEL -eq 'candidate') {
-            if ('${{ github.event_name }}' -eq 'push' -and
-                '${{ github.ref }}' -ne 'refs/heads/feature/wpf-net48-alpha-v0.9.27') {
-              throw 'Automatic candidate publishing only runs on the WPF development branch'
-            }
-            if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+-wpf-rc\.\d+$') {
-              throw 'Candidate tags must be vMAJOR.MINOR.PATCH-wpf-rc.NUMBER'
-            }
-          } elseif ($env:RELEASE_CHANNEL -eq 'stable') {
-            if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+$') {
-              throw 'Stable tag must be vMAJOR.MINOR.PATCH'
-            }
-            if ('${{ github.ref }}' -ne 'refs/heads/main') {
-              throw 'Stable publishing is only permitted from the reviewed main branch'
-            }
-            if ($env:REAL_DEVICE_ACCEPTANCE -ne 'true') {
-              throw 'Stable publishing requires real-device acceptance signoff'
-            }
-          } else {
-            throw 'Unknown release channel'
+          if ($env:RELEASE_CHANNEL -ne 'stable' -or
+              $env:RELEASE_TAG -ne 'v0.9.36') {
+            throw 'This reviewed workflow only publishes v0.9.36 stable'
+          }
+          if ('${{ github.ref }}' -ne 'refs/heads/main') {
+            throw 'Stable release only permitted from reviewed main'
+          }
+          if ($env:REAL_DEVICE_ACCEPTANCE -ne 'true') {
+            throw 'Stable release requires explicit owner real-device acceptance'
           }
           $source = Get-Content 'wpf-net48/src/BlockCraftLauncher.Wpf/Services/LauncherAutoUpdateService.cs' -Raw
           $tag = [regex]::Match($source, 'internal const string CurrentTag = "([^"]+)";').Groups[1].Value
@@ -91,7 +74,8 @@ jobs:
             'check_project.py', 'check_phase2.py', 'check_windows_packaging.py',
             'check_v0926_features.py', 'check_onefile.py', 'check_pcl_downloads.py',
             'check_download_bindings.py', 'check_auth_recovery.py',
-            'check_pcl_unified_ui.py', 'check_skin_search.py'
+            'check_pcl_unified_ui.py', 'check_skin_search.py',
+            'check_server_discovery.py'
           )) {
             python "tests/$check"
             if ($LASTEXITCODE -ne 0) { throw "Static check failed: $check" }
@@ -126,7 +110,7 @@ jobs:
               '--download-selftest', '--modrinth-search-selftest',
               '--modrinth-deps-selftest', '--saves-restore-selftest',
               '--instance-detection-selftest', '--auth-selftest',
-              '--skin-selftest'
+              '--skin-selftest', '--server-search-selftest'
             )) {
               $process = Start-Process -FilePath $exe -ArgumentList $flag -PassThru
               if (-not $process.WaitForExit(70000)) {
@@ -165,15 +149,20 @@ jobs:
           $manifest | Set-Content -LiteralPath (Join-Path $dist 'RELEASE-SHA256SUMS.txt') -Encoding ASCII
           $channel = if ($env:RELEASE_CHANNEL -eq 'stable') { '正式版' } else { '预览版' }
           $text = @"
-          Windows x64 · WPF · .NET Framework 4.8 · $channel
+          Windows 10/11 x64 · WPF · .NET Framework 4.8 · v0.9.36 正式版
 
-          - 已安装模组显示自带图标，停用模组同样显示。缺少可用图片时显示默认方块。
-          - 支持国内镜像和海外官方线路，提供 Microsoft 正版登录、实例管理及皮肤编辑。
-          - 可直接运行单文件 EXE，也可完整解压 ZIP 后打开 BlockCraftLauncher.Wpf.exe。
-          - 从 RC1 升级正式版时，在「设置 → 更新设置」选择「稳定版」，保存后检查更新。
-          - 从 Python 版迁移时，请在独立目录打开 WPF 版，再选择已有游戏实例。
+          本版包含 v0.9.36 RC1–RC5 期间完成的功能更新：
+          - 下载中心支持 Mojang 玩家皮肤、开放许可图库与第三方社区皮肤搜索，图文列表、分类筛选、预览、PNG 下载及来源/许可记录。
+          - 皮肤下载与模组下载同属「下载」分类，支持统一任务进度、取消与重试；「更多 → 皮肤 DIY」独立提供本地编辑、导入导出与明确确认的正版皮肤上传。
+          - 未声明授权的公开皮肤仅在用户明确选择并确认版权提示后允许单张下载。下载不赋予转载、修改、商用或再分发权利。
+          - 「联机 → 查找服务器」支持从第三方公开 Java 服务器目录按名称/IP、版本、缓存在线状态查找、排序和翻页；可收藏、复制地址或使用当前 Java 实例加入。
+          - 保留 Minecraft 安装启动、微软正版登录、Modrinth/CurseForge 合法内容下载、模组图标、存档管理、中国内地和海外可选下载线路。
+          - ZIP/单文件 EXE 更新继续校验 SHA-256；更新失败回滚，成功后重新打开新版窗口。应用内「稳定版」通道仅检查非 prerelease 版本。
+          - 第三方目录服务的网络可达性、缓存状态、服务器白名单及授权取决于提供方，不能保证所有地区和服务器都可用。
 
-          校验文件为 RELEASE-SHA256SUMS.txt。
+          正式发行文件为 Windows-x64 的 EXE 与 ZIP。下载后请核对 RELEASE-SHA256SUMS.txt。
+          注意：SignPath Foundation 免费代码签名仍待审批，此版本并未获得有效的 Windows Authenticode 签名，SmartScreen 仍可能提示未知发布者。
+          问题反馈：https://github.com/minecraftlu/BlockCraftLauncher/issues
           "@
           $text | Set-Content -LiteralPath (Join-Path $dist 'RELEASE-NOTES.txt') -Encoding UTF8
 
@@ -181,7 +170,7 @@ jobs:
         if: env.RELEASE_CHANNEL == 'stable'
         working-directory: wpf-net48
         timeout-minutes: 4
-        run: ./tests/check_v0935_promotion.ps1 -Phase Preflight
+        run: ./tests/check_v0936_promotion.ps1 -Phase Preflight
 
       - name: Publish a GitHub release only after all checks
         working-directory: wpf-net48
@@ -208,4 +197,4 @@ jobs:
         if: env.RELEASE_CHANNEL == 'stable'
         working-directory: wpf-net48
         timeout-minutes: 10
-        run: ./tests/check_v0935_promotion.ps1 -Phase Live
+        run: ./tests/check_v0936_promotion.ps1 -Phase Live
