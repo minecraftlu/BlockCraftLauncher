@@ -365,33 +365,49 @@ namespace BlockCraftLauncher.Wpf.Services
                     throw new IOException("已有同名模组，拒绝覆盖：" + asset.Filename);
                 temporary = Path.Combine(mods, ".blockcraft-github-" +
                     Guid.NewGuid().ToString("N") + ".part");
-                using (var client = new HttpClient(NetworkDownloader.CreateHttpHandler(settings))
-                    { Timeout = TimeSpan.FromMinutes(6) })
-                using (var response = await client.GetAsync(asset.DownloadUrl,
-                    HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false))
+                // GitHub Releases can intermittently disconnect (notably on
+                // mainland-China cross-border links). Reuse the launcher's
+                // existing bounded-header/idle download primitives. Never
+                // retry a checksum failure or silently install partial data.
+                int retries = Math.Max(1, Math.Min(3, settings.DownloadRetries));
+                for (int attempt = 0; attempt < retries; attempt++)
                 {
-                    response.EnsureSuccessStatusCode();
-                    if (response.Content.Headers.ContentLength > MaxJarBytes)
-                        throw new InvalidDataException("模组超过下载大小限制");
-                    using (var source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
-                    using (var output = new FileStream(temporary, FileMode.CreateNew,
-                        FileAccess.Write, FileShare.None, 128 * 1024, true))
+                    ct.ThrowIfCancellationRequested();
+                    if (File.Exists(temporary)) File.Delete(temporary);
+                    try
                     {
-                        var buffer = new byte[128 * 1024];
-                        long received = 0;
-                        int bytes;
-                        while ((bytes = await source.ReadAsync(buffer, 0, buffer.Length, ct)
-                            .ConfigureAwait(false)) != 0)
+                        using (var client = new HttpClient(NetworkDownloader.CreateHttpHandler(settings))
+                            { Timeout = Timeout.InfiniteTimeSpan })
+                        using (var request = new HttpRequestMessage(HttpMethod.Get, asset.DownloadUrl))
+                        using (var response = await NetworkDownloader.SendWithHeaderTimeoutAsync(
+                            client, request, TimeSpan.FromSeconds(15), ct).ConfigureAwait(false))
                         {
-                            ct.ThrowIfCancellationRequested();
-                            received += bytes;
-                            if (received > MaxJarBytes)
+                            int status = (int)response.StatusCode;
+                            bool temporaryFailure = status == 408 || status == 429 || status >= 500;
+                            if (!response.IsSuccessStatusCode && !temporaryFailure)
+                                throw new InvalidDataException("GitHub Releases 拒绝此文件（HTTP " +
+                                    status + "）。可能已下架或作者禁止下载，请查看项目页面");
+                            if (!response.IsSuccessStatusCode)
+                                throw new IOException("GitHub Releases 暂时不可用（HTTP " +
+                                    status + "），正在重试");
+                            if (response.Content.Headers.ContentLength > MaxJarBytes)
                                 throw new InvalidDataException("模组超过下载大小限制");
-                            await output.WriteAsync(buffer, 0, bytes, ct).ConfigureAwait(false);
-                            progress?.Report(new DownloadBytes(received, asset.Size));
+                            using (var output = new FileStream(temporary, FileMode.CreateNew,
+                                FileAccess.Write, FileShare.None, 128 * 1024, true))
+                                await NetworkDownloader.CopyBodyAsync(response, output,
+                                    MaxJarBytes, 0, asset.Size, progress,
+                                    TimeSpan.FromSeconds(30), ct).ConfigureAwait(false);
                         }
-                        if (received != asset.Size)
-                            throw new IOException("GitHub Releases 下载文件大小与发布元数据不符");
+                        break;
+                    }
+                    catch (Exception error) when (attempt + 1 < retries &&
+                        !ct.IsCancellationRequested &&
+                        (error is IOException || error is HttpRequestException ||
+                            error is TaskCanceledException))
+                    {
+                        if (File.Exists(temporary)) File.Delete(temporary);
+                        await Task.Delay(TimeSpan.FromSeconds(attempt == 0 ? 1 : 3), ct)
+                            .ConfigureAwait(false);
                     }
                 }
                 string actual;
