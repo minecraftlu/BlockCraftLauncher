@@ -30,8 +30,10 @@ jobs:
           if ($source -notmatch 'internal const string CurrentTag = "v0\.9\.37-wpf-rc\.1";') {
             throw 'Launcher binary must identify itself as RC1, never as stable'
           }
-          $null = & gh release view $tag --repo '${{ github.repository }}' --json tagName 2>$null
-          if ($LASTEXITCODE -eq 0) { throw 'RC1 release tag already exists; refusing overwrite' }
+          $existing = & git ls-remote --tags origin "refs/tags/$tag"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot verify that RC1 release tag is unused' }
+          if ($existing) { throw 'RC1 release tag already exists; refusing overwrite' }
+          Write-Host 'PASS: no existing RC1 tag on the canonical repository'
       - name: Static migration checks (not a substitute for WPF build)
         shell: pwsh
         working-directory: wpf-net48
@@ -628,8 +630,9 @@ jobs:
             & gh attestation verify $path --repo '${{ github.repository }}' --source-ref '${{ github.ref }}' --signer-workflow 'github.com/${{ github.repository }}/.github/workflows/wpf-net48-v0937-rc1-release.yml'
             if ($LASTEXITCODE -ne 0) { throw "GitHub provenance failed before release: $name" }
           }
-          $null = & gh release view $tag --repo '${{ github.repository }}' --json tagName 2>$null
-          if ($LASTEXITCODE -eq 0) { throw 'Release already exists, will not overwrite' }
+          $existing = & git ls-remote --tags origin "refs/tags/$tag"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot check RC1 tag existence before publishing' }
+          if ($existing) { throw 'Release already exists, will not overwrite' }
           $notes = @"
           BlockCraft Launcher v0.9.37 RC1 · Windows 10/11 x64 · 测试版 (Pre-release)
 
