@@ -15,3 +15,5 @@ This file triggers the isolated GitHub Actions prerelease workflow on the
 This candidate is for voluntary Windows and Minecraft real-device testing;
 GitHub Actions cannot certify mainland-China and international network
 performance, licensing of every third-party mod, or a verified Windows publisher.
+
+Retry 1: replace nonexistent-gh-release-view guard with a nonfailing git ls-remote tag check; prior run published nothing.
