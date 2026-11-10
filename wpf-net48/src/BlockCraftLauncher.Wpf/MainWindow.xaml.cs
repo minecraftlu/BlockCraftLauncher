@@ -491,7 +491,8 @@ namespace BlockCraftLauncher.Wpf
             if (skinStudio == null)
                 skinStudio = new SkinStudioView(UploadSkinToMicrosoftAsync,
                     () => settings.AccountMode == "microsoft" ? settings.AccountName : null,
-                    () => Navigate("皮肤 DIY"), QueueSkinDownload);
+                    () => Navigate("皮肤 DIY"), QueueSkinDownload,
+                    () => Navigate("皮肤下载"));
             return skinStudio;
         }
 
