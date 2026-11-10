@@ -16,6 +16,19 @@
 
 GitHub Actions 中的 **WPF net48 (Windows build)** 工作流会在 Windows 上编译、执行自检并保存安装包。
 
+### Windows 代码签名
+
+「关于」页和 EXE 文件详细信息的署名为 `lz`。Windows 安全提示中的已验证发行者取自受信任的 Authenticode 签名证书。
+
+在签名用的 Windows 机器上安装 Windows SDK 签名工具，并在当前用户的个人证书存储中配置可访问签名密钥的代码签名证书。从 `wpf-net48` 运行以下命令。
+
+```powershell
+$env:BCL_CODESIGN_THUMBPRINT = '<代码签名证书指纹>'
+.\build\build-windows.bat
+```
+
+构建会签名主程序、更新助手和单文件 EXE，验证签名及时间戳，再生成发行包和校验值。首次下载时，SmartScreen 还会依据信誉判断是否提示。[Microsoft SmartScreen 文档](https://learn.microsoft.com/windows/apps/package-and-deploy/smartscreen-reputation)
+
 ### 静态检查
 
 `python tests/check_project.py`、`python tests/check_phase2.py`（仅用于跨平台结构检查；不能替代 Windows 编译或运行测试）。

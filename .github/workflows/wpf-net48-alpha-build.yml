@@ -6,6 +6,7 @@ on:
       - 'wpf-net48/src/BlockCraftLauncher.Wpf/**'
       - 'wpf-net48/updater/**'
       - 'wpf-net48/onefile/**'
+      - 'wpf-net48/Directory.Build.props'
       - 'wpf-net48/BlockCraftLauncher-WPF.sln'
       - 'wpf-net48/build/**'
       - 'wpf-net48/tests/**'
@@ -44,6 +45,22 @@ jobs:
         shell: cmd
         working-directory: wpf-net48
         run: call build\build-windows.bat
+      - name: Verify the publisher name in the Windows release executables
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Resolve-Path 'dist/BlockCraftLauncher-v0.9.35-WPF-net48-Windows-x64'
+          $executables = @(
+            (Join-Path $stage 'BlockCraftLauncher.Wpf.exe'),
+            (Join-Path $stage 'BlockCraftLauncher.Updater.exe'),
+            (Resolve-Path 'dist/BlockCraftLauncher-v0.9.35-WPF-OneFile-Windows-x64.exe').Path
+          )
+          foreach ($exe in $executables) {
+            $info = [Diagnostics.FileVersionInfo]::GetVersionInfo($exe)
+            if ($info.CompanyName -cne 'lz') { throw "Wrong publisher metadata in $exe" }
+            Write-Host "PASS: $($info.OriginalFilename) has publisher metadata lz"
+          }
       - name: Standalone updater safe file replacement / rollback selftest
         shell: pwsh
         working-directory: wpf-net48
