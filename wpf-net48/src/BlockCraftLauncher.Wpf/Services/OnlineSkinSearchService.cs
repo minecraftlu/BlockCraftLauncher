@@ -463,6 +463,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 return null;
             // The fixed host and ID prohibit a catalog from injecting a
             // third-party BitmapImage URL; HTTP never follows redirects.
+            ct.ThrowIfCancellationRequested();
             if (ThumbnailCache.TryGetValue(item.Id, out var cached) &&
                 cached.ExpiresUtc > DateTime.UtcNow)
                 return cached.Content;
