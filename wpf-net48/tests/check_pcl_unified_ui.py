@@ -30,25 +30,27 @@ for style in (
     assert style in styles, style
 
 assert 'FontFamily="Segoe MDL2 Assets"' in app
-assert 'FontFamily="Segoe MDL2 Assets"' in shell
+assert 'Style="{StaticResource HeaderGlyph}"' in shell
 assert 'new FontFamily("Segoe MDL2 Assets")' in main
-assert 'CornerRadius="19"' in app  # Selected header pill
-assert '<ColumnDefinition x:Name="SideColumn" Width="188"/>' in shell
-assert 'SideColumn.Width = page == "首页" ? new GridLength(0) : new GridLength(188);' in main
+for shell_part in ("TopNavigation", "TopMultiplayerButton", "LaunchPane", "ContextNavigation",
+                   "BackButton", "DetailHost", "TaskShortcut"):
+    assert f'x:Name="{shell_part}"' in shell, shell_part
 
 for symbol in (
-    "SettingsForm()", "SettingRow(", "gameProcessText", "homeLaunchButton",
-    'FindResource("ServerItemTemplate")',
-    'FindResource("LocalResourceItemTemplate")',
+    "SectionFor(", "BuildSidebar(", "BuildProfileSelection()", "BuildInstanceOverview()",
+    "BuildInstanceSaves()", "SettingsForm()", "SettingRow(", "SearchFields(", "gameProcessText",
+    "homeLaunchButton", "ShowDetails(", "detailReturnOffset",
+    'FindResource("ServerItemTemplate")', 'FindResource("LocalResourceItemTemplate")',
+    'FindResource("ProfileItemTemplate")',
 ):
     assert symbol in main, symbol
 
 for page in (
-    "首页", "游戏版本", "下载管理", "资源中心", "光影引擎", "资源包",
-    "整合包", "CurseForge", "模组更新", "多人联机", "启动器更新",
-    "设置", "运行日志", "皮肤 DIY",
+    "首页", "版本选择", "版本设置", "存档管理", "游戏版本", "下载管理", "资源中心",
+    "光影引擎", "资源包", "整合包", "CurseForge", "模组更新", "多人联机", "局域网",
+    "启动器更新", "设置", "下载设置", "个性化", "更新设置", "运行日志", "皮肤 DIY", "关于",
 ):
-    assert f'Navigate("{page}")' in main, page
+    assert f'case "{page}":' in main, page
 
 updater = (src / "Services" / "LauncherAutoUpdateService.cs").read_text("utf8")
 assert 'RELEASE-SHA256SUMS.txt' in updater

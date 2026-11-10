@@ -45,7 +45,7 @@ namespace BlockCraftLauncher.Wpf.Services
                         System.Globalization.DateTimeStyles.AdjustToUniversal, out var checkedAt))
                         config.LastUpdateCheckUtc = checkedAt.ToUniversalTime();
                     config.NetworkMode = S(data, "network_mode", "auto");
-                    config.Theme = S(data, "ui_mode", "深色");
+                    config.Theme = S(data, "ui_mode", config.Theme);
                     config.Accent = S(data, "ui_accent", "#1875CE");
                     config.Zoom = Math.Max(80, Math.Min(140, N(data, "ui_zoom", 100)));
                     config.MemoryMb = N(data, "memory_mb", 4096);
