@@ -226,7 +226,20 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
-          & ./build/verify-sigstore-release.ps1 -ReleaseTag $env:RELEASE_TAG -DistPath ./dist
+          # Keep the canonical verifier unchanged, but pin both its Cosign
+          # identity and GitHub attestation signer to THIS exact reviewed
+          # one-time workflow. Any missing/extra substitution fails closed.
+          $original = Get-Content -LiteralPath './build/verify-sigstore-release.ps1' -Raw
+          $canonical = 'wpf-net48-controlled-release.yml'
+          $oneTime = 'wpf-net48-v0937-owner-approved-stable.yml'
+          if ([regex]::Matches($original, [regex]::Escape($canonical)).Count -ne 2) {
+            throw 'Canonical verifier identity assumptions have changed'
+          }
+          $patched = $original.Replace($canonical, $oneTime)
+          $verificationPath = Join-Path $env:RUNNER_TEMP 'verify-sigstore-stable-owner.ps1'
+          Set-Content -LiteralPath $verificationPath -Value $patched -Encoding UTF8
+          & $verificationPath -ReleaseTag $env:RELEASE_TAG -DistPath (Resolve-Path './dist').Path
+          if ($LASTEXITCODE -ne 0) { throw 'Exact one-time workflow signature/provenance verification failed' }
 
       - name: Publish a GitHub release only after all checks
         working-directory: wpf-net48
