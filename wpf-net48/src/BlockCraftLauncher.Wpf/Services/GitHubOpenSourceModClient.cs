@@ -56,6 +56,20 @@ namespace BlockCraftLauncher.Wpf.Services
                 ? Convert.ToString(x) : "";
         static object[] List(IDictionary<string, object> obj, string field) =>
             obj != null && obj.TryGetValue(field, out var x) ? x as object[] : null;
+        // GitHub public search exposes the repo owner's avatar, not a
+        // verified screenshot of the mod. Use it as an explicitly labelled
+        // fallback rather than leaving all GitHub search cards blank.
+        internal static string TrustedAuthorAvatar(string url)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+                uri.Scheme != Uri.UriSchemeHttps || !uri.IsDefaultPort ||
+                uri.UserInfo.Length != 0 || uri.Fragment.Length != 0 ||
+                uri.Host != "avatars.githubusercontent.com" ||
+                !Regex.IsMatch(uri.AbsolutePath, @"^/u/[0-9]{1,20}$"))
+                return null;
+            return uri.AbsoluteUri;
+        }
+
         static bool IsOpenLicense(IDictionary<string, object> repo)
         {
             var license = Object(repo != null && repo.TryGetValue("license", out var value)
@@ -98,6 +112,7 @@ namespace BlockCraftLauncher.Wpf.Services
                     Kind = "mod",
                     Source = "GitHub",
                     Author = Text(owner, "login"),
+                    IconUrl = TrustedAuthorAvatar(Text(owner, "avatar_url")),
                     DownloadCount = -1,
                     DownloadsLabel = "GitHub 仓库 · 不代表提供可安装文件",
                     LoaderLabel = "安装时验证 JAR 加载器",
