@@ -409,16 +409,23 @@ namespace BlockCraftLauncher.Wpf.Services
                 .ConfigureAwait(false), page, freeOnly);
         }
 
-        internal static async Task<ImageSource> DownloadThumbnailAsync(
+        internal static async Task<byte[]> DownloadThumbnailAsync(
             OnlineSkinEntry item, CancellationToken ct)
         {
             if (item == null || item.Source != "Mosaicary" ||
                 !Regex.IsMatch(item.Id ?? "", @"^[a-zA-Z0-9]{12}$"))
                 return null;
-            // Do not load untrusted third-party image URLs into WPF's
-            // automatic BitmapImage network downloader.
+            // The fixed host and ID prohibit a catalog from injecting a
+            // third-party BitmapImage URL; HTTP never follows redirects.
             var url = new Uri("https://mosaicary.com/api/skins/" + item.Id + "/render.png");
-            byte[] bytes = await GetBytes(url, 1024 * 1024, ct).ConfigureAwait(false);
+            return await GetBytes(url, 1024 * 1024, ct).ConfigureAwait(false);
+        }
+
+        // Run on the WPF UI dispatcher rather than decoding a WPF bitmap on a
+        // pooled MTA worker. Never use Source=third-party-URL in XAML.
+        internal static ImageSource DecodeThumbnail(byte[] bytes)
+        {
+            if (bytes == null) return null;
             using (var stream = new MemoryStream(bytes, false))
             {
                 var decoder = new PngBitmapDecoder(stream, BitmapCreateOptions.None,
@@ -433,6 +440,24 @@ namespace BlockCraftLauncher.Wpf.Services
             }
         }
 
+        static string LicenseLink(string license)
+        {
+            var value = (license ?? "").Trim().ToLowerInvariant();
+            if (value == "cc0" || value == "cc0-1.0")
+                return "https://creativecommons.org/publicdomain/zero/1.0/";
+            if (value.StartsWith("cc-by-sa"))
+                return "https://creativecommons.org/licenses/by-sa/" +
+                    (value.EndsWith("3.0") ? "3.0" : "4.0") + "/";
+            if (value.StartsWith("cc-by"))
+                return "https://creativecommons.org/licenses/by/" +
+                    (value.EndsWith("3.0") ? "3.0" : "4.0") + "/";
+            if (value == "mit")
+                return "https://opensource.org/license/mit";
+            if (value == "apache-2.0")
+                return "https://www.apache.org/licenses/LICENSE-2.0";
+            return "";
+        }
+
         internal static string SkinSourceNote(OnlineSkinEntry item)
         {
             if (item == null) return "";
@@ -441,6 +466,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 "Author: " + Short(item.Author, 70) + "\n" +
                 "Source: " + Short(item.Source, 40) + "\n" +
                 "License: " + Short(item.License, 48) + "\n" +
+                "License link: " + LicenseLink(item.License) + "\n" +
                 "Original page: " + Short(item.DetailUrl, 512) + "\n" +
                 "Creative Commons licenses may require credit and share-alike on redistribution.\n";
         }
