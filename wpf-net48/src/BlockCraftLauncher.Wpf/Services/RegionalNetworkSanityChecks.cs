@@ -152,6 +152,23 @@ namespace BlockCraftLauncher.Wpf.Services
                     "元数据响应头及时返回但正文稍慢时，不应被响应头截止时间取消");
             }
 
+            var stalledJson = new ScriptedHandler((request, token) =>
+                request.RequestUri.AbsoluteUri == Official
+                    ? Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                        { Content = new StreamContent(new StallingStream()) })
+                    : Json(FixtureManifest));
+            using (var client = new NetworkDownloader(new LauncherConfig {
+                NetworkMode = "international", DownloadRetries = 1
+            }, stalledJson, requestTimeout: ShortDeadline, idleTimeout: ShortDeadline))
+            {
+                var list = await client.GetMetadataWithFallbackAsync(Official,
+                    "international", MinecraftVersionCatalog.Parse,
+                    CancellationToken.None).ConfigureAwait(false);
+                Require(list.Count == 1 && stalledJson.Requests.SequenceEqual(
+                    new[] { Official, Mirror }),
+                    "元数据正文完全卡住时，应按正文空闲超时切换至备用线路");
+            }
+
             var slowOfficial = new ScriptedHandler(async (request, token) =>
             {
                 if (request.RequestUri.AbsoluteUri == Official)
