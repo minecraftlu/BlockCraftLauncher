@@ -36,7 +36,8 @@ jobs:
             'check_download_bindings.py',
             'check_auth_recovery.py',
             'check_pcl_unified_ui.py',
-            'check_skin_search.py'
+            'check_skin_search.py',
+            'check_server_discovery.py'
           )) {
             python "tests/$check"
             if ($LASTEXITCODE -ne 0) { throw "Static check failed: $check (exit $LASTEXITCODE)" }
@@ -59,6 +60,29 @@ jobs:
           $process.Refresh()
           if ($process.ExitCode -ne 0) {
             throw "Updater rollback selftest failed: $($process.ExitCode)"
+          }
+      - name: Minecraft server discovery parsing and safety (offline, both distributions)
+        working-directory: wpf-net48
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($launcher in @(
+            'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe',
+            'dist/BlockCraftLauncher-v0.9.36-WPF-OneFile-Windows-x64.exe'
+          )) {
+            $exe = (Resolve-Path $launcher).Path
+            $process = Start-Process -FilePath $exe -ArgumentList '--server-search-selftest' -PassThru
+            if (-not $process.WaitForExit(60000)) {
+              $process.Kill()
+              throw "Server discovery selftest timeout: $launcher"
+            }
+            $process.Refresh()
+            if ($process.ExitCode -ne 0) {
+              $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+              if (Test-Path $log) { Get-Content $log -Tail 35 }
+              throw "Server discovery offline selftest failed: $launcher ($($process.ExitCode))"
+            }
           }
       - name: Minecraft skin DIY pixel editor and PNG safety (WPF and OneFile)
         working-directory: wpf-net48
