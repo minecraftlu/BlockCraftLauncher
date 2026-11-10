@@ -1,29 +1,33 @@
-# BlockCraft Launcher v0.9.36 WPF RC4 · Public Skin Manual Download
+# BlockCraft Launcher v0.9.36 RC5 · Java Server Discovery
 
-- Candidate tag: `v0.9.36-wpf-rc.4`
-- Channel: **GitHub prerelease / Preview ONLY**
-- Source branch: `feature/public-skin-manual-download-v0.9.36-rc4`
-- Target Windows: Windows 10/11 x64, C# WPF, .NET Framework 4.8
-- Distributions: OneFile EXE and Alpha ZIP with updater
-- Release request date: 2026-11-10
+- Candidate tag: `v0.9.36-wpf-rc.5`
+- Channel: **GitHub prerelease / preview only**, never stable
+- Branch: `feature/server-discovery-preview-v0.9.36-rc5`
+- Platform: Windows 10/11 x64, WPF .NET Framework 4.8
+- Distribution: one-file EXE and full Alpha ZIP including standalone updater
+- Requested on: 2026-11-10
 
-## Changes
+## New features
 
-- Download → Community Resources → Skin remains an independent mod-style browsing/download screen; More → Tools → Skin DIY remains an independent editor with optional explicit official Microsoft upload.
-- Users may manually download single publicly accessible skin PNGs from the supported Mosaicary / DP-Plugins or Mojang skin APIs even when the skin does not have an open-content license. This is NOT a claim of copyright permission: UI shows an explicit rights warning and requires acknowledgement for each unknown / restricted-license download or edit.
-- Free-licensed-only filter remains the default, and the all-public catalog must be chosen expressly. Unknown / ARR/NC / found skins are clearly labelled and must not masquerade as CC0 / free-license content.
-- Original author, source link and license warning are preserved in .png.source.txt sidecars; no automated mass downloads, access-control bypass, quota bypass or hidden-content scraping.
-- Files are delivered via HTTPS, bounded PNG, file-size/shape verification, stage-and-move without overwriting user skins, and shared download task queue with cancel/retry/progress.
+- Under Multiplayer, provide three distinct sections: server favorites, **Find Servers**, and LAN worlds.
+- User-initiated public Minecraft Java server search across MC Monitor, minecraftserve.rs, and MSID using publicly documented, unauthenticated read-only APIs.
+- Text/address/version filters, cached online-only status, player-count sort, pagination, and multi-source deduplication with graceful provider failures.
+- Safe result cards show server name, description, address, cached online status, version, player counts and source. One-click favorite to existing local collection, copy address, open source website, and user-authorized direct Java join using the selected installed profile.
+- Directory list does not use Minecraft/MS tokens, automatically connect to public IP addresses, scan the Internet, or claim to be a NetEase mobile room discovery service.
+- Preserve original Minecraft and mod downloads, RC4 public skins, independently categorized skin DIY, existing local favorites, LAN discovery, Microsoft login, and updater rollback.
 
-## Quality gates
+## Validated gates
 
-- [x] Windows WPF / OneFile build, all online skin offline selftests, UI navigation, skin import and download regression, updater rollback / actual main-window restart passed at https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42819863620
-- [x] Earlier compile/test run of rights warning UI and source checks passed at https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42819816533
-- [ ] Controlled GitHub prerelease workflow must independently pass clean WPF + OneFile build, static validation, offline security and updater regression, real WPF reopen test and post-build SHA256 before publishing.
-- [ ] Manual real-network tests for Mosaicary/DP-Plugins access in mainland China and abroad, author license content, and real Microsoft account upload still required.
+- [x] Windows source build and normal / single-file packaging: https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42823812526
+- [x] Static server discovery assertions, no-network `--server-search-selftest` on WPF and OneFile, API payload parser / private address protections.
+- [x] Real WPF layout and narrow-window navigation, skin and mod selftests, GUI startup and package smoke, updater rollback.
+- [ ] Controlled release workflow must independently compile and run its entire offline test suite on the final candidate commit, then build release asset hashes and publish a GitHub prerelease. Fail closed on any failed gate.
+- [ ] Real-network verification of external directory connectivity (including mainland China and overseas), actual server login, account requirements and incompatible-game-version prompts remains to be done on users' Windows computers.
 
-## Release safety
+## Publishing policy
 
-Publish prerelease=true and latest=false for v0.9.36-wpf-rc.4 only. Preserve stable v0.9.35 and the existing RC1/RC2/RC3 releases. Stable update channel must not receive this prerelease. No SignPath Foundation code signature until approval. This release does not grant rights to redistribute or commercially use third-party skins.
+Only publish GitHub release tag `v0.9.36-wpf-rc.5` with prerelease=true, latest=false. Keep stable `v0.9.35` and previous RC1/RC2/RC3/RC4 untouched. Stable update users must not be automatically moved to a preview channel.
 
-Docs: wpf-net48/docs/V0936_PUBLIC_SKIN_DOWNLOAD_RC4.md.
+This Windows launcher is still unsigned pending SignPath Foundation approval. This preview does not promise all public Minecraft servers are indexed, or that Minecraft Java can directly join NetEase mobile-only rooms.
+
+Detailed docs: wpf-net48/docs/SERVER_DISCOVERY_RC5.md.
