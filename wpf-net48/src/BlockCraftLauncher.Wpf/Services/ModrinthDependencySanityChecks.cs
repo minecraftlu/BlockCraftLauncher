@@ -66,16 +66,18 @@ namespace BlockCraftLauncher.Wpf.Services
             var endpoints = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var v in versions)
             {
-                string project = Convert.ToString(v["project_id"]);
                 string id = Convert.ToString(v["id"]);
                 endpoints["https://api.modrinth.com/v2/version/" + id] = Json.Serialize(v);
-                if (!endpoints.ContainsKey("https://api.modrinth.com/v2/project/" + project + "/version"))
-                    endpoints["https://api.modrinth.com/v2/project/" + project + "/version"] =
-                        Json.Serialize(new object[] { v });
             }
+            foreach (var group in versions.GroupBy(v => Convert.ToString(v["project_id"])))
+                endpoints["https://api.modrinth.com/v2/project/" + group.Key + "/version"] =
+                    Json.Serialize(group.Cast<object>().ToArray());
             return (url, ct) => {
                 ct.ThrowIfCancellationRequested();
-                if (!endpoints.TryGetValue(url, out var payload))
+                // The real API supports game_versions/loaders filtering. Keep
+                // all supplied fixture rows so client validation stays tested.
+                string path = new Uri(url).GetLeftPart(UriPartial.Path);
+                if (!endpoints.TryGetValue(path, out var payload))
                     throw new InvalidOperationException("Offline fixture requested unknown endpoint: " + url);
                 return Task.FromResult(payload);
             };
@@ -110,6 +112,35 @@ namespace BlockCraftLauncher.Wpf.Services
             Require(plan.All(x => x.DownloadUrl.StartsWith("https://cdn.modrinth.com/",
                 StringComparison.OrdinalIgnoreCase)), "trusted CDN fixture");
             Require(plan.All(x => x.Sha1.Length == 40), "every planned file needs SHA-1");
+
+            var mixed = Version("MIXED", "vMixed", "mixed-sources.jar");
+            mixed["files"] = new object[] {
+                new Dictionary<string, object> {
+                    ["filename"] = "mixed-sources.jar",
+                    ["file_type"] = "sources-jar", ["primary"] = true,
+                    ["url"] = "https://cdn.modrinth.com/data/MIXED/versions/vMixed/mixed-sources.jar",
+                    ["hashes"] = new Dictionary<string, object> { ["sha1"] = Hash }
+                },
+                new Dictionary<string, object> {
+                    ["filename"] = "mixed.jar", ["file_type"] = "unknown",
+                    ["primary"] = false,
+                    ["url"] = "https://cdn.modrinth.com/data/MIXED/versions/vMixed/mixed.jar",
+                    ["hashes"] = new Dictionary<string, object> { ["sha1"] = Hash }
+                }
+            };
+            var mixedPlan = await new ModrinthDependencyPlanner(Fixture(mixed))
+                .PlanAsync("MIXED", "1.21.1", "fabric", CancellationToken.None);
+            Require(mixedPlan.Count == 1 && mixedPlan[0].Filename == "mixed.jar",
+                "primary source archive skipped in favor of runnable JAR");
+
+            // A release may have source-only entries before a runnable version;
+            // the installer must continue instead of treating it as missing.
+            var old = Version("LONG", "vOld", "old-sources.jar");
+            var good = Version("LONG", "vGood", "good.jar");
+            var longPlan = await new ModrinthDependencyPlanner(Fixture(old, good))
+                .PlanAsync("LONG", "1.21.1", "fabric", CancellationToken.None);
+            Require(longPlan.Count == 1 && longPlan[0].VersionId == "vGood",
+                "source-only compatible version skipped for installable release");
 
             var mismatched = Version("B", "vB", "B.jar",
                 minecraft: "1.20.1");
