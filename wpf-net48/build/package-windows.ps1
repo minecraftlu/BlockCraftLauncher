@@ -100,6 +100,10 @@ if ($commonsName.Name -ne 'CmlLib.Core.Commons' -or
     $commonsName.Version.ToString() -ne '4.0.0.0') {
     throw "Wrong CmlLib.Core.Commons assembly identity: $commonsName"
 }
+$stagedExe = Join-Path $staging 'BlockCraftLauncher.Wpf.exe'
+$stagedUpdater = Join-Path $staging 'BlockCraftLauncher.Updater.exe'
+& (Join-Path $PSScriptRoot 'sign-windows.ps1') -Path $stagedExe, $stagedUpdater
+
 # Preserve a complete hash manifest so users can detect mixed old/new DLLs.
 $hashList = Get-ChildItem -LiteralPath $staging -File |
     Where-Object { $_.Extension -eq '.dll' -or $_.Extension -eq '.exe' } |
@@ -110,7 +114,6 @@ $hashList = Get-ChildItem -LiteralPath $staging -File |
 $hashList | Set-Content -LiteralPath (Join-Path $staging 'SHA256SUMS.txt') -Encoding ASCII
 Write-Host "Verified bundled CmlLib.Core.Commons 4.0.0.0 and all required DLLs"
 
-$stagedExe = Join-Path $staging 'BlockCraftLauncher.Wpf.exe'
 $hash = (Get-FileHash -LiteralPath $stagedExe -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  BlockCraftLauncher.Wpf.exe" | Set-Content -LiteralPath "$stagedExe.sha256" -Encoding ASCII
 @'

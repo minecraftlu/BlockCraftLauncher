@@ -24,8 +24,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Single-file EXE build failed' }
 $built = Join-Path $root 'onefile\bin\Release\net48\BlockCraftLauncher.exe'
 if (!(Test-Path $built)) { throw 'Single-file EXE not produced' }
 $target = Join-Path $dist $name
-Copy-Item $built $target -Force
-$fs = [System.IO.File]::OpenRead($target)
+$fs = [System.IO.File]::OpenRead($built)
 $reader = [System.IO.BinaryReader]::new($fs)
 try {
   if ($reader.ReadUInt16() -ne 0x5a4d) { throw 'Invalid MZ header' }
@@ -34,6 +33,8 @@ try {
   [void]$fs.Seek($offset,[System.IO.SeekOrigin]::Begin)
   if ($reader.ReadUInt32() -ne 0x4550 -or $reader.ReadUInt16() -ne 0x8664) { throw 'Not an x64 PE file' }
 } finally { $reader.Dispose() }
+& (Join-Path $PSScriptRoot 'sign-windows.ps1') -Path $built
+Copy-Item -LiteralPath $built -Destination $target -Force
 $hash = (Get-FileHash $target -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  $name" | Set-Content ($target+'.sha256') -Encoding ASCII
 Write-Host "OneFile: $target"
