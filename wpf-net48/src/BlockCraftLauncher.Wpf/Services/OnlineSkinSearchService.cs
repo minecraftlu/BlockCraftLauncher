@@ -485,7 +485,7 @@ namespace BlockCraftLauncher.Wpf.Services
             if (!root.TryGetValue("skins", out var value) || !(value is object[] skins))
                 throw new InvalidDataException("社区皮肤搜索结果结构已变化");
             var result = new List<OnlineSkinEntry>();
-            foreach (var skin in skins.Select(Dict).Where(x => x != null).Take(40))
+            foreach (var skin in skins.Select(Dict).Where(x => x != null).Take(200))
             {
                 string url = Str(skin, "skinUrl");
                 string name = Str(skin, "name");
@@ -542,7 +542,12 @@ namespace BlockCraftLauncher.Wpf.Services
                 VerifyPng(preview);
                 return preview;
             }
-            return await DownloadPngAsync(skin, ct).ConfigureAwait(false);
+            // Browsing an unlicensed community entry may display its public
+            // image, but does not enable Save or Use in the UI.
+            var previewUrl = SafePublicSkinUri(skin.TextureUrl);
+            byte[] raw = await GetBytes(previewUrl, MaxPngBytes, ct).ConfigureAwait(false);
+            VerifyPng(raw);
+            return raw;
         }
 
         public static async Task<byte[]> DownloadPngAsync(
