@@ -16,6 +16,8 @@ The application may make requests to external services for features including:
 
 - **Freely licensed skin gallery (optional):** When users search or browse the Mosaicary catalog, their search words, category, selected arm model, page and sorting preferences are requested from `mosaicary.com`. The launcher fetches limited-size PNG render thumbnails and the selected skin texture from the same host. Results are filtered for creator-declared open licenses by default; no account token is sent. The external catalog may collect standard request metadata such as IP address. No background bulk harvesting is performed.
 
+- **Public Minecraft server discovery (optional, user-initiated):** Searching under Multiplayer → Find Servers sends the entered name/IP keywords, game version filter, selected page, sorting and status preferences to the selected public directory providers: `www.mc-monitor.app`, `minecraftserve.rs` and `api.minecraftserver.id` (minecraftserver.id / MSID). The directory providers can see connection metadata such as your public IP. Results are cached locally in memory for at least 60 seconds. BlockCraft does not transmit Microsoft login tokens or the locally saved favorite-server file to the directories, and does not automatically probe discovered servers. Choosing direct connection intentionally starts your installed Minecraft client, which contacts the chosen server. Public directory listings may contain inaccurate or outdated information.
+
 These services have their own privacy policies. The availability of mirror services and each provider's handling of network metadata and credentials is outside the project's direct control.
 
 ## Local data and choices
