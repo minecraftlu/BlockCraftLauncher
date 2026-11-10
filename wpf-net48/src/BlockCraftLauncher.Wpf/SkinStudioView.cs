@@ -49,17 +49,31 @@ namespace BlockCraftLauncher.Wpf
         readonly TextBox skinName = new TextBox();
         readonly ComboBox savedSkins = new ComboBox();
         readonly ComboBox onlineSource = new ComboBox();
+        readonly ComboBox onlineCategory = new ComboBox();
+        readonly ComboBox onlineArms = new ComboBox();
+        readonly ComboBox onlineSort = new ComboBox();
+        readonly CheckBox onlineOpenOnly = new CheckBox();
         readonly TextBox onlineQuery = new TextBox();
         readonly ListBox onlineResults = new ListBox();
         readonly Image onlinePreview = new Image();
         readonly TextBlock onlineStatus = new TextBlock();
+        readonly TextBlock onlinePageStatus = new TextBlock();
         readonly TextBlock onlineAttribution = new TextBlock();
         Button onlineSearchButton;
+        Button onlinePrevButton;
+        Button onlineNextButton;
         Button onlineSaveButton;
         Button onlineEditButton;
+        Button onlineDetailButton;
         OnlineSkinEntry selectedOnlineSkin;
+        OnlineSkinEntry editorSource;
         byte[] selectedOnlinePng;
+        CancellationTokenSource onlinePreviewCancellation;
+        CancellationTokenSource onlineThumbnailCancellation;
         int onlineRequestNumber;
+        int onlinePage = 1;
+        int onlinePages = 1;
+        bool onlineAutoLoaded;
         bool searchingOnline;
         readonly Border colorSwatch = new Border();
         readonly TextBlock info = new TextBlock();
@@ -169,6 +183,8 @@ namespace BlockCraftLauncher.Wpf
             };
             Unloaded += (sender, args) =>
             {
+                onlinePreviewCancellation?.Cancel();
+                onlineThumbnailCancellation?.Cancel();
                 draftTimer.Stop();
                 SaveRecoveryDraft();
             };
@@ -1064,6 +1080,7 @@ namespace BlockCraftLauncher.Wpf
         void ResetTemplate()
         {
             if (!ConfirmDiscard()) return;
+            editorSource = null;
             document.ResetTemplate(armModel.SelectedIndex == 1);
             info.Text = "已新建原创建议配色皮肤，可修改任意颜色与图层。";
         }
@@ -1086,6 +1103,7 @@ namespace BlockCraftLauncher.Wpf
             try
             {
                 document.LoadPng(path, armModel.SelectedIndex == 1);
+                editorSource = null;
                 ClearRecoveryDraft();
                 skinName.Text = System.IO.Path.GetFileNameWithoutExtension(path);
                 armModel.SelectedIndex = document.SlimArms ? 1 : 0;
