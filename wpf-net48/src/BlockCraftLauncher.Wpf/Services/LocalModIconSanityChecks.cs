@@ -47,6 +47,16 @@ namespace BlockCraftLauncher.Wpf.Services
             WriteMod("00-no-icon.jar", "fabric.mod.json",
                 "{\"icon\":{\"128\":\"../outside.png\",\"96\":\"https://example.invalid/icon.png\"}}", 0,
                 ("../outside.png", Png(40, 0, 0, 0)), ("icon.png", new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }));
+            WriteMod("07-case-insensitive.jar", "fabric.mod.json",
+                "{\"id\":\"case_demo\",\"icon\":\"assets/case_demo/icon.png\"}", 52,
+                ("Assets/CASE_DEMO/Icon.PNG", Png(52, 96, 144, 207)));
+            WriteMod("09-nested-fallback.jar", "fabric.mod.json",
+                "{\"id\":\"nested_demo\"}", 56,
+                ("assets/nested_demo/textures/gui/mod_icon.png", Png(56, 20, 120, 210)),
+                ("assets/other_mod/icon.png", Png(42, 210, 50, 55)));
+            WriteMod("10-metadata-nested.jar", "fabric.mod.json",
+                "{\"id\":\"nested2\",\"icon\":\"assets/nested2/textures/gui/logo.png\"}", 64,
+                ("assets/nested2/textures/gui/logo.png", Png(64, 90, 178, 16)));
             File.WriteAllText(Path.Combine(mods, "08-broken.jar"), "Invalid JAR fixture");
             expectedWidths.Add("08-broken.jar", 0);
             return expectedWidths;
