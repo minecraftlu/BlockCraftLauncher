@@ -169,7 +169,8 @@ namespace BlockCraftLauncher.Wpf.Services
             return "https://textures.minecraft.net" + uri.AbsolutePath;
         }
 
-        static async Task<byte[]> GetBytes(Uri url, int maximum, CancellationToken ct)
+        static async Task<byte[]> GetBytes(Uri url, int maximum, CancellationToken ct,
+            IProgress<DownloadBytes> progress = null)
         {
             using (var request = new HttpRequestMessage(HttpMethod.Get, url))
             using (var response = await Http.SendAsync(request,
@@ -196,6 +197,8 @@ namespace BlockCraftLauncher.Wpf.Services
                         if (buffer.Length + length > maximum)
                             throw new InvalidDataException("在线皮肤响应超过安全大小限制");
                         buffer.Write(chunk, 0, length);
+                        progress?.Report(new DownloadBytes(buffer.Length,
+                            response.Content.Headers.ContentLength ?? 0));
                     }
                     return buffer.ToArray();
                 }
@@ -543,13 +546,94 @@ namespace BlockCraftLauncher.Wpf.Services
         }
 
         public static async Task<byte[]> DownloadPngAsync(
-            OnlineSkinEntry skin, CancellationToken ct)
+            OnlineSkinEntry skin, CancellationToken ct,
+            IProgress<DownloadBytes> progress = null)
         {
             if (skin == null) throw new ArgumentNullException(nameof(skin));
+            if (!skin.CanDownload)
+                throw new InvalidOperationException("此皮肤未声明可下载许可，请先查看原作者授权");
             var uri = SafePublicSkinUri(skin.TextureUrl);
-            byte[] png = await GetBytes(uri, MaxPngBytes, ct).ConfigureAwait(false);
+            byte[] png = await GetBytes(uri, MaxPngBytes, ct, progress).ConfigureAwait(false);
             VerifyPng(png);
             return png;
+        }
+
+        /// <summary>
+        /// Shared skin-download task target: isolated staging, normalized 64x64
+        /// PNG, unique destination (never overwrite an existing skin),
+        /// attribution sidecar, cancellation and full retry through the
+        /// launcher's existing DownloadTaskCenter.
+        /// </summary>
+        public static async Task<string> DownloadToLibraryAsync(
+            OnlineSkinEntry skin, CancellationToken ct,
+            IProgress<DownloadBytes> progress = null)
+        {
+            if (skin == null || !skin.CanDownload)
+                throw new InvalidOperationException("这张皮肤没有可验证的下载权限");
+            byte[] png = await DownloadPngAsync(skin, ct, progress).ConfigureAwait(true);
+            ct.ThrowIfCancellationRequested();
+            string directory = SkinEditorDocument.LocalLibrary;
+            Directory.CreateDirectory(directory);
+            string slug = Regex.Replace(skin.Name ?? "", @"[\\/:*?""<>|\p{C}]", "-")
+                .Trim().TrimEnd('.', ' ');
+            if (slug.Length > 25) slug = slug.Substring(0, 25);
+            if (slug.Length == 0) slug = "Minecraft";
+            string stage = Path.Combine(directory, ".skin-" +
+                Guid.NewGuid().ToString("N") + ".png");
+            string stagingInput = Path.Combine(Path.GetTempPath(),
+                "BlockCraft-Skin-Import-" + Guid.NewGuid().ToString("N") + ".png");
+            string noteStage = stage + ".source.txt";
+            string committed = null;
+            try
+            {
+                File.WriteAllBytes(stagingInput, png);
+                var normalized = new SkinEditorDocument();
+                normalized.LoadPng(stagingInput, skin.SlimArms);
+                normalized.SavePng(stage);
+                File.WriteAllText(noteStage, SkinSourceNote(skin), Encoding.UTF8);
+                ct.ThrowIfCancellationRequested();
+                // File.Move is non-overwriting, preventing race conditions and
+                // accidental user data loss even with parallel/retried jobs.
+                for (int attempt = 0; attempt < 8; attempt++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    string name = "在线-" + slug + "-" +
+                        DateTime.UtcNow.ToString("MMdd-HHmmss", CultureInfo.InvariantCulture) +
+                        "-" + Guid.NewGuid().ToString("N").Substring(0, 6);
+                    string target = SkinEditorDocument.SafeLibraryPath(name);
+                    try
+                    {
+                        File.Move(stage, target);
+                        committed = target;
+                        break;
+                    }
+                    catch (IOException) when (File.Exists(target))
+                    {
+                        // A simultaneous download won that exact name.
+                    }
+                }
+                if (committed == null)
+                    throw new IOException("无法取得唯一的本地皮肤文件名");
+                ct.ThrowIfCancellationRequested();
+                File.Move(noteStage, committed + ".source.txt");
+                return committed;
+            }
+            catch
+            {
+                if (committed != null)
+                {
+                    try { File.Delete(committed); } catch (IOException) { }
+                }
+                throw;
+            }
+            finally
+            {
+                foreach (string temporary in new[] { stage, noteStage, stagingInput })
+                {
+                    try { if (File.Exists(temporary)) File.Delete(temporary); }
+                    catch (IOException) { }
+                }
+            }
         }
 
         internal static void VerifyPng(byte[] data)
