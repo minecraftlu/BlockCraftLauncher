@@ -1,32 +1,31 @@
-# BlockCraft Launcher v0.9.36 WPF RC1 · Online Skin Search and Download
+# BlockCraft Launcher v0.9.36 WPF RC2 · Licensed Skin Catalog and Mod-style Downloads
 
-- Candidate tag: `v0.9.36-wpf-rc.1`
+- Candidate tag: `v0.9.36-wpf-rc.2`
 - Channel: **GitHub prerelease / preview**, never stable
-- Target branch: `feature/skin-search-beta-v0.9.36`
-- Target Windows platform: Windows 10/11 x64, WPF, .NET Framework 4.8
-- Distributions: OneFile EXE and complete Alpha ZIP with standalone updater
-- Requested: 2026-11-10
+- Source branch: `feature/skin-catalog-beta-v0.9.36-rc2`
+- Target Windows: 10/11 x64 · C# WPF · .NET Framework 4.8
+- Distributions: standalone OneFile EXE + complete Alpha ZIP with updater
+- Release request date: 2026-11-10
 
-## New beta functionality
+## Highlights
 
-- **Mojang player skin search:** search Minecraft Java usernames or UUIDs, retrieve current public skins and Steve/Alex model information.
-- **Community skin search:** search third-party DP-Plugins public catalog by keyword, with attribution/available license information.
-- **Preview and download:** preview selected skin, download sanitized valid Minecraft PNG into the existing BlockCraft skin library, or import into the pixel editor after confirming unsaved changes.
-- Existing skin DIY, Microsoft account login, explicit optional official skin upload, game downloads, auto-update rollback, mod icons, saves and resource management remain intact.
+- Search/browse Mosaicary's freely licensed public skin library with category, model, sort, source, author and CC license filters; only fetch thumbnails for a limited visible page.
+- Include DP-Plugins community skin discovery and separate Mojang player skin search; a public player texture does NOT imply an open license.
+- Redesign result lists like the Modrinth/CurseForge download center: thumbnail + name, author, model, permission, downloads; right side preview/details; download PNG to existing library or use in skin DIY.
+- Save original source / license attribution in adjacent .png.source.txt. Reject oversized / malformed PNGs, untrusted redirect and not-licensed community downloads.
+- Preserve Minecraft account login, optional confirmed official skin upload, DIY tools, game/mod downloads, mod icons, saves, update rollback and direct-open behavior.
 
-## Build and test gates
+## CI gates and acceptance
 
-- [x] Online skin search changes were merged into `main` via PR #13.
-- [x] Versioned build and preview package names match `v0.9.36-wpf-rc.1`, including Alpha ZIP and OneFile EXE.
-- [x] **Full Windows build** https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42812457691 **passed**, including MSBuild + NuGet restore, static contracts, both distributions' skin offline checks, window-render/relaunch test, download and account selftests, rollback verification, CI release assets, and checksums.
-- [ ] The controlled candidate release workflow must perform its own clean Windows build, static checks, offline dual-distribution selftests, real WPF window test, updater rollback check, SHA-256 generation and publication. The workflow MUST fail closed on any failure.
-- [ ] After publication, confirm actual GitHub prerelease assets and that switching an installed v0.9.35 launcher to the Preview update channel discovers this candidate.
-- [ ] End-user network acceptance: Mojang player name, DP-Plugins community keyword search, PNG save/preview, China/overseas connectivity, optional Minecraft account upload (explicit authorization).
+- [x] GitHub Windows WPF CI successfully compiled and ran full offline regression suite: https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/42815074281
+- [x] All skin license and Mosaicary parser offline selftests, source validation and UI layout checks passed.
+- [x] Update tag is v0.9.36-wpf-rc.2 and the updater's preview channel selects newer RCs.
+- [ ] Controlled prerelease workflow itself must clean-compile WPF/OneFile, validate all offline selftests, real WPF window reopen behavior, SHA-256 generation, and publish only if every gate passes.
+- [ ] Manual network testing on mainland China and overseas networks: catalog pages, downloads, attribution, preview, Mojang/DP-Plugins availability, optional Microsoft skin upload.
 
-## Release policy
+## Strict release policy
 
-Only `v0.9.36-wpf-rc.1` may be published as **prerelease**, not as stable. v0.9.35 remains the stable release and must not be overwritten. Set GitHub release `prerelease=true`, `latest=false`. The current launcher is **unsigned** because SignPath Foundation approval is pending; do not imply Windows verified publisher identity. The separate stable release gate still requires approval from `main` and real Windows acceptance.
+Publish **only** GitHub prerelease v0.9.36-wpf-rc.2, with prerelease=true, latest=false. Do not change or replace v0.9.35 stable or rc1 preview tags. Existing v0.9.35 or RC1 users must intentionally select the Preview update channel to update. This build is NOT SignPath-signed because foundation approval is still pending. Do not pretend that it removes SmartScreen warnings.
 
-Documentation: `wpf-net48/docs/V0936_ONLINE_SKIN_PREVIEW.md`.
-
-Any live network limitations belong in the prerelease notes, not hidden as successful tests.
+Full notes: wpf-net48/docs/V0936_SKIN_CATALOG_RC2.md.
+External catalogs cannot guarantee containing every freely licensed skin on the internet; 'openly visible' is not identical to an open content license.
