@@ -5,7 +5,14 @@ $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $versionSource = Get-Content -LiteralPath (Join-Path $root 'src\BlockCraftLauncher.Wpf\Services\LauncherAutoUpdateService.cs') -Raw
 $tag = [regex]::Match($versionSource, 'internal const string CurrentTag = "([^"]+)";').Groups[1].Value
-if ($tag -notmatch '^v\d+\.\d+\.\d+(?:-wpf-rc\.\d+)?
+if ($tag -notmatch '^v\d+\.\d+\.\d+(?:-wpf-rc\.\d+)?$') {
+    throw "Invalid WPF release tag in updater: $tag"
+}
+$releaseVersion = ($tag -split '-', 2)[0]
+$launchers = @(
+    (Join-Path $root 'src\BlockCraftLauncher.Wpf\bin\Release\net48\BlockCraftLauncher.Wpf.exe'),
+    (Join-Path $root "dist\BlockCraftLauncher-$releaseVersion-WPF-OneFile-Windows-x64.exe")
+)
 foreach ($exe in $launchers) {
     if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
         throw "Missing WPF/OneFile relaunch target: $exe"
