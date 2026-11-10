@@ -237,9 +237,10 @@ namespace BlockCraftLauncher.Wpf.Services
             internal static bool NeedsFallback(HttpStatusCode status, bool firstIsMirror)
             {
                 int code = (int)status;
-                if (code == 403 || code == 408 || code == 429 || code == 451 || code >= 500) return true;
+                if (code == 408 || code == 429 || code >= 500) return true;
                 return firstIsMirror &&
                     (status == HttpStatusCode.Unauthorized ||
+                     status == HttpStatusCode.Forbidden ||
                      status == HttpStatusCode.NotFound ||
                      status == HttpStatusCode.Gone ||
                      status == HttpStatusCode.RequestedRangeNotSatisfiable);

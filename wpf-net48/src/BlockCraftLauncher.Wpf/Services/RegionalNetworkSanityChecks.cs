@@ -17,7 +17,7 @@ namespace BlockCraftLauncher.Wpf.Services
     {
         const string Official = MinecraftVersionCatalog.Official;
         static readonly string Mirror = NetworkDownloader.MirrorMojangUri(Official);
-        static readonly TimeSpan ShortDeadline = TimeSpan.FromMilliseconds(60);
+        static readonly TimeSpan ShortDeadline = TimeSpan.FromMilliseconds(150);
         const string FixtureManifest =
             "{\"versions\":[{\"id\":\"1.21.1\",\"type\":\"release\",\"releaseTime\":\"2024-08-08T00:00:00Z\"}]}";
 
@@ -42,6 +42,8 @@ namespace BlockCraftLauncher.Wpf.Services
 
         sealed class StallingStream : MemoryStream
         {
+            public override bool CanSeek => false;
+
             public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken token)
             {
                 await Task.Delay(Timeout.Infinite, token).ConfigureAwait(false);
