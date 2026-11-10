@@ -1,4 +1,4 @@
-name: Verify public v0.9.34 WPF preview
+name: Repair and verify v0.9.34 ZIP preview
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 
 permissions:
   actions: read
-  contents: read
+  contents: write
 
 concurrency:
   group: release-v0934-wpf-preview
@@ -69,9 +69,31 @@ jobs:
           Assert-Sha256 $oldSingle 'cea104ca53fe646b4e657f0e5f5dca90cd2e7897775034e8aa43654d12f5a566'
           Assert-Sha256 $oldZip 'af5537e8ddefa454b259d061e9fd2f4ce9e018381ef2cc50b3545dc78c507d3f'
           $assets = @($env:BCL_SINGLE, $env:BCL_ZIP, 'RELEASE-SHA256SUMS.txt')
+          $repaired = Join-Path $env:RUNNER_TEMP 'bcl-repaired'
+          New-Item -ItemType Directory -Path $repaired | Out-Null
+          $repairedZip = Join-Path $repaired $env:BCL_ZIP
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $original = [IO.Compression.ZipFile]::OpenRead((Join-Path $dist $env:BCL_ZIP))
+          try {
+            $output = [IO.Compression.ZipFile]::Open($repairedZip, [IO.Compression.ZipArchiveMode]::Create)
+            try {
+              foreach ($entry in $original.Entries) {
+                $copy = $output.CreateEntry($entry.FullName.Replace('\', '/'), [IO.Compression.CompressionLevel]::Optimal)
+                $copy.LastWriteTime = $entry.LastWriteTime
+                $read = $entry.Open()
+                try {
+                  $write = $copy.Open()
+                  try { $read.CopyTo($write) } finally { $write.Dispose() }
+                } finally { $read.Dispose() }
+              }
+            } finally { $output.Dispose() }
+          } finally { $original.Dispose() }
+          $fixedHash = (Get-FileHash -LiteralPath $repairedZip -Algorithm SHA256).Hash.ToLowerInvariant()
           [IO.File]::WriteAllLines((Join-Path $dist $assets[2]),
-            [string[]]@("$env:BCL_SINGLE_SHA  $env:BCL_SINGLE", "$env:BCL_ZIP_SHA  $env:BCL_ZIP"),
-            [Text.Encoding]::ASCII)
+            [string[]]@("$env:BCL_SINGLE_SHA  $env:BCL_SINGLE", "$env:BCL_ZIP_SHA  $env:BCL_ZIP"), [Text.Encoding]::ASCII)
+          [IO.File]::WriteAllLines((Join-Path $repaired $assets[2]),
+            [string[]]@("$env:BCL_SINGLE_SHA  $env:BCL_SINGLE", "$fixedHash  $env:BCL_ZIP"), [Text.Encoding]::ASCII)
+          "BCL_FIXED_ZIP_SHA=$fixedHash" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           $notes = @'
           Windows x64 · .NET Framework 4.8 · 预览版
 
@@ -111,6 +133,7 @@ jobs:
           @'
           using System;
           using System.IO;
+          using System.Reflection;
           using System.Threading;
           using BlockCraftLauncher.Wpf.Models;
           using BlockCraftLauncher.Wpf.Services;
@@ -134,6 +157,13 @@ jobs:
                                   throw new InvalidOperationException("Invalid channel selection for " + package);
                               Console.WriteLine("PASS: v0.9.33 selects " + offer.AssetName + " only as a newer preview");
                           }
+                          var service = typeof(LauncherAutoUpdateService);
+                          const BindingFlags internalStatic = BindingFlags.NonPublic | BindingFlags.Static;
+                          var extracted = (string)service.GetMethod("ExtractCheckedZip", internalStatic)
+                              .Invoke(null, new object[] { args[3], args[4] });
+                          service.GetMethod("VerifyZipManifest", internalStatic)
+                              .Invoke(null, new object[] { extracted });
+                          Console.WriteLine("PASS: repaired ZIP extracts and verifies with the v0.9.33 updater");
                           return 0;
                       }
                       if (mode == "onefile")
@@ -171,7 +201,7 @@ jobs:
           & $csc /nologo /target:exe /platform:x64 "/out:$probe" "/reference:$($oldWpf[0].FullName)" $probeSource
           if ($LASTEXITCODE -ne 0) { throw 'Could not compile the updater probe' }
           Copy-Item -LiteralPath ($oldWpf[0].FullName + '.config') -Destination ($probe + '.config')
-          & $probe fixture $env:BCL_TAG $fixture
+          & $probe fixture $env:BCL_TAG $fixture $repairedZip (Join-Path $legacy 'candidate-unpacked')
           if ($LASTEXITCODE -ne 0) { throw 'v0.9.33 did not accept the candidate metadata' }
 
           $start = Start-Process -FilePath $oldSingle -ArgumentList '--smoke-test' -PassThru
@@ -192,32 +222,76 @@ jobs:
             Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "BCL_OLD_SINGLE=$oldSingle" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Verify the already published prerelease metadata
+      - name: Replace the incompatible ZIP and its checksum as a draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $api = "https://api.github.com/repos/$env:GITHUB_REPOSITORY"
-          $headers = @{ 'User-Agent' = 'BlockCraftLauncher-release-verification'; 'Cache-Control' = 'no-cache' }
-          $release = Invoke-RestMethod "$api/releases/tags/$env:BCL_TAG" -Headers $headers
-          $tag = Invoke-RestMethod "$api/git/ref/tags/$env:BCL_TAG" -Headers $headers
-          if ($release.draft -or -not $release.prerelease -or $tag.object.sha -ne $env:BCL_SOURCE) {
-            throw 'Public release channel or revision does not match the verified candidate'
+          $dist = Join-Path $env:RUNNER_TEMP 'bcl-candidate'
+          $repaired = Join-Path $env:RUNNER_TEMP 'bcl-repaired'
+          $manifest = 'RELEASE-SHA256SUMS.txt'
+          function Get-Release($path) {
+            $value = gh api $path
+            if ($LASTEXITCODE -ne 0) { throw "Cannot read $path" }
+            $value | ConvertFrom-Json
           }
-          foreach ($expected in @(
-            @{ Name = $env:BCL_SINGLE; Sha256 = $env:BCL_SINGLE_SHA },
-            @{ Name = $env:BCL_ZIP; Sha256 = $env:BCL_ZIP_SHA }
-          )) {
-            $asset = @($release.assets | Where-Object { $_.name -eq $expected.Name })
+          function Assert-ReleaseAsset($release, $name, $sha) {
+            $asset = @($release.assets | Where-Object { $_.name -eq $name })
             if ($asset.Count -ne 1 -or $asset[0].state -ne 'uploaded' -or
-                $asset[0].digest -ne ('sha256:' + $expected.Sha256)) {
-              throw "Public asset does not match the tested package: $($expected.Name)"
+                $asset[0].digest -ne ('sha256:' + $sha)) {
+              throw "Unexpected asset bytes for $name"
             }
           }
-          Write-Host "PASS: public prerelease $env:BCL_TAG points to the tested commit and packages"
+          $base = "repos/$env:GITHUB_REPOSITORY"
+          $release = Get-Release "$base/releases/tags/$env:BCL_TAG"
+          $tag = Get-Release "$base/git/ref/tags/$env:BCL_TAG"
+          if ($release.draft -or -not $release.prerelease -or $release.immutable -or
+              $tag.object.sha -ne $env:BCL_SOURCE) {
+            throw 'The release is not the expected mutable prerelease'
+          }
+          Assert-ReleaseAsset $release $env:BCL_SINGLE $env:BCL_SINGLE_SHA
+          Assert-ReleaseAsset $release $env:BCL_ZIP $env:BCL_ZIP_SHA
+          $manifestHash = (Get-FileHash -LiteralPath (Join-Path $dist $manifest) -Algorithm SHA256).Hash.ToLowerInvariant()
+          Assert-ReleaseAsset $release $manifest $manifestHash
+          $releasePath = "$base/releases/$($release.id)"
+          function Set-ReleaseDraft($draft) {
+            $response = gh api --method PATCH $releasePath -F "draft=$draft" -F prerelease=true -f make_latest=false
+            if ($LASTEXITCODE -ne 0) { throw "Cannot set release draft state to $draft" }
+            $updated = $response | ConvertFrom-Json
+            if ($updated.draft.ToString().ToLowerInvariant() -ne $draft -or -not $updated.prerelease) {
+              throw 'GitHub did not apply the expected prerelease state'
+            }
+          }
+          function Replace-Assets($folder) {
+            $zip = Join-Path $folder $env:BCL_ZIP
+            $sums = Join-Path $folder $manifest
+            gh release upload $env:BCL_TAG $zip $sums --repo $env:GITHUB_REPOSITORY --clobber
+            if ($LASTEXITCODE -ne 0) { throw 'Could not upload the ZIP and its checksum' }
+          }
+          Set-ReleaseDraft 'true'
+          try {
+            Replace-Assets $repaired
+            $updated = Get-Release $releasePath
+            Assert-ReleaseAsset $updated $env:BCL_SINGLE $env:BCL_SINGLE_SHA
+            Assert-ReleaseAsset $updated $env:BCL_ZIP $env:BCL_FIXED_ZIP_SHA
+            $fixedManifestHash = (Get-FileHash -LiteralPath (Join-Path $repaired $manifest) -Algorithm SHA256).Hash.ToLowerInvariant()
+            Assert-ReleaseAsset $updated $manifest $fixedManifestHash
+            Set-ReleaseDraft 'false'
+          } catch {
+            $failure = $_
+            Replace-Assets $dist
+            $restored = Get-Release $releasePath
+            Assert-ReleaseAsset $restored $env:BCL_ZIP $env:BCL_ZIP_SHA
+            Assert-ReleaseAsset $restored $manifest $manifestHash
+            Set-ReleaseDraft 'false'
+            throw $failure
+          }
+          Write-Host "Published compatible ZIP SHA-256: $env:BCL_FIXED_ZIP_SHA"
 
       - name: Verify public updates with both v0.9.33 packages
         run: |
           $ErrorActionPreference = 'Stop'
-          & $env:BCL_OLD_ZIP_PROBE zip $env:BCL_TAG $env:BCL_ZIP_SHA
+          & $env:BCL_OLD_ZIP_PROBE zip $env:BCL_TAG $env:BCL_FIXED_ZIP_SHA
           if ($LASTEXITCODE -ne 0) { throw 'Live ZIP update verification failed' }
           & $env:BCL_OLD_SINGLE_PROBE onefile $env:BCL_TAG $env:BCL_SINGLE_SHA $env:BCL_OLD_SINGLE
           if ($LASTEXITCODE -ne 0) { throw 'Live OneFile update verification failed' }
