@@ -25,3 +25,10 @@ GitHub Actions 中的 **WPF net48 (Windows build)** 工作流会在 Windows 上�
 - [CmlLib.Core](https://github.com/CmlLib/CmlLib.Core)
 - [CmlLib.Core.Auth.Microsoft](https://github.com/CmlLib/CmlLib.Core.Auth.Microsoft)
 - [CmlLib.Core.Installer.Forge](https://github.com/CmlLib/CmlLib.Core.Installer.Forge)
+
+### 代码签名与安全说明
+
+- [Code signing policy / 代码签名政策](docs/CODE_SIGNING_POLICY.md) — 目前尚未获得 SignPath Foundation 审核批准，正式版 EXE 暂不宣称经过数字签名。
+- [Privacy and network activity / 隐私与联网说明](docs/PRIVACY.md) — 说明微软登录、游戏下载、模组管理及启动器更新相关联网服务。
+- 开发者显示昵称为 **晓银**，不是 Windows 证书中的法定签名主体。若 SignPath Foundation 未来审核通过，Windows 的签名发布者将显示 **SignPath Foundation**。
+- 本项目的 WPF 源码使用当前目录的 [MIT License](LICENSE)；不代表仓库里其他文件已自动适用相同许可。
