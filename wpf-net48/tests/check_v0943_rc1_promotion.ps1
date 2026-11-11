@@ -104,11 +104,13 @@ public static class ReleaseProbe
         using (var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(140)))
         {
             LauncherUpdateOffer offer = null;
-            for (int attempt = 0; attempt < 12; attempt++)
+            for (int attempt = 0; attempt < 3; attempt++)
             {
                 offer = updater.CheckAsync(deadline.Token).GetAwaiter().GetResult();
+                Console.WriteLine("Preview offer: " + (offer == null ? "(none)" : offer.Tag));
                 if (offer != null && offer.Tag == tag) break;
-                Thread.Sleep(4000);
+                // v0.9.42 caches unauthenticated release lists for 45 seconds.
+                if (attempt < 2) Thread.Sleep(46000);
             }
             if (offer == null || offer.Tag != tag)
                 throw new InvalidOperationException("Public preview feed did not offer " + tag);

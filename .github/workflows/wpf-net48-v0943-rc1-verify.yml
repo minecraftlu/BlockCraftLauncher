@@ -1,0 +1,56 @@
+name: Verify published BlockCraft Launcher v0.9.43 RC1
+
+on:
+  push:
+    branches:
+      - verify/v0943-rc1-public-upgrade
+
+jobs:
+  verify:
+    if: github.repository == 'minecraftlu/BlockCraftLauncher' && github.ref == 'refs/heads/verify/v0943-rc1-public-upgrade'
+    runs-on: windows-2022
+    permissions:
+      contents: read
+    env:
+      RELEASE_TAG: v0.9.43-wpf-rc.1
+      RELEASE_ZIP: BlockCraftLauncher-v0.9.43-WPF-net48-Alpha-Windows-x64.zip
+      RELEASE_EXE: BlockCraftLauncher-v0.9.43-WPF-OneFile-Windows-x64.exe
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download and verify the public preview and v0.9.42 upgrade fixtures
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 6
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $headers = @{ 'User-Agent' = 'BlockCraftLauncher-RC1-Public-Verification' }
+          $feed = Invoke-RestMethod -Uri 'https://api.github.com/repos/minecraftlu/BlockCraftLauncher/releases?per_page=100' -Headers $headers -TimeoutSec 30
+          $entry = @($feed | Where-Object { $_.tag_name -ceq $env:RELEASE_TAG -and $_.prerelease -and -not $_.draft })
+          if ($entry.Count -ne 1) { throw 'The anonymous public update feed has not propagated RC1' }
+          Write-Host "PASS: anonymous release list offers $env:RELEASE_TAG"
+          New-Item -ItemType Directory -Path 'dist' | Out-Null
+          $hashes = @{
+            'BlockCraftLauncher-v0.9.43-WPF-OneFile-Windows-x64.exe' = '29e98f136083f1e925dda3bd72813c1100d22827be1527618a01c3c04377330c'
+            'BlockCraftLauncher-v0.9.43-WPF-net48-Alpha-Windows-x64.zip' = 'ba77eae508b0ac8ee84a5b8d145fabf68ec75c9da995fb88c28453dbe9dd2918'
+            'RELEASE-SHA256SUMS.txt' = '8fe5a093c3ac76c823a9dc27a646870db23331dd78d99e15040694c393f7911d'
+          }
+          foreach ($name in $hashes.Keys) {
+            $file = Join-Path 'dist' $name
+            Invoke-WebRequest -Uri "https://github.com/minecraftlu/BlockCraftLauncher/releases/download/$env:RELEASE_TAG/$name" -OutFile $file -TimeoutSec 45
+            if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ne $hashes[$name]) {
+              throw "Published checksum mismatch: $name"
+            }
+          }
+          & ./tests/check_v0943_rc1_promotion.ps1 -Phase Preflight
+          if ($LASTEXITCODE -ne 0) { throw 'Preview upgrade preflight failed' }
+
+      - name: Upgrade both published v0.9.42 packages using the public preview feed
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./tests/check_v0943_rc1_promotion.ps1 -Phase Live
+          if ($LASTEXITCODE -ne 0) { throw 'Public preview upgrade verification failed' }
