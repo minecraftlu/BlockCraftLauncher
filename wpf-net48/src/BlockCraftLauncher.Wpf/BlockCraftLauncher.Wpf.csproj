@@ -15,8 +15,8 @@
     <ApplicationIcon>Assets\blockcraft_icon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Version>0.9.41.0</Version>
-    <FileVersion>0.9.41.0</FileVersion>
+    <Version>0.9.42.0</Version>
+    <FileVersion>0.9.42.0</FileVersion>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="CmlLib.Core" Version="4.1.0" />
