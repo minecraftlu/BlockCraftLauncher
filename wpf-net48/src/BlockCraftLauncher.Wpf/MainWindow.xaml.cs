@@ -540,13 +540,13 @@ namespace BlockCraftLauncher.Wpf
                 MaximizeGlyph.Text = WindowState == WindowState.Maximized ? "\uE923" : "\uE922";
         }
 
-        SkinStudioView GetSkinStudio()
+        SkinStudioView GetSkinStudio(bool enableDraftRecovery = true)
         {
             if (skinStudio == null)
                 skinStudio = new SkinStudioView(UploadSkinToMicrosoftAsync,
                     () => settings.AccountMode == "microsoft" ? settings.AccountName : null,
                     () => Navigate("皮肤 DIY"), QueueSkinDownload,
-                    () => Navigate("皮肤下载"));
+                    () => Navigate("皮肤下载"), enableDraftRecovery);
             return skinStudio;
         }
 
@@ -1297,6 +1297,8 @@ namespace BlockCraftLauncher.Wpf
             if (lanWorldList?.ItemTemplate == null)
                 throw new InvalidOperationException("局域网列表缺少行布局模板");
 
+            // Layout fixtures draw on the skin; isolate them from the user's draft.
+            GetSkinStudio(enableDraftRecovery: false);
             Navigate("皮肤下载");
             if (skinStudio == null || PageHost.Content != skinStudio ||
                 !skinStudio.DownloadMode || !sidebarButtons.ContainsKey("皮肤下载") ||

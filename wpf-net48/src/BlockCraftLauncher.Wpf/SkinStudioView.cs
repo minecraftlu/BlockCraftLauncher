@@ -190,17 +190,18 @@ namespace BlockCraftLauncher.Wpf
             Func<string> accountName = null,
             Action openEditor = null,
             Action<OnlineSkinEntry> queueSkinDownload = null,
-            Action openDownloads = null)
+            Action openDownloads = null, bool enableDraftRecovery = true)
         {
             this.uploadToMicrosoft = uploadToMicrosoft;
             this.accountName = accountName;
             this.openEditor = openEditor;
             this.openDownloads = openDownloads;
             this.queueSkinDownload = queueSkinDownload;
+            this.enableDraftRecovery = enableDraftRecovery;
             document.Changed += () =>
             {
                 RefreshImages();
-                if (document.Dirty)
+                if (enableDraftRecovery && document.Dirty)
                 {
                     draftTimer.Stop();
                     draftTimer.Start();
@@ -1263,9 +1264,11 @@ namespace BlockCraftLauncher.Wpf
             }
         }
 
+        readonly bool enableDraftRecovery;
+
         void SaveRecoveryDraft()
         {
-            if (!document.Dirty) return;
+            if (!enableDraftRecovery || !document.Dirty) return;
             string destination = RecoveryFile;
             string temporary = destination + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try
@@ -1294,7 +1297,7 @@ namespace BlockCraftLauncher.Wpf
 
         void OfferRecoveryOnce()
         {
-            if (recoveryChecked) return;
+            if (!enableDraftRecovery || recoveryChecked) return;
             recoveryChecked = true;
             try
             {
