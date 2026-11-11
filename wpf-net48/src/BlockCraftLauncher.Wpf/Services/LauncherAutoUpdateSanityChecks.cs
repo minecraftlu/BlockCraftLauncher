@@ -51,6 +51,10 @@ namespace BlockCraftLauncher.Wpf.Services
         public static void Run()
         {
             LauncherRelaunchSignal.RunOfflineSelfTest();
+            var defaults = new LauncherConfig();
+            Require(defaults.AutoCheckUpdates && defaults.AutoDownloadUpdates &&
+                defaults.AutoRestartAfterUpdateDownload && !defaults.AutoInstallUpdatesOnExit,
+                "新安装自动下载并校验更新，空闲自动切换，同时保持退出安装选项独立");
             Require(LauncherAutoUpdateService.CompareTags("v0.9.29-wpf-rc.2",
                 "v0.9.29-wpf-rc.1") > 0, "同版本的新 RC 能升级");
             Require(LauncherAutoUpdateService.CompareTags("v0.9.29",
@@ -311,13 +315,13 @@ namespace BlockCraftLauncher.Wpf.Services
                     };
                     Require(LauncherAutoUpdateService.DirectPreviewExecutable(preparedOne) == onePath,
                         "已校验的新版可直接运行，旧安装位置保持不变");
-                    // Download-only must NEVER silently install. Only an
-                    // explicit opt-in and the exact currently selected
-                    // verified package may install when the window closes.
+                    // An explicitly disabled auto-switch must be respected;
+                    // only the selected, verified package can ever be installed.
                     var automatic = new LauncherConfig
                     {
                         AutoCheckUpdates = true, AutoDownloadUpdates = true,
-                        AutoInstallUpdatesOnExit = true
+                        AutoInstallUpdatesOnExit = true,
+                        AutoRestartAfterUpdateDownload = false
                     };
                     Require(LauncherAutoUpdateService.ShouldAutoInstallOnExit(
                         automatic, preparedOne, rcOne, false, false),
