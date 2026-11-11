@@ -45,9 +45,9 @@ namespace BlockCraftLauncher.Wpf.Services
                     config.Proxy = S(data, "proxy");
                     config.McimEnabled = S(data, "mcim_enabled", "False").Equals("True", StringComparison.OrdinalIgnoreCase);
                     config.AutoCheckUpdates = S(data, "auto_check_updates", "True").Equals("True", StringComparison.OrdinalIgnoreCase);
-                    config.AutoDownloadUpdates = S(data, "auto_download_updates", "False").Equals("True", StringComparison.OrdinalIgnoreCase);
+                    config.AutoDownloadUpdates = S(data, "auto_download_updates", "True").Equals("True", StringComparison.OrdinalIgnoreCase);
                     config.AutoInstallUpdatesOnExit = S(data, "auto_install_updates_on_exit", "False").Equals("True", StringComparison.OrdinalIgnoreCase);
-                    config.AutoRestartAfterUpdateDownload = S(data, "auto_restart_after_update_download", "False").Equals("True", StringComparison.OrdinalIgnoreCase);
+                    config.AutoRestartAfterUpdateDownload = S(data, "auto_restart_after_update_download", "True").Equals("True", StringComparison.OrdinalIgnoreCase);
                     config.UpdateChannel = S(data, "update_channel", "stable") == "preview" ? "preview" : "stable";
                     if (DateTime.TryParse(S(data, "last_update_check_utc"), null,
                         System.Globalization.DateTimeStyles.AdjustToUniversal, out var checkedAt))
