@@ -3,7 +3,7 @@ name: Publish BlockCraft Launcher v0.9.45 Stable (晓银 file metadata)
 on:
   push:
     branches:
-      - release/v0945-stable-auto-switch
+      - release/v0945-stable-xiaoyin-publisher
 
 concurrency:
   group: blockcraft-v0945-stable-publish
@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.repository == 'minecraftlu/BlockCraftLauncher' && github.ref == 'refs/heads/release/v0945-stable-auto-switch'
+    if: github.repository == 'minecraftlu/BlockCraftLauncher' && github.ref == 'refs/heads/release/v0945-stable-xiaoyin-publisher'
     runs-on: windows-2022
     permissions:
       contents: write
