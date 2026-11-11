@@ -3356,6 +3356,7 @@ namespace BlockCraftLauncher.Wpf
             settingsMemory = new TextBox { Text = settings.MemoryMb.ToString(), MaxWidth = 180 };
             SettingRow(game, "游戏内存（MB）", settingsMemory, "至少 512 MB，例如 4096。");
             AddPage("设置", "启动设置", "配置游戏目录、Java 和运行内存。", game,
+                Btn("同一移动硬盘设置游戏与下载目录", ChooseSameDiskPaths),
                 Btn("打开游戏目录", OpenGameFolder));
 
             var network = SettingsForm();
@@ -3383,7 +3384,8 @@ namespace BlockCraftLauncher.Wpf
                 Row(settingsDownloadDirectory,
                     Btn("选择文件夹", () => ChooseFolder(settingsDownloadDirectory))),
                 "存放启动器更新包与整合包下载缓存，可放到 D/E 盘；" +
-                "Minecraft 版本和模组仍安装在游戏根目录。");
+                "Minecraft 版本和模组仍安装在游戏根目录。游戏和缓存可在同一块移动硬盘，" +
+                "但必须位于不同文件夹，例如 E:\\BlockCraftLauncher\\Minecraft 和 E:\\BlockCraftLauncher\\Downloads。");
             settingsDownloadThreads = new TextBox { Text = settings.DownloadThreads.ToString(), MaxWidth = 130 };
             SettingRow(network, "并发连接", settingsDownloadThreads, "2～32 个连接");
             settingsDownloadRetries = new TextBox { Text = settings.DownloadRetries.ToString(), MaxWidth = 130 };
@@ -3434,6 +3436,7 @@ namespace BlockCraftLauncher.Wpf
             var networkPage = AddPage("下载设置", "下载设置",
                 "自定义下载缓存目录、线路、并发数和资源来源。", network,
                 probe,
+                Btn("移动硬盘：同时设置游戏与下载目录", ChooseSameDiskPaths),
                 Btn("恢复默认下载路径", () =>
                 {
                     settingsDownloadDirectory.Text = DownloadPathService.DefaultDirectory;
@@ -3492,6 +3495,45 @@ namespace BlockCraftLauncher.Wpf
                 Btn("查看更新", () => Navigate("启动器更新")));
             return settingsPages[page];
         }
+        void ChooseSameDiskPaths()
+        {
+            // External USB hard drives can be reported as Fixed drives by
+            // Windows. Pick a folder on ANY local drive and generate two
+            // sibling directories, never two identical/nested directories.
+            // Existing Minecraft profiles and worlds are not migrated.
+            using (var picker = new System.Windows.Forms.FolderBrowserDialog
+            {
+                Description = "选择移动硬盘盘符或其下的父文件夹；启动器将分别使用 Minecraft 和 Downloads 子文件夹",
+                ShowNewFolderButton = true
+            })
+            {
+                string existing = settingsRoot?.Text;
+                if (!string.IsNullOrWhiteSpace(existing) &&
+                    Directory.Exists(existing))
+                {
+                    // Use parent when an existing Minecraft root is chosen:
+                    // avoid building Minecraft\\Minecraft on repeated edits.
+                    var parent = Path.GetDirectoryName(Path.GetFullPath(existing));
+                    if (!string.IsNullOrWhiteSpace(parent) && Directory.Exists(parent))
+                        picker.SelectedPath = parent;
+                }
+                if (picker.ShowDialog() != System.Windows.Forms.DialogResult.OK)
+                    return;
+                if (!DownloadPathService.TryPlanSameDiskFolders(
+                    picker.SelectedPath, out var game, out var cache, out var error))
+                {
+                    Status("移动硬盘路径不适用：" + error);
+                    return;
+                }
+                if (settingsRoot != null) settingsRoot.Text = game;
+                if (settingsDownloadDirectory != null)
+                    settingsDownloadDirectory.Text = cache;
+                Status("已将游戏根目录设为 " + game +
+                    "，下载缓存设为 " + cache +
+                    "。两者在同一磁盘的不同文件夹；点击“保存设置”后生效。");
+            }
+        }
+
         void ChooseFolder(TextBox target)
         {
             if (target == null) return;
