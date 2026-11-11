@@ -55,7 +55,7 @@ namespace BlockCraftLauncher.Wpf
         string versionLoadError;
         bool usingCachedVersions;
         ComboBox versionCategory, settingsNetworkMode;
-        TextBox settingsDownloadThreads, settingsDownloadRetries;
+        TextBox settingsDownloadThreads, settingsDownloadRetries, settingsDownloadDirectory;
         ListBox downloadList;
         TextBox downloadSearchQuery;
         ComboBox downloadStatusFilter;
@@ -1321,7 +1321,8 @@ namespace BlockCraftLauncher.Wpf
             var originalRoot = settingsRoot.Text;
             settingsRoot.Text = "layout-probe";
             Navigate("下载设置");
-            if (settingsNetworkMode == null || settingsDownloadThreads == null)
+            if (settingsNetworkMode == null || settingsDownloadThreads == null ||
+                settingsDownloadDirectory == null)
                 throw new InvalidOperationException("下载设置缺少字段");
             ArrangeLayoutProbe(1080, 680, "05-settings");
             if (Math.Abs(settingsNetworkMode.TranslatePoint(new Point(), PageHost).X -
@@ -2318,8 +2319,7 @@ namespace BlockCraftLauncher.Wpf
             if (hit == null) { MessageBox.Show("请先选择一个整合包"); return; }
             downloads.Enqueue("整合包", hit.Name, async (token, progress, bytes) =>
             {
-                string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "BlockCraftLauncher", "wpf-pack-cache");
+                string folder = DownloadPathService.ModpackCache(settings.DownloadDirectory);
                 Directory.CreateDirectory(folder);
                 string archive = Path.Combine(folder, Guid.NewGuid().ToString("N") + ".mrpack");
                 try
@@ -3309,7 +3309,9 @@ namespace BlockCraftLauncher.Wpf
 
             var game = SettingsForm();
             settingsRoot = new TextBox { Text = settings.Root, ToolTip = "Minecraft 根目录（含 versions、libraries 等）" };
-            SettingRow(game, "游戏根目录", settingsRoot, "作为下载和导入游戏的默认目录。");
+            SettingRow(game, "游戏根目录",
+                Row(settingsRoot, Btn("选择文件夹", () => ChooseFolder(settingsRoot))),
+                "游戏本体、模组和资源包仍安装在对应 Minecraft 实例中；改动不会自动移动现有游戏。");
             settingsJava = new TextBox { Text = settings.JavaPath, ToolTip = "留空时由启动组件自动选择 Java" };
             SettingRow(game, "Java 路径", settingsJava, "留空时自动查找 Java。");
             settingsPlayer = new TextBox { Text = settings.OfflineName, MaxWidth = 240 };
@@ -3335,6 +3337,16 @@ namespace BlockCraftLauncher.Wpf
             if (settingsNetworkMode.SelectedIndex < 0) settingsNetworkMode.SelectedIndex = 0;
             SettingRow(network, "下载线路", settingsNetworkMode,
                 "游戏和加载器文件来源为 Mojang、加载器官方站点与 BMCLAPI。");
+            settingsDownloadDirectory = new TextBox
+            {
+                Text = DownloadPathService.Resolve(settings.DownloadDirectory),
+                ToolTip = "例如 D:\\BlockCraftDownloads（用于启动器更新和整合包临时文件）"
+            };
+            SettingRow(network, "下载缓存目录",
+                Row(settingsDownloadDirectory,
+                    Btn("选择文件夹", () => ChooseFolder(settingsDownloadDirectory))),
+                "存放启动器更新包与整合包下载缓存，可放到 D/E 盘；" +
+                "Minecraft 版本和模组仍安装在游戏根目录。");
             settingsDownloadThreads = new TextBox { Text = settings.DownloadThreads.ToString(), MaxWidth = 130 };
             SettingRow(network, "并发连接", settingsDownloadThreads, "2～32 个连接");
             settingsDownloadRetries = new TextBox { Text = settings.DownloadRetries.ToString(), MaxWidth = 130 };
@@ -3427,6 +3439,22 @@ namespace BlockCraftLauncher.Wpf
                 Btn("查看更新", () => Navigate("启动器更新")));
             return settingsPages[page];
         }
+        void ChooseFolder(TextBox target)
+        {
+            if (target == null) return;
+            using (var dialog = new System.Windows.Forms.FolderBrowserDialog
+            {
+                Description = "选择 BlockCraft Launcher 文件夹",
+                ShowNewFolderButton = true
+            })
+            {
+                if (Directory.Exists(target.Text))
+                    dialog.SelectedPath = Path.GetFullPath(target.Text);
+                if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                    target.Text = dialog.SelectedPath;
+            }
+        }
+
         void SaveSettings()
         {
             if (!NetworkDownloader.TryNormalizeProxy(settingsProxy?.Text ?? settings.Proxy, out var proxy))
@@ -3436,7 +3464,34 @@ namespace BlockCraftLauncher.Wpf
                 Status("下载代理地址无效，例如 http://127.0.0.1:7890。");
                 return;
             }
-            settings.Root = settingsRoot?.Text ?? settings.Root;
+            string gameRoot = settingsRoot?.Text ?? settings.Root;
+            string inputDirectory = settingsDownloadDirectory?.Text ?? settings.DownloadDirectory;
+            if (!DownloadPathService.TryValidate(inputDirectory, gameRoot,
+                out var downloadDirectory, out var directoryError))
+            {
+                Navigate("下载设置");
+                Status("下载缓存目录无效：" + directoryError);
+                settingsDownloadDirectory?.Focus();
+                return;
+            }
+            try
+            {
+                Directory.CreateDirectory(downloadDirectory);
+                // Test writability before accepting a new drive. Never clear
+                // existing user files or silently fall back to C:.
+                string probe = Path.Combine(downloadDirectory,
+                    ".blockcraft-write-check-" + Guid.NewGuid().ToString("N"));
+                try { File.WriteAllText(probe, "ok"); }
+                finally { if (File.Exists(probe)) File.Delete(probe); }
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                Navigate("下载设置");
+                Status("下载缓存目录不可写：" + ex.Message);
+                return;
+            }
+            settings.Root = gameRoot;
+            settings.DownloadDirectory = downloadDirectory;
             settings.Proxy = proxy;
             if (settingsProxy != null) settingsProxy.Text = proxy;
             if (settingsNetworkMode?.SelectedItem is KeyValuePair<string, string> selectedRoute)
