@@ -686,3 +686,20 @@ jobs:
             }
           }
           Write-Host "SUCCESS: https://github.com/${{ github.repository }}/releases/tag/$tag"
+
+      - name: Verify actual v0.9.38 stable to v0.9.40 stable ZIP and single EXE upgrade
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 16
+        env:
+          RELEASE_TAG: v0.9.40
+          RELEASE_ZIP: BlockCraftLauncher-v0.9.40-WPF-net48-Windows-x64.zip
+          RELEASE_EXE: BlockCraftLauncher-v0.9.40-WPF-OneFile-Windows-x64.exe
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./tests/check_v0940_stable_promotion.ps1 -Phase Live
+          if (-not $?) {
+            throw 'Published v0.9.40 stable did not replace and relaunch v0.9.38 at the original paths'
+          }
+          Write-Host 'PASS: both v0.9.38 installation forms upgraded in place to v0.9.40 and reopened the new main window'
+
