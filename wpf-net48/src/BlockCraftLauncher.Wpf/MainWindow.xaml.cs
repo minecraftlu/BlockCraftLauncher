@@ -3394,7 +3394,23 @@ namespace BlockCraftLauncher.Wpf
                 catch (Exception ex) { probeText.Text = "检测失败：" + ex.Message; }
                 finally { probe.IsEnabled = true; }
             });
-            var networkPage = AddPage("下载设置", "下载设置", "选择网络线路、并发数和资源来源。", network, probe);
+            var networkPage = AddPage("下载设置", "下载设置",
+                "自定义下载缓存目录、线路、并发数和资源来源。", network,
+                probe,
+                Btn("恢复默认下载路径", () =>
+                {
+                    settingsDownloadDirectory.Text = DownloadPathService.DefaultDirectory;
+                    Status("已恢复默认下载目录，请点击“保存设置”生效。");
+                }),
+                Btn("打开下载目录", () =>
+                {
+                    if (DownloadPathService.TryValidate(settingsDownloadDirectory.Text,
+                        settingsRoot?.Text ?? settings.Root,
+                        out var path, out var reason) && Directory.Exists(path))
+                        Process.Start("explorer.exe", "\\"" + path + "\\"");
+                    else
+                        Status("下载目录尚未创建或路径无效，请先保存设置。");
+                }));
             networkPage.Children.Add(probeCard);
 
             var updates = SettingsForm();
