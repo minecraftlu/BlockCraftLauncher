@@ -53,5 +53,5 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           & ./tests/check_v0939_rc2_promotion.ps1 -Phase Live
-          if ($LASTEXITCODE -ne 0) { throw 'RC1 to RC2 live upgrade, relaunch or cleanup failed' }
+          if (-not $?) { throw 'RC1 to RC2 live upgrade, relaunch or cleanup failed' }
           Write-Host 'PASS: both RC1 installation forms upgraded to RC2 at original paths, verified main window and cleaned obsolete update files'
