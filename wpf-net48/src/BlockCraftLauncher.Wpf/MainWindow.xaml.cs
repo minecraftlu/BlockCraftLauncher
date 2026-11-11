@@ -151,7 +151,7 @@ namespace BlockCraftLauncher.Wpf
             {
                 postponeAutomaticRestart = true;
                 ClearUpdateCountdown();
-                Status("已推迟这次自动重启，可在启动器更新页继续安装。");
+                Status("已推迟本次自动切换，可在启动器更新页手动安装。");
             };
             BuildVersionText.Text = LauncherAutoUpdateService.CurrentTag.Split('-')[0] +
                 "  ·  " + LauncherAutoUpdateService.BuildChannelLabel;
@@ -779,7 +779,8 @@ namespace BlockCraftLauncher.Wpf
 
             bool compact = width < 720;
             bool launch = SectionFor(currentPage) == NavigationSection.Launch;
-            SideColumn.Width = new GridLength(launch ? (compact ? 204 : 264) : (compact ? 140 : 164));
+            // Use a wider PCL-style category rail without overflowing scaled windows.
+            SideColumn.Width = new GridLength(launch ? (compact ? 204 : 264) : (compact ? 150 : 184));
             PageScroll.Padding = compact ? new Thickness(12, 12, 12, 6) :
                 new Thickness(20, 16, 20, 9);
         }
@@ -3178,7 +3179,7 @@ namespace BlockCraftLauncher.Wpf
             };
             updateCheckButton = Btn("检查更新", async () =>
                 await CheckLauncherUpdatesAsync(true), true);
-            updateInstallButton = Btn("更新并替换旧版", async () =>
+            updateInstallButton = Btn("替换旧版并启动新版", async () =>
                 await InstallLauncherUpdateAsync(), true);
             updateDirectOpenButton = Btn("临时试用（不替换）", async () =>
                 await OpenDownloadedUpdateDirectlyAsync());
@@ -3224,16 +3225,16 @@ namespace BlockCraftLauncher.Wpf
         string ReadyUpdateStatus()
         {
             string tag = preparedUpdate.Offer.Tag;
-            if (updateHandoffStarting) return "正在打开新版 " + tag + "，等待主窗口显示。";
+            if (updateHandoffStarting) return "正在关闭旧版并自动安装 " + tag + "；完成后启动新窗口。";
             if (updateRestartAtUtc.HasValue)
             {
                 int remaining = Math.Max(1, (int)Math.Ceiling((updateRestartAtUtc.Value - DateTime.UtcNow).TotalSeconds));
-                return "新版 " + tag + " 已校验，" + remaining + " 秒后重启更新。";
+                return "新版 " + tag + " 已校验，" + remaining + " 秒后自动关闭旧版并启动新版。";
             }
             if (settings.AutoRestartAfterUpdateDownload && !postponeAutomaticRestart && !SuppressAutomaticUpdateCheck)
-                return "新版 " + tag + " 已校验，启动器空闲时自动重启。";
+                return "新版 " + tag + " 已校验，空闲时自动关闭旧版、替换原 EXE 并启动新版。";
             if (settings.AutoInstallUpdatesOnExit && !SuppressAutomaticUpdateCheck)
-                return "新版 " + tag + " 已校验，正常关闭时自动切换到新版。";
+                return "新版 " + tag + " 已校验，关闭启动器后会自动替换并打开新版。";
             return "新版 " + tag + " 已校验，可以安装。";
         }
 
@@ -3255,7 +3256,8 @@ namespace BlockCraftLauncher.Wpf
             }
             if (!updateRestartAtUtc.HasValue)
             {
-                updateRestartAtUtc = DateTime.UtcNow.AddSeconds(8);
+                // A short grace period permits postponing after download verification.
+                updateRestartAtUtc = DateTime.UtcNow.AddSeconds(2);
                 PostponeUpdateButton.Visibility = Visibility.Visible;
             }
             if (DateTime.UtcNow < updateRestartAtUtc.Value)
@@ -3281,7 +3283,7 @@ namespace BlockCraftLauncher.Wpf
             }
             if (currentPage == "启动器更新" && updateStatusText != null)
             {
-                updateStatusText.Text = updateHandoffStarting ? "正在打开新版，等待主窗口显示。" :
+                updateStatusText.Text = updateHandoffStarting ? "正在关闭旧版，更新助手将原位替换并打开新版。" :
                     updateHandoffPending && updatePreparationError == null ? "新版窗口已打开，正在原位替换文件。" :
                     updatePreparing ?
                     "正在下载并校验更新..." :
@@ -3429,6 +3431,10 @@ namespace BlockCraftLauncher.Wpf
                 if (updateProgressBar != null)
                     updateProgressBar.Visibility = Visibility.Collapsed;
                 RefreshLauncherUpdatePanel();
+                // A verified package switches automatically as soon as the
+                // launcher is idle. Busy games and unsaved work block the switch.
+                if (preparedUpdate != null && settings.AutoRestartAfterUpdateDownload)
+                    AdvanceAutomaticRestart();
             }
         }
 
@@ -3504,7 +3510,11 @@ namespace BlockCraftLauncher.Wpf
             Status(ReadyUpdateStatus());
             try
             {
-                await autoUpdater.StartPreparedHandoffAsync(preparedUpdate, updateCancellation.Token);
+                // The independent updater waits for this process to exit, installs
+                // the verified package at the original path, smoke-tests it,
+                // and opens the replacement window. Rollback remains enabled.
+                await Task.Run(() => autoUpdater.StartExternalInstaller(preparedUpdate),
+                    updateCancellation.Token);
                 suppressAutomaticInstallOnClose = true;
                 Application.Current.Shutdown();
             }
@@ -3775,12 +3785,12 @@ namespace BlockCraftLauncher.Wpf
                 IsChecked = settings.AutoRestartAfterUpdateDownload,
                 Content = new TextBlock
                 {
-                    Text = "校验完成后空闲时自动重启",
+                    Text = "下载校验完成后自动替换并启动新版",
                     TextWrapping = TextWrapping.Wrap
                 }
             };
             SettingRow(updates, "自动重启", settingsAutoRestartAfterDownload,
-                "空闲时倒计时 8 秒，可在底栏推迟安装。游戏和下载任务进行时会等待。");
+                "新版下载校验后，空闲时约 2 秒自动关闭旧窗口并打开新版。游戏、下载和未保存内容会延后安装。");
             settingsAutoInstallOnExit = new CheckBox
             {
                 IsChecked = settings.AutoInstallUpdatesOnExit,
