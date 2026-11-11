@@ -1,5 +1,9 @@
 using System;
+using System.IO;
 using System.Linq;
+using System.Text;
+using System.Web.Script.Serialization;
+using BlockCraftLauncher.Wpf.Models;
 
 namespace BlockCraftLauncher.Wpf.Services
 {
@@ -120,6 +124,58 @@ namespace BlockCraftLauncher.Wpf.Services
                     new { tag_name = "room-lab", prerelease = true }
                 })).CompatibleWpf,
                 "房间实验发布不能成为正式 WPF 更新");
+            // A verified game/mod file must replace a broken existing copy
+            // even if the destination disk is FAT/exFAT and File.Replace fails.
+            string testRoot = Path.Combine(Path.GetTempPath(),
+                "BlockCraft-Portable-Stability-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(testRoot);
+            try
+            {
+                string target = Path.Combine(testRoot, "existing.jar");
+                string partial = target + ".blockcraft.part";
+                File.WriteAllText(target, "old incomplete mod", Encoding.UTF8);
+                File.WriteAllText(partial, "new verified mod", Encoding.UTF8);
+                NetworkDownloader.CommitVerifiedFile(partial, target,
+                    forcePortableFallback: true);
+                Require(File.ReadAllText(target, Encoding.UTF8) == "new verified mod" &&
+                    !File.Exists(partial) &&
+                    !Directory.GetFiles(testRoot, "existing.jar.blockcraft-previous-*.bak").Any(),
+                    "移动硬盘不支持 ReplaceFile 时仍能替换已损坏的文件并清理备份");
+                File.WriteAllText(partial, "next verified mod", Encoding.UTF8);
+                NetworkDownloader.CommitVerifiedFile(partial, target);
+                Require(File.ReadAllText(target, Encoding.UTF8) == "next verified mod",
+                    "NTFS 正常原子替换路径继续可用");
+
+                // An invalid current settings.json must fall back to the
+                // complete previous backup, not a partially loaded profile.
+                string settingsPath = Path.Combine(testRoot, "settings.wpf-preview.json");
+                string backupPath = Path.ChangeExtension(settingsPath, ".bak");
+                string gamePath = Path.Combine(testRoot, "Minecraft");
+                string cachePath = Path.Combine(testRoot, "Downloads");
+                var serializer2 = new JavaScriptSerializer();
+                var backup = new {
+                    root = gamePath, download_directory = cachePath,
+                    update_channel = "stable", ui_zoom = 110,
+                    profiles = new[] { new {
+                        id = "old", name = "portable", base_version = "1.20.6",
+                        launch_version = "1.20.6", loader = "vanilla", dir = gamePath
+                    }}
+                };
+                File.WriteAllText(backupPath, serializer2.Serialize(backup), Encoding.UTF8);
+                File.WriteAllText(settingsPath, "invalid settings JSON", Encoding.UTF8);
+                var restored = new SettingsStore(settingsPath).Load();
+                Require(restored.Root == gamePath &&
+                    restored.DownloadDirectory == cachePath &&
+                    restored.Profiles.Count == 1 &&
+                    restored.Profiles[0].Id == "old" &&
+                    restored.Zoom == 110,
+                    "设置主文件损坏后应完整恢复同盘目录和游戏配置，避免降级为默认 C 盘");
+            }
+            finally
+            {
+                Directory.Delete(testRoot, true);
+            }
+
             // This runs a simulated HTTP transport (no DNS or credentials)
             // through the SAME CmlLib game routing handler as production.
             ChinaDownloadAndCurseForgeSanityChecks.Run();
