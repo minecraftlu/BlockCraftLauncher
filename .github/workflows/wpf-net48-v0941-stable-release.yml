@@ -35,7 +35,7 @@ jobs:
           $reviewed = (& git rev-parse 'HEAD^').Trim()
           if ($LASTEXITCODE -ne 0 -or
               $record -notmatch '(?m)^OWNER_RELEASE_AUTHORIZATION: true$' -or
-              $record -notmatch '(?m)^RELEASE_TAG: v0\.9\.40$' -or
+              $record -notmatch '(?m)^RELEASE_TAG: v0\.9\.41$' -or
               $record -notmatch "(?m)^REVIEWED_SOURCE_SHA: $reviewed$") {
             throw 'Missing exact approved and reviewed stable source'
           }
@@ -45,7 +45,7 @@ jobs:
             throw 'Stable candidate changed after Windows CI'
           }
           $source = Get-Content -LiteralPath 'wpf-net48/src/BlockCraftLauncher.Wpf/Services/LauncherAutoUpdateService.cs' -Raw
-          if ($source -notmatch 'internal const string CurrentTag = "v0\.9\.40";') {
+          if ($source -notmatch 'internal const string CurrentTag = "v0\.9\.41";') {
             throw 'Launcher binary must identify itself as v0.9.41 stable'
           }
           $existing = & git ls-remote --tags origin "refs/tags/$tag"
