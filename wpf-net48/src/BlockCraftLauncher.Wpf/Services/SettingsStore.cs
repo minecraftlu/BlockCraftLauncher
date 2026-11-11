@@ -35,6 +35,12 @@ namespace BlockCraftLauncher.Wpf.Services
                     if (data == null) continue;
                     config.Raw = data;
                     config.Root = S(data, "root", config.Root);
+                    string savedDownloadPath = S(data, "download_directory");
+                    if (DownloadPathService.TryValidate(savedDownloadPath,
+                        config.Root, out var downloadDirectory, out var downloadError))
+                        config.DownloadDirectory = downloadDirectory;
+                    // Invalid or unavailable saved paths fall back to the
+                    // original cache root; never alter existing Minecraft data.
                     config.JavaPath = S(data, "java");
                     config.Proxy = S(data, "proxy");
                     config.McimEnabled = S(data, "mcim_enabled", "False").Equals("True", StringComparison.OrdinalIgnoreCase);
