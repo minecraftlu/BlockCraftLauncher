@@ -1,0 +1,57 @@
+name: Verify live v0.9.40 RC2 to RC1 same-path upgrade
+
+on:
+  push:
+    branches:
+      - release/v0940-rc1-custom-download-path
+    paths:
+      - 'wpf-net48/docs/V0940_RC1_POST_RELEASE_VERIFY_TRIGGER.md'
+
+jobs:
+  upgrade:
+    runs-on: windows-2022
+    permissions:
+      contents: read
+      attestations: read
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: v0.9.40-wpf-rc.1
+      RELEASE_EXE: BlockCraftLauncher-v0.9.40-WPF-OneFile-Windows-x64.exe
+      RELEASE_ZIP: BlockCraftLauncher-v0.9.40-WPF-net48-Alpha-Windows-x64.zip
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and verify immutable published RC1 EXE and ZIP
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          & gh release download $env:RELEASE_TAG --repo '${{ github.repository }}' --dir dist --pattern $env:RELEASE_EXE --pattern $env:RELEASE_ZIP --pattern RELEASE-SHA256SUMS.txt
+          if ($LASTEXITCODE -ne 0) { throw 'RC1 release assets are not publicly downloadable' }
+          $manifest = @(Get-Content -LiteralPath 'dist/RELEASE-SHA256SUMS.txt')
+          if ($manifest.Count -ne 2) { throw 'RC1 public manifest contains unexpected file count' }
+          foreach ($file in @($env:RELEASE_EXE, $env:RELEASE_ZIP)) {
+            $digest = (Get-FileHash -LiteralPath (Join-Path dist $file) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($manifest -cnotcontains "$digest  $file") { throw "Published RC1 hash mismatch: $file" }
+          }
+          Write-Host 'PASS: public release EXE/ZIP match published release SHA-256 manifest'
+
+      - name: Prepare old RC2 binaries and verify new update compatibility
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 8
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./tests/check_v0940_rc1_promotion.ps1 -Phase Preflight
+          if ($LASTEXITCODE -ne 0) { throw 'RC2 to RC1 promotion preflight failed' }
+
+      - name: Real RC2 ZIP and OneFile replace + relaunch + cleanup
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 14
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./tests/check_v0940_rc1_promotion.ps1 -Phase Live
+          if (-not $?) { throw 'RC2 to RC1 live upgrade, relaunch or cleanup failed' }
+          Write-Host 'PASS: both RC2 installation forms upgraded to RC1 at original paths, verified main window and cleaned obsolete update files'
