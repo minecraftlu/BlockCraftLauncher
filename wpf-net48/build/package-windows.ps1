@@ -114,7 +114,7 @@ $stagedExe = Join-Path $staging 'BlockCraftLauncher.Wpf.exe'
 $hash = (Get-FileHash -LiteralPath $stagedExe -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  BlockCraftLauncher.Wpf.exe" | Set-Content -LiteralPath "$stagedExe.sha256" -Encoding ASCII
 @'
-BlockCraft Launcher v0.9.43 RC2 测试版
+BlockCraft Launcher v0.9.43 RC3 测试版
 
 运行环境为 Windows 10/11 x64 和 .NET Framework 4.8。Microsoft 登录需要 WebView2 Runtime。
 请完整解压 ZIP，在解压目录中打开 BlockCraftLauncher.Wpf.exe，并保留同目录的 DLL。

@@ -50,7 +50,7 @@ namespace BlockCraftLauncher.Wpf.Services
     /// </summary>
     public sealed class LauncherAutoUpdateService
     {
-        internal const string CurrentTag = "v0.9.43-wpf-rc.2";
+        internal const string CurrentTag = "v0.9.43-wpf-rc.3";
         internal static string BuildChannelLabel => CurrentTag.Contains("-wpf-rc.") ? "预览版" : "正式版";
         internal const string ReleasesApi =
             "https://api.github.com/repos/minecraftlu/BlockCraftLauncher/releases?per_page=100";
@@ -63,6 +63,7 @@ namespace BlockCraftLauncher.Wpf.Services
             MaxJsonLength = 12 * 1024 * 1024
         };
         readonly LauncherConfig settings;
+        string installedTarget;
 
         public LauncherAutoUpdateService(LauncherConfig settings)
         {
@@ -633,11 +634,9 @@ namespace BlockCraftLauncher.Wpf.Services
                 progress?.Report(new LauncherUpdateProgress { Message = "检查新版本能否启动..." });
                 await SmokeTestAsync(offer.Mode == "zip" ?
                     Path.Combine(staged, MainFile) : staged, ct);
-                string target;
-                if (offer.Mode == "onefile")
-                    target = Path.GetFullPath(Environment.GetEnvironmentVariable(
-                        "BLOCKCRAFT_SINGLEFILE_BOOTSTRAP") ?? "");
-                else target = Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory);
+                string target = installedTarget ?? (offer.Mode == "onefile"
+                    ? Path.GetFullPath(Environment.GetEnvironmentVariable("BLOCKCRAFT_SINGLEFILE_BOOTSTRAP") ?? "")
+                    : Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory));
                 return new PreparedLauncherUpdate
                 {
                     Offer = offer, StagedPath = staged, Sha256 = hash,
@@ -754,27 +753,21 @@ namespace BlockCraftLauncher.Wpf.Services
             return exe;
         }
 
-        static bool IsLiveRenderedWindow(string marker)
+        static bool IsLiveRenderedWindow(string marker) =>
+            LauncherRelaunchSignal.TryReadReadyProcess(marker, handoff: false, out var pid) &&
+            IsLiveWpfProcess(pid);
+
+        static bool IsLiveWpfProcess(int pid)
         {
             try
             {
-                if (!File.Exists(marker)) return false;
-                var lines = File.ReadAllLines(marker);
-                if (lines.Length < 2 || !int.TryParse(lines[0], out var pid) ||
-                    pid <= 0 || !DateTime.TryParse(lines[1], out _))
-                    return false;
-                using (var p = Process.GetProcessById(pid))
-                    return !p.HasExited &&
-                        string.Equals(p.ProcessName, "BlockCraftLauncher.Wpf",
+                using (var process = Process.GetProcessById(pid))
+                    return !process.HasExited &&
+                        string.Equals(process.ProcessName, "BlockCraftLauncher.Wpf",
                             StringComparison.OrdinalIgnoreCase);
             }
-            catch (Exception ex) when (ex is IOException ||
-                ex is UnauthorizedAccessException ||
-                ex is ArgumentException ||
-                ex is InvalidOperationException)
-            {
-                return false;
-            }
+            catch (ArgumentException) { return false; }
+            catch (InvalidOperationException) { return false; }
         }
 
         /// <summary>
@@ -860,7 +853,55 @@ namespace BlockCraftLauncher.Wpf.Services
                 !string.IsNullOrWhiteSpace(prepared.Sha256);
         }
 
+        internal async Task StartPreparedHandoffAsync(PreparedLauncherUpdate prepared, CancellationToken ct)
+        {
+            string token = Guid.NewGuid().ToString("N");
+            using (var updater = await Task.Run(() =>
+            {
+                ct.ThrowIfCancellationRequested();
+                return StartExternalInstaller(prepared, token);
+            }, ct))
+            {
+                while (true)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (LauncherRelaunchSignal.TryReadHandoffResult(token, out var status, out var detail))
+                    {
+                        if (status == LauncherRelaunchSignal.Rejected)
+                            throw new IOException(detail);
+                        if (status == LauncherRelaunchSignal.Ready &&
+                            int.TryParse(detail, out int pid) && pid > 0 &&
+                            IsLiveWpfProcess(pid) && !updater.HasExited)
+                            return;
+                    }
+                    if (updater.HasExited)
+                        throw new IOException("更新助手已退出，未确认新版主窗口显示。");
+                    await Task.Delay(100, ct);
+                }
+            }
+        }
+
+        internal void UseInstalledTarget(string status, string target)
+        {
+            string fullPath = Path.GetFullPath(target);
+            if (status == LauncherRelaunchSignal.InstalledOneFile)
+            {
+                if (!IsOneFileEnvironment(AppDomain.CurrentDomain.BaseDirectory, fullPath))
+                    throw new IOException("找不到已更新的单文件启动器。");
+                Environment.SetEnvironmentVariable("BLOCKCRAFT_SINGLEFILE_BOOTSTRAP", fullPath);
+            }
+            else if (status != LauncherRelaunchSignal.InstalledZip ||
+                !File.Exists(Path.Combine(fullPath, MainFile)))
+                throw new IOException("找不到已更新的 ZIP 启动器。");
+            installedTarget = fullPath;
+        }
+
         public void StartExternalInstaller(PreparedLauncherUpdate prepared)
+        {
+            using (StartExternalInstaller(prepared, null)) { }
+        }
+
+        Process StartExternalInstaller(PreparedLauncherUpdate prepared, string token)
         {
             if (prepared?.Offer == null || prepared.Offer.Mode != InstallMode)
                 throw new InvalidOperationException("尚未准备好可校验的更新包");
@@ -891,14 +932,14 @@ namespace BlockCraftLauncher.Wpf.Services
                 " --sha256 " + Q(prepared.Sha256) +
                 " --updates-root " + Q(prepared.UpdatesRoot ??
                     DownloadPathService.UpdatesRoot(null));
+            if (token != null) args += " --handoff " + Q(token);
             try
             {
                 File.Copy(updater, helper, false);
-                using (var process = Process.Start(new ProcessStartInfo(helper, args)
+                return Process.Start(new ProcessStartInfo(helper, args)
                 {
                     UseShellExecute = false, WorkingDirectory = runner
-                }))
-                    if (process == null) throw new IOException("无法启动独立更新程序");
+                }) ?? throw new IOException("无法启动独立更新程序");
             }
             catch
             {

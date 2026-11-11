@@ -59,6 +59,12 @@ namespace BlockCraftLauncher.Wpf
             if (smokeTest)
                 ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
+            string postUpdateToken = smokeTest && !relaunchWindowSelfTest ? null :
+                LauncherRelaunchSignal.ReadToken(e.Args);
+            bool directPreview = e.Args.Contains("--direct-open", StringComparer.OrdinalIgnoreCase);
+            bool updateHandoff = !smokeTest && postUpdateToken != null && !directPreview &&
+                e.Args.Contains(LauncherRelaunchSignal.HandoffFlag, StringComparer.OrdinalIgnoreCase);
+
             try
             {
                 VerifyCoreAssemblies();
@@ -66,7 +72,7 @@ namespace BlockCraftLauncher.Wpf
             catch (Exception ex)
             {
                 string log = WriteDiagnostic(ex);
-                if (!smokeTest)
+                if (!smokeTest && !updateHandoff)
                 {
                     MessageBox.Show(
                         "启动器依赖检查未通过：\n" + ex.GetBaseException().Message +
@@ -82,14 +88,6 @@ namespace BlockCraftLauncher.Wpf
             }
 
             base.OnStartup(e);
-
-            // The external updater supplies a one-time random token. Only a
-            // fully rendered, visible main window may acknowledge relaunch.
-            // Normal starts and every offline selftest never write this file.
-            string postUpdateToken = smokeTest && !relaunchWindowSelfTest ? null :
-                LauncherRelaunchSignal.ReadToken(e.Args);
-            bool directPreview = e.Args.Any(arg =>
-                string.Equals(arg, "--direct-open", StringComparison.OrdinalIgnoreCase));
 
             if (publicNetworkSelfTest)
             {
@@ -236,7 +234,8 @@ namespace BlockCraftLauncher.Wpf
                 try
                 {
                     var window = new MainWindow();
-                    window.SuppressAutomaticUpdateCheck = relaunchWindowSelfTest || directPreview;
+                    window.SuppressAutomaticUpdateCheck = relaunchWindowSelfTest || directPreview || updateHandoff;
+                    if (updateHandoff) window.BeginUpdateHandoff();
                     if (window.Content == null)
                         throw new InvalidOperationException("WPF 主窗口没有初始化内容");
                     if (smokeTest && !relaunchWindowSelfTest)
@@ -265,8 +264,10 @@ namespace BlockCraftLauncher.Wpf
                                 window.Focus();
                                 try
                                 {
-                                    LauncherRelaunchSignal.AcknowledgeVisibleWindow(postUpdateToken);
-                                    if (!relaunchWindowSelfTest)
+                                    LauncherRelaunchSignal.AcknowledgeVisibleWindow(postUpdateToken, updateHandoff);
+                                    if (updateHandoff)
+                                        _ = window.CompleteUpdateHandoffAsync(postUpdateToken);
+                                    else if (!relaunchWindowSelfTest)
                                     {
                                         if (directPreview) window.ShowDirectOpenNotice();
                                         else window.ShowPostUpdateSuccess();
@@ -274,9 +275,8 @@ namespace BlockCraftLauncher.Wpf
                                 }
                                 catch (Exception confirmError)
                                 {
-                                    // Confirmation failure should not crash
-                                    // the newly opened launcher.
                                     WriteDiagnostic(confirmError);
+                                    if (updateHandoff) Shutdown(1);
                                 }
                             };
                         }
@@ -295,7 +295,7 @@ namespace BlockCraftLauncher.Wpf
                 catch (Exception ex)
                 {
                     string log = WriteDiagnostic(ex);
-                    if (!smokeTest)
+                    if (!smokeTest && !updateHandoff)
                         MessageBox.Show("启动器窗口初始化失败：\n" + ex.GetBaseException().Message
                             + "\n\n错误日志：\n" + log,
                             "BlockCraft Launcher", MessageBoxButton.OK, MessageBoxImage.Error);

@@ -12,5 +12,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System.Windows.Forms" />
+    <Compile Include="..\src\BlockCraftLauncher.Wpf\Services\LauncherRelaunchSignal.cs" Link="LauncherRelaunchSignal.cs" />
   </ItemGroup>
 </Project>

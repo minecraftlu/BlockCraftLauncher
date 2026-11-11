@@ -1,17 +1,17 @@
-name: BlockCraft Launcher v0.9.43 RC2 Windows build
+name: BlockCraft Launcher v0.9.43 RC3 Windows build
 
 on:
   push:
     branches:
-      - feature/v0943-rc2-ui-skins-update
+      - feature/v0943-rc3-window-handoff
 
 concurrency:
-  group: blockcraft-v0943-rc2-windows
+  group: blockcraft-v0943-rc3-windows
   cancel-in-progress: false
 
 jobs:
   build:
-    if: github.repository == 'minecraftlu/BlockCraftLauncher' && github.ref == 'refs/heads/feature/v0943-rc2-ui-skins-update'
+    if: github.repository == 'minecraftlu/BlockCraftLauncher' && github.ref == 'refs/heads/feature/v0943-rc3-window-handoff'
     runs-on: windows-2022
     permissions:
       contents: read
@@ -27,7 +27,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $tag = 'v0.9.43-wpf-rc.2'
+          $tag = 'v0.9.43-wpf-rc.3'
           $source = Get-Content -LiteralPath 'wpf-net48/src/BlockCraftLauncher.Wpf/Services/LauncherAutoUpdateService.cs' -Raw
           if ($source -cnotmatch ('internal const string CurrentTag = "' + [regex]::Escape($tag) + '";')) {
             throw 'Compiled launcher must identify itself as this preview'
@@ -61,12 +61,12 @@ jobs:
         shell: cmd
         working-directory: wpf-net48
         run: call build\build-windows.bat
-      - name: Verify v0.9.42 can select both RC2 preview packages
+      - name: Verify v0.9.42 can select both RC3 preview packages
         working-directory: wpf-net48
         shell: pwsh
         timeout-minutes: 8
         env:
-          RELEASE_TAG: v0.9.43-wpf-rc.2
+          RELEASE_TAG: v0.9.43-wpf-rc.3
           RELEASE_ZIP: BlockCraftLauncher-v0.9.43-WPF-net48-Alpha-Windows-x64.zip
           RELEASE_EXE: BlockCraftLauncher-v0.9.43-WPF-OneFile-Windows-x64.exe
         run: |
@@ -95,6 +95,11 @@ jobs:
           if ($process.ExitCode -ne 0) {
             throw "Updater rollback selftest failed: $($process.ExitCode)"
           }
+      - name: Verify both new windows appear before the old window closes
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 8
+        run: ./tests/check_update_window_handoff.ps1
       - name: Minecraft server discovery parsing and safety (offline, both distributions)
         working-directory: wpf-net48
         shell: pwsh
@@ -583,7 +588,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: BlockCraftLauncher-v0.9.43-RC2-Windows
+          name: BlockCraftLauncher-v0.9.43-RC3-Windows
           path: |
             wpf-net48/dist/BlockCraftLauncher-v0.9.43-WPF-net48-Alpha-Windows-x64.zip
             wpf-net48/dist/BlockCraftLauncher-v0.9.43-WPF-OneFile-Windows-x64.exe

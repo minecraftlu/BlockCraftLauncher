@@ -10,6 +10,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
+using BlockCraftLauncher.Wpf.Services;
 
 namespace BlockCraftLauncher.Updater
 {
@@ -41,9 +42,18 @@ namespace BlockCraftLauncher.Updater
         {
             if (args.Length == 1 && args[0] == "--selftest")
                 return SelfTest();
+            string handoff = null;
+            string completedZipStage = null;
+            Process previous = null, visible = null;
+            bool previousClosed = false, installed = false;
             try
             {
                 var opt = ParseArguments(args);
+                if (opt.TryGetValue("handoff", out var token))
+                {
+                    LauncherRelaunchSignal.FilePath(token);
+                    handoff = token;
+                }
                 string mode = Require(opt, "mode");
                 if (mode != "onefile" && mode != "zip")
                     throw new InvalidDataException("不支持的更新包格式");
@@ -70,12 +80,35 @@ namespace BlockCraftLauncher.Updater
                         if (!acquired) throw new IOException("同一个启动器正在更新，请等待更新结束。");
                         try
                         {
-                            if (!WaitForPreviousProcess(pid, WaitSeconds))
+                            if (handoff != null)
+                            {
+                                previous = Process.GetProcessById(pid);
+                                visible = OpenBeforeReplacement(previous, mode, target, staged,
+                                    digest, updatesRoot, handoff);
+                                LauncherRelaunchSignal.WriteHandoffResult(handoff,
+                                    LauncherRelaunchSignal.Ready, visible.Id.ToString());
+                                previousClosed = WaitForHandoffExit(previous, visible);
+                            }
+                            else previousClosed = WaitForPreviousProcess(pid, WaitSeconds);
+                            if (!previousClosed)
                                 throw new IOException("原启动器仍在运行，请关闭后重试。");
+                            if (visible?.HasExited == true)
+                                throw new IOException("新版主窗口已退出，无法完成交接。");
+
                             if (mode == "onefile")
-                                ApplySingleExe(target, staged, digest, updatesRoot: updatesRoot);
+                                ApplySingleExe(target, staged, digest, updatesRoot: updatesRoot,
+                                    visible: visible);
                             else
-                                ApplyDirectory(target, staged, digest, updatesRoot: updatesRoot);
+                                ApplyDirectory(target, staged, digest, updatesRoot: updatesRoot,
+                                    visible: visible);
+                            if (handoff != null)
+                            {
+                                installed = true;
+                                if (mode == "zip") completedZipStage = OwnedStageDirectory(staged, updatesRoot);
+                                LauncherRelaunchSignal.WriteHandoffResult(handoff, mode == "onefile"
+                                    ? LauncherRelaunchSignal.InstalledOneFile
+                                    : LauncherRelaunchSignal.InstalledZip, target);
+                            }
                         }
                         finally { updateLock.ReleaseMutex(); }
                     }
@@ -85,6 +118,14 @@ namespace BlockCraftLauncher.Updater
             catch (Exception error)
             {
                 string log = WriteLog(error);
+                if (handoff != null)
+                {
+                    if (!installed)
+                        BestEffortCleanup(() => LauncherRelaunchSignal.WriteHandoffResult(handoff,
+                            previousClosed ? LauncherRelaunchSignal.Failed : LauncherRelaunchSignal.Rejected,
+                            error.GetBaseException().Message));
+                    return 1;
+                }
                 try
                 {
                     MessageBox.Show("BlockCraft Launcher 更新失败。\n\n" +
@@ -94,11 +135,28 @@ namespace BlockCraftLauncher.Updater
                 catch { /* no UI in headless sessions */ }
                 return 1;
             }
+            finally
+            {
+                if (handoff != null) LauncherRelaunchSignal.RemoveReadySignal(handoff);
+                previous?.Dispose();
+                if (visible != null)
+                    using (visible)
+                    {
+                        // The displayed ZIP uses DLLs in this staging folder.
+                        // Release the update mutex before waiting for it to close.
+                        if (completedZipStage != null)
+                            BestEffortCleanup(() =>
+                            {
+                                visible.WaitForExit();
+                                TryDeleteOwnedDirectory(completedZipStage);
+                            });
+                    }
+            }
         }
 
         static Dictionary<string, string> ParseArguments(string[] args)
         {
-            if ((args.Length != 11 && args.Length != 13) || args[0] != "--apply")
+            if ((args.Length != 11 && args.Length != 13 && args.Length != 15) || args[0] != "--apply")
                 throw new ArgumentException("缺少安全更新参数");
             var result = new Dictionary<string, string>(StringComparer.Ordinal);
             for (int i = 1; i < args.Length; i += 2)
@@ -106,7 +164,11 @@ namespace BlockCraftLauncher.Updater
                 if (!args[i].StartsWith("--", StringComparison.Ordinal) ||
                     result.ContainsKey(args[i].Substring(2)))
                     throw new ArgumentException("重复或无效的更新参数");
-                result.Add(args[i].Substring(2), args[i + 1]);
+                string key = args[i].Substring(2);
+                if (key != "mode" && key != "pid" && key != "target" && key != "staged" &&
+                    key != "sha256" && key != "updates-root" && key != "handoff")
+                    throw new ArgumentException("未知更新参数：" + key);
+                result.Add(key, args[i + 1]);
             }
             return result;
         }
@@ -127,6 +189,65 @@ namespace BlockCraftLauncher.Updater
                     return old.WaitForExit(seconds * 1000);
             }
             catch (ArgumentException) { return true; } // Already exited.
+        }
+
+        static Process OpenBeforeReplacement(Process previous, string mode, string target,
+            string staged, string digest, string updatesRoot, string token)
+        {
+            string owned = OwnedStageDirectory(staged, updatesRoot);
+            if (owned == null || AtOrBelow(target, owned))
+                throw new IOException("更新暂存目录不可用或与安装目录冲突。");
+            bool oneFile = mode == "onefile";
+            CheckLauncherExe(oneFile ? target : Path.Combine(target, WpfExe));
+            string executable = oneFile ? staged : Path.Combine(staged, WpfExe);
+            CheckLauncherExe(executable);
+            if (oneFile)
+                ExpectHash(staged, digest);
+            else
+            {
+                var files = StageFiles(staged);
+                CheckZipLocations(target, staged, updatesRoot, files);
+                VerifyStageManifest(staged, files);
+            }
+
+            if (previous.HasExited) throw new IOException("旧启动器已在交接前退出。");
+            string marker = LauncherRelaunchSignal.FilePath(token);
+            using (var launched = Process.Start(new ProcessStartInfo(executable,
+                "--after-update " + token + " " + LauncherRelaunchSignal.HandoffFlag)
+            {
+                UseShellExecute = false,
+                WorkingDirectory = Path.GetDirectoryName(executable)
+            }) ?? throw new IOException("无法打开新版启动器。"))
+            {
+                var watch = Stopwatch.StartNew();
+                while (watch.Elapsed < TimeSpan.FromSeconds(70) && !previous.HasExited)
+                {
+                    if (LauncherRelaunchSignal.TryReadReadyProcess(marker, handoff: false, out int pid) &&
+                        pid != previous.Id && (oneFile || pid == launched.Id) &&
+                        IsVisibleWpfProcess(pid))
+                    {
+                        var candidate = Process.GetProcessById(pid);
+                        if (LauncherRelaunchSignal.TryReadReadyProcess(marker, handoff: true, out _))
+                            return candidate;
+                        using (candidate) candidate.CloseMainWindow();
+                        throw new IOException("此更新包不支持新版窗口交接。");
+                    }
+                    if (launched.HasExited && (!oneFile || launched.ExitCode != 0)) break;
+                    Thread.Sleep(100);
+                }
+            }
+            throw new IOException("未能确认新版主窗口显示。请查看更新日志后重试。");
+        }
+
+        static bool WaitForHandoffExit(Process previous, Process visible)
+        {
+            var watch = Stopwatch.StartNew();
+            while (watch.Elapsed < TimeSpan.FromSeconds(WaitSeconds))
+            {
+                if (previous.WaitForExit(100)) return true;
+                if (visible.HasExited) throw new IOException("新版主窗口在交接前已退出。");
+            }
+            return false;
         }
 
         static string Hash(string path)
@@ -197,24 +318,9 @@ namespace BlockCraftLauncher.Updater
                 token.ToLowerInvariant() + ".ok");
         }
 
-        static bool TryReadWindowReady(string path, Func<int, bool> liveWpfProcess)
-        {
-            try
-            {
-                if (!File.Exists(path)) return false;
-                string[] lines = File.ReadAllLines(path);
-                if (lines.Length < 2 ||
-                    !int.TryParse(lines[0], out var pid) || pid <= 0 ||
-                    !DateTime.TryParse(lines[1], out _))
-                    return false;
-                return liveWpfProcess(pid);
-            }
-            catch (Exception error) when (error is IOException ||
-                error is UnauthorizedAccessException)
-            {
-                return false; // The WPF process may still be writing the marker.
-            }
-        }
+        static bool TryReadWindowReady(string path, Func<int, bool> liveWpfProcess) =>
+            LauncherRelaunchSignal.TryReadReadyProcess(path, handoff: false, out int pid) &&
+            liveWpfProcess(pid);
 
         static bool IsVisibleWpfProcess(int pid)
         {
@@ -285,13 +391,8 @@ namespace BlockCraftLauncher.Updater
                         MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return false;
                 }
-                try
-                {
-                    using (var window = Process.GetProcessById(windowPid))
-                        runningDirectory = Path.GetDirectoryName(window.MainModule.FileName);
-                }
-                catch (Exception error) when (error is Win32Exception ||
-                    error is ArgumentException || error is InvalidOperationException) { }
+                using (var window = Process.GetProcessById(windowPid))
+                    runningDirectory = WindowDirectory(window);
                 return true;
             }
             catch (Exception error)
@@ -302,6 +403,13 @@ namespace BlockCraftLauncher.Updater
                 return false;
             }
             finally { TryDeleteOwnedFile(marker); }
+        }
+
+        static string WindowDirectory(Process process)
+        {
+            try { return Path.GetDirectoryName(process.MainModule.FileName); }
+            catch (Win32Exception) { return null; }
+            catch (InvalidOperationException) { return null; }
         }
 
         // Best-effort housekeeping happens ONLY after the new window has
@@ -528,7 +636,7 @@ namespace BlockCraftLauncher.Updater
             Path.GetDirectoryName(target), ".blockcraft-" + Guid.NewGuid().ToString("N") + ".tmp");
 
         static void ApplySingleExe(string target, string staged, string digest,
-            bool simulateLaunchFailure = false, string updatesRoot = null)
+            bool simulateLaunchFailure = false, string updatesRoot = null, Process visible = null)
         {
             if (!target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
                 !staged.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
@@ -554,7 +662,8 @@ namespace BlockCraftLauncher.Updater
                 if (simulateLaunchFailure)
                     throw new IOException("CI 模拟新版启动自检失败");
                 SmokeTest(target);
-                if (Restart(target, out var runningDirectory))
+                string runningDirectory = visible != null ? WindowDirectory(visible) : null;
+                if (visible != null || Restart(target, out runningDirectory))
                     BestEffortCleanup(() =>
                     {
                         CleanupOwnedExeBackups(target);
@@ -760,7 +869,7 @@ namespace BlockCraftLauncher.Updater
         }
 
         static void ApplyDirectory(string target, string stage, string digest,
-            bool simulateLaunchFailure = false, string updatesRoot = null)
+            bool simulateLaunchFailure = false, string updatesRoot = null, Process visible = null)
         {
             string main = Path.Combine(target, WpfExe);
             CheckLauncherExe(main);
@@ -784,14 +893,13 @@ namespace BlockCraftLauncher.Updater
                 if (simulateLaunchFailure)
                     throw new IOException("CI 模拟新版 WPF 启动自检失败");
                 SmokeTest(main);
-                bool confirmed = Restart(main, out _);
-                if (confirmed)
+                if (visible != null || Restart(main, out _))
                     BestEffortCleanup(() =>
                     {
                         // Only signed ZIP files are backed up; Minecraft
                         // worlds, mods and personal files are not touched.
                         TryDeleteOwnedDirectory(backup);
-                        CleanupOwnedStage(stage, updatesRoot);
+                        if (visible == null) CleanupOwnedStage(stage, updatesRoot);
                     });
             }
             catch (Exception installError)

@@ -36,6 +36,8 @@ namespace BlockCraftLauncher.OneFile
                  args[0] == "--after-update" &&
                  args.Contains("--window-relaunch-selftest") &&
                  (args.Length == 3 || args.Contains("--direct-open")));
+            bool updateHandoff = args.Length == 3 && args[0] == "--after-update" &&
+                args[2] == "--update-handoff";
             try
             {
                 var package = ReadPackage();
@@ -91,7 +93,7 @@ namespace BlockCraftLauncher.OneFile
             catch (Exception error)
             {
                 string path = WriteError(error);
-                if (!probe)
+                if (!probe && !updateHandoff)
                     MessageBox.Show("BlockCraft Launcher 单文件启动失败：\n" + error.GetBaseException().Message +
                         "\n\n请确认已经安装 .NET Framework 4.8，微软正版登录还需 WebView2 Runtime。" +
                         "\n\n诊断日志：\n" + path,

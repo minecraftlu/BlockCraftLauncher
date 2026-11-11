@@ -36,6 +36,8 @@ namespace BlockCraftLauncher.Wpf
         PreparedLauncherUpdate preparedUpdate;
         bool updateChecking;
         bool updatePreparing;
+        bool updateHandoffStarting;
+        bool updateHandoffPending;
         bool updateCheckFailed;
         string updatePreparationError;
         DateTime? updateRestartAtUtc;
@@ -180,10 +182,19 @@ namespace BlockCraftLauncher.Wpf
                     suppressAutomaticInstallOnClose = true;
             Closing += (sender, args) =>
             {
-                if (LauncherAutoUpdateService.ShouldAutoInstallOnExit(settings,
-                    preparedUpdate, offeredUpdate, UpdateIsBusy,
-                    suppressAutomaticInstallOnClose || SuppressAutomaticUpdateCheck))
-                    TryStartPreparedInstallation();
+                if (suppressAutomaticInstallOnClose) return;
+                if (updateHandoffStarting)
+                {
+                    args.Cancel = true;
+                    return;
+                }
+                if (updatePreparationError == null &&
+                    LauncherAutoUpdateService.ShouldAutoInstallOnExit(settings,
+                        preparedUpdate, offeredUpdate, UpdateIsBusy, SuppressAutomaticUpdateCheck))
+                {
+                    args.Cancel = true;
+                    _ = StartPreparedInstallationAsync();
+                }
             };
             Closed += (sender, args) =>
             {
@@ -663,6 +674,56 @@ namespace BlockCraftLauncher.Wpf
             Title = "BlockCraft Launcher · " + LauncherAutoUpdateService.CurrentTag + " · 更新完成";
             Status("更新完成！已自动打开新版 BlockCraft Launcher " +
                 LauncherAutoUpdateService.CurrentTag + "。");
+        }
+
+        internal void BeginUpdateHandoff()
+        {
+            updateHandoffPending = true;
+            Status("新版窗口已打开，正在原位更新启动器文件。");
+        }
+
+        internal async Task CompleteUpdateHandoffAsync(string token)
+        {
+            string result = null;
+            try
+            {
+                var wait = Stopwatch.StartNew();
+                while (wait.Elapsed < TimeSpan.FromMinutes(6))
+                {
+                    if (LauncherRelaunchSignal.TryReadHandoffResult(token, out var status, out var detail) &&
+                        status != LauncherRelaunchSignal.Ready)
+                    {
+                        result = status;
+                        if (status == LauncherRelaunchSignal.Rejected)
+                        {
+                            Close();
+                            return;
+                        }
+                        if (status == LauncherRelaunchSignal.Failed) throw new IOException(detail);
+                        autoUpdater.UseInstalledTarget(status, detail);
+                        updateHandoffPending = false;
+                        SuppressAutomaticUpdateCheck = false;
+                        RefreshLauncherUpdatePanel();
+                        ShowPostUpdateSuccess();
+                        _ = CheckLauncherUpdatesAsync(false);
+                        return;
+                    }
+                    await Task.Delay(100, updateCancellation.Token);
+                }
+                throw new IOException("未收到文件替换结果，请打开启动器更新日志检查。");
+            }
+            catch (OperationCanceledException) when (updateCancellation.IsCancellationRequested) { }
+            catch (Exception error)
+            {
+                updatePreparationError = error.GetBaseException().Message;
+                RefreshLauncherUpdatePanel();
+                ShowError("未完成启动器原位更新", error);
+            }
+            finally
+            {
+                if (result != null && result != LauncherRelaunchSignal.Rejected)
+                    LauncherRelaunchSignal.RemoveHandoffResult(token);
+            }
         }
 
         internal void ShowDirectOpenNotice()
@@ -3146,7 +3207,9 @@ namespace BlockCraftLauncher.Wpf
             catch (Exception ex) { ShowError("无法打开更新日志", ex); }
         }
 
-        bool UpdateIsBusy => updateChecking || updatePreparing || updateCancellation.IsCancellationRequested ||
+        bool UpdateHandoffActive => updateHandoffStarting || updateHandoffPending;
+
+        bool UpdateIsBusy => UpdateHandoffActive || updateChecking || updatePreparing || updateCancellation.IsCancellationRequested ||
             currentOperation != null || changingAccount || loadingVersions || launchingProfiles.Count > 0 ||
             downloads.Jobs.Any(job => job.IsRunning) || skinStudio?.HasActiveOperation == true ||
             settings.Profiles.Any(profile => gameProcesses.GetState(profile).Status == GameProcessStatus.Running);
@@ -3161,6 +3224,7 @@ namespace BlockCraftLauncher.Wpf
         string ReadyUpdateStatus()
         {
             string tag = preparedUpdate.Offer.Tag;
+            if (updateHandoffStarting) return "正在打开新版 " + tag + "，等待主窗口显示。";
             if (updateRestartAtUtc.HasValue)
             {
                 int remaining = Math.Max(1, (int)Math.Ceiling((updateRestartAtUtc.Value - DateTime.UtcNow).TotalSeconds));
@@ -3169,7 +3233,7 @@ namespace BlockCraftLauncher.Wpf
             if (settings.AutoRestartAfterUpdateDownload && !postponeAutomaticRestart && !SuppressAutomaticUpdateCheck)
                 return "新版 " + tag + " 已校验，启动器空闲时自动重启。";
             if (settings.AutoInstallUpdatesOnExit && !SuppressAutomaticUpdateCheck)
-                return "新版 " + tag + " 已校验，正常关闭时自动安装。";
+                return "新版 " + tag + " 已校验，正常关闭时自动切换到新版。";
             return "新版 " + tag + " 已校验，可以安装。";
         }
 
@@ -3201,8 +3265,7 @@ namespace BlockCraftLauncher.Wpf
                 return;
             }
             ClearUpdateCountdown();
-            if (TryStartPreparedInstallation())
-                Application.Current.Shutdown();
+            _ = StartPreparedInstallationAsync();
         }
 
         void RefreshLauncherUpdatePanel()
@@ -3218,12 +3281,14 @@ namespace BlockCraftLauncher.Wpf
             }
             if (currentPage == "启动器更新" && updateStatusText != null)
             {
-                updateStatusText.Text = updatePreparing ?
+                updateStatusText.Text = updateHandoffStarting ? "正在打开新版，等待主窗口显示。" :
+                    updateHandoffPending && updatePreparationError == null ? "新版窗口已打开，正在原位替换文件。" :
+                    updatePreparing ?
                     "正在下载并校验更新..." :
                     updateChecking ? "正在连接 GitHub 检查更新..." :
-                    preparedUpdate != null ? ReadyUpdateStatus() :
                     !string.IsNullOrWhiteSpace(updatePreparationError) ?
-                        "更新准备失败：" + updatePreparationError :
+                        "更新未完成：" + updatePreparationError :
+                    preparedUpdate != null ? ReadyUpdateStatus() :
                     available ? "发现可用更新：" + offeredUpdate.Tag :
                         updateCheckFailed ? "暂时无法连接 GitHub。可检测线路后重试。" :
                         "当前通道没有已确认的更高版本。";
@@ -3234,9 +3299,10 @@ namespace BlockCraftLauncher.Wpf
                     (offeredUpdate.Description ?? "") :
                     "当前通道：" + (settings.UpdateChannel == "preview" ?
                         "预览版" : "稳定版") + "。";
-                updateInstallButton.IsEnabled = available && !updatePreparing && !updateChecking;
-                updateDirectOpenButton.IsEnabled = available && !updatePreparing && !updateChecking;
-                updateCheckButton.IsEnabled = !updateChecking && !updatePreparing;
+                bool canUpdate = !UpdateHandoffActive && !updatePreparing && !updateChecking;
+                updateInstallButton.IsEnabled = available && canUpdate;
+                updateDirectOpenButton.IsEnabled = available && canUpdate;
+                updateCheckButton.IsEnabled = canUpdate;
             }
 
             if (sidebarButtons.TryGetValue("启动器更新", out var nav) &&
@@ -3250,7 +3316,7 @@ namespace BlockCraftLauncher.Wpf
 
         async Task CheckLauncherUpdatesAsync(bool manual)
         {
-            if (updateChecking || updatePreparing || updateCancellation.IsCancellationRequested)
+            if (UpdateHandoffActive || updateChecking || updatePreparing || updateCancellation.IsCancellationRequested)
                 return;
             if (!manual)
             {
@@ -3311,7 +3377,7 @@ namespace BlockCraftLauncher.Wpf
 
         async Task PrepareLauncherUpdateAsync(bool interactive)
         {
-            if (updatePreparing || offeredUpdate == null ||
+            if (UpdateHandoffActive || updatePreparing || offeredUpdate == null ||
                 updateCancellation.IsCancellationRequested) return;
             updatePreparing = true;
             updatePreparationError = null;
@@ -3368,7 +3434,7 @@ namespace BlockCraftLauncher.Wpf
 
         async Task OpenDownloadedUpdateDirectlyAsync()
         {
-            if (updatePreparing || updateChecking || updateCancellation.IsCancellationRequested)
+            if (UpdateHandoffActive || updatePreparing || updateChecking || updateCancellation.IsCancellationRequested)
                 return;
             if (offeredUpdate == null)
             {
@@ -3414,7 +3480,7 @@ namespace BlockCraftLauncher.Wpf
 
         async Task InstallLauncherUpdateAsync()
         {
-            if (updatePreparing || updateChecking) return;
+            if (UpdateHandoffActive || updatePreparing || updateChecking) return;
             if (offeredUpdate == null)
             {
                 await CheckLauncherUpdatesAsync(true);
@@ -3424,28 +3490,35 @@ namespace BlockCraftLauncher.Wpf
                 await PrepareLauncherUpdateAsync(true);
             if (preparedUpdate == null) return;
 
-            if (TryStartPreparedInstallation())
-                Application.Current.Shutdown();
+            await StartPreparedInstallationAsync();
         }
 
-        bool TryStartPreparedInstallation()
+        async Task StartPreparedInstallationAsync()
         {
-            if (preparedUpdate == null || suppressAutomaticInstallOnClose) return false;
+            if (preparedUpdate == null || UpdateHandoffActive || suppressAutomaticInstallOnClose)
+                return;
+            updateHandoffStarting = true;
+            updatePreparationError = null;
             ClearUpdateCountdown();
+            RefreshLauncherUpdatePanel();
+            Status(ReadyUpdateStatus());
             try
             {
-                autoUpdater.StartExternalInstaller(preparedUpdate);
+                await autoUpdater.StartPreparedHandoffAsync(preparedUpdate, updateCancellation.Token);
                 suppressAutomaticInstallOnClose = true;
-                Status("正在替换 " + preparedUpdate.Offer.Tag + "，完成后将打开新版并清理旧备份。");
-                return true;
+                Application.Current.Shutdown();
             }
-            catch (Exception ex)
+            catch (OperationCanceledException) when (updateCancellation.IsCancellationRequested) { }
+            catch (Exception error)
             {
-                preparedUpdate = null;
-                updatePreparationError = ex.GetBaseException().Message;
+                postponeAutomaticRestart = true;
+                updatePreparationError = error.GetBaseException().Message;
+                ShowError("未能切换到新版启动器", error);
+            }
+            finally
+            {
+                updateHandoffStarting = false;
                 RefreshLauncherUpdatePanel();
-                ShowError("无法启动独立更新程序", ex);
-                return false;
             }
         }
 

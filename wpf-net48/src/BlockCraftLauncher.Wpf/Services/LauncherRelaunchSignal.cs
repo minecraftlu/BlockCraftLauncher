@@ -14,6 +14,14 @@ namespace BlockCraftLauncher.Wpf.Services
     /// </summary>
     internal static class LauncherRelaunchSignal
     {
+        internal const string HandoffFlag = "--update-handoff";
+        internal const string HandoffReady = "handoff-v1";
+        internal const string Ready = "ready";
+        internal const string Rejected = "rejected";
+        internal const string Failed = "failed";
+        internal const string InstalledOneFile = "installed-onefile";
+        internal const string InstalledZip = "installed-zip";
+
         internal static string FilePath(string token)
         {
             if (string.IsNullOrWhiteSpace(token) ||
@@ -38,26 +46,84 @@ namespace BlockCraftLauncher.Wpf.Services
             return null;
         }
 
-        internal static void AcknowledgeVisibleWindow(string token)
+        internal static void AcknowledgeVisibleWindow(string token, bool handoff = false)
         {
-            string path = FilePath(token);
-            Directory.CreateDirectory(Path.GetDirectoryName(path));
-            // The first line is the actual WPF process ID, not the transient
-            // onefile unpacking/bootstrap process.
+            // The first line identifies the actual WPF child, not its bootstrap.
             string message = Process.GetCurrentProcess().Id.ToString() + "\n" +
                 DateTime.UtcNow.ToString("o");
-            string staging = path + ".tmp";
+            if (handoff) message += "\n" + HandoffReady;
+            WriteSignal(FilePath(token), message);
+        }
+
+        internal static bool TryReadReadyProcess(string path, bool handoff, out int pid)
+        {
+            pid = 0;
             try
             {
-                File.WriteAllText(staging, message, new UTF8Encoding(false));
-                if (File.Exists(path)) File.Delete(path);
-                File.Move(staging, path);
+                if (!File.Exists(path) || new FileInfo(path).Length > 256) return false;
+                var lines = File.ReadAllLines(path);
+                return lines.Length >= 2 && int.TryParse(lines[0], out pid) && pid > 0 &&
+                    DateTime.TryParse(lines[1], out _) &&
+                    (!handoff || (lines.Length >= 3 && lines[2] == HandoffReady));
             }
-            finally
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
+        }
+
+        internal static void WriteHandoffResult(string token, string status, string detail)
+        {
+            string message = detail ?? "";
+            if (message.Length > 4096) message = message.Substring(0, 4096);
+            WriteSignal(ResultPath(token), status + "\n" + message);
+        }
+
+        internal static bool TryReadHandoffResult(string token, out string status, out string detail)
+        {
+            status = detail = null;
+            string path = ResultPath(token);
+            try
             {
-                try { if (File.Exists(staging)) File.Delete(staging); }
-                catch (IOException) { }
+                if (!File.Exists(path) || new FileInfo(path).Length > 16384) return false;
+                string text;
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                    FileShare.Read | FileShare.Delete))
+                using (var reader = new StreamReader(stream))
+                    text = reader.ReadToEnd();
+                int split = text.IndexOf('\n');
+                if (split <= 0) return false;
+                status = text.Substring(0, split);
+                detail = text.Substring(split + 1);
+                return status == Ready || status == Rejected || status == Failed ||
+                    status == InstalledOneFile || status == InstalledZip;
             }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
+        }
+
+        internal static void RemoveReadySignal(string token) => TryDeleteSignal(FilePath(token));
+
+        internal static void RemoveHandoffResult(string token) => TryDeleteSignal(ResultPath(token));
+
+        static string ResultPath(string token) => Path.ChangeExtension(FilePath(token), ".result");
+
+        static void WriteSignal(string path, string text)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            string staging = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                File.WriteAllText(staging, text, new UTF8Encoding(false));
+                if (File.Exists(path)) File.Replace(staging, path, null);
+                else File.Move(staging, path);
+            }
+            finally { TryDeleteSignal(staging); }
+        }
+
+        static void TryDeleteSignal(string path)
+        {
+            try { if (File.Exists(path)) File.Delete(path); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
         }
 
         internal static void RunOfflineSelfTest()
@@ -74,13 +140,20 @@ namespace BlockCraftLauncher.Wpf.Services
                 string[] lines = File.ReadAllLines(path);
                 if (lines.Length < 2 ||
                     lines[0] != Process.GetCurrentProcess().Id.ToString() ||
-                    !DateTime.TryParse(lines[1], out _))
-                    throw new InvalidDataException("主窗口确认文件格式不正确");
+                    !DateTime.TryParse(lines[1], out _) || TryReadReadyProcess(path, true, out _))
+                    throw new InvalidDataException("旧版启动确认不得触发窗口交接");
+                AcknowledgeVisibleWindow(token, handoff: true);
+                if (!TryReadReadyProcess(path, true, out var pid) || pid != Process.GetCurrentProcess().Id)
+                    throw new InvalidDataException("窗口交接未识别新版主窗口");
+                WriteHandoffResult(token, InstalledOneFile, "C:\\Launcher\\BlockCraft.exe");
+                if (!TryReadHandoffResult(token, out var status, out var target) ||
+                    status != InstalledOneFile || target != "C:\\Launcher\\BlockCraft.exe")
+                    throw new InvalidDataException("新版无法读取安装结果");
             }
             finally
             {
-                try { if (File.Exists(path)) File.Delete(path); }
-                catch (IOException) { }
+                TryDeleteSignal(path);
+                RemoveHandoffResult(token);
             }
         }
     }

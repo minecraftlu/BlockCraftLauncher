@@ -1,7 +1,7 @@
 param([Parameter(Mandatory)][ValidateSet('Preflight', 'Live')][string]$Phase)
 
 $ErrorActionPreference = 'Stop'
-if ($env:RELEASE_TAG -notmatch '\Av0\.9\.43-wpf-rc\.[12]\z') { throw 'Expected a v0.9.43 preview tag' }
+if ($env:RELEASE_TAG -notmatch '\Av0\.9\.43-wpf-rc\.[123]\z') { throw 'Expected a v0.9.43 preview tag' }
 $env:BCL_TAG = $env:RELEASE_TAG
 $env:BCL_ZIP = $env:RELEASE_ZIP
 $env:BCL_SINGLE = $env:RELEASE_EXE
