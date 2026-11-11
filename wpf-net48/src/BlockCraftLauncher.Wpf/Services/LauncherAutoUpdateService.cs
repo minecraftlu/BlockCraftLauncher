@@ -66,6 +66,140 @@ namespace BlockCraftLauncher.Wpf.Services
         public LauncherAutoUpdateService(LauncherConfig settings)
         {
             this.settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            // Self-contained updates use one transient helper EXE. Once the
+            // helper has exited, prune only old launcher-owned working folders.
+            // No game instance, world, mod or user-selected download is scanned.
+            TryCleanupStaleUpdateFolders();
+            TryCleanupLegacyExeBackups();
+        }
+
+        static void TryCleanupLegacyExeBackups()
+        {
+            // Older versions of the updater left versioned rollback EXEs
+            // beside the originally launched OneFile. After 48 hours, a
+            // healthy newly launched app can prune only its own older copies.
+            // This does NOT scan arbitrary Downloads or delete user EXEs.
+            try
+            {
+                string bootstrap = Environment.GetEnvironmentVariable(
+                    "BLOCKCRAFT_SINGLEFILE_BOOTSTRAP");
+                if (!IsOneFileEnvironment(AppDomain.CurrentDomain.BaseDirectory, bootstrap))
+                    return;
+                string full = Path.GetFullPath(bootstrap);
+                string dir = Path.GetDirectoryName(full);
+                if ((File.GetAttributes(dir) & FileAttributes.ReparsePoint) != 0)
+                    return;
+                DateTime cutoff = DateTime.UtcNow.AddDays(-2);
+                foreach (string entry in Directory.GetFiles(dir,
+                    Path.GetFileName(full) + ".blockcraft-previous-*.exe"))
+                {
+                    try
+                    {
+                        string name = Path.GetFileName(entry);
+                        string pattern = "^" + Regex.Escape(Path.GetFileName(full)) +
+                            @"\.blockcraft-previous-[0-9a-f]{32}\.exe$";
+                        if (Regex.IsMatch(name, pattern, RegexOptions.IgnoreCase) &&
+                            (File.GetAttributes(entry) & FileAttributes.ReparsePoint) == 0 &&
+                            File.GetLastWriteTimeUtc(entry) < cutoff)
+                            File.Delete(entry);
+                    }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            catch (ArgumentException) { }
+        }
+
+        internal static bool IsOwnedUpdateWorkFolder(string updateRoot, string candidate)
+        {
+            if (string.IsNullOrWhiteSpace(updateRoot) ||
+                string.IsNullOrWhiteSpace(candidate)) return false;
+            string root = Path.GetFullPath(updateRoot).TrimEnd('\\');
+            string full = Path.GetFullPath(candidate).TrimEnd('\\');
+            return string.Equals(Path.GetDirectoryName(full), root,
+                StringComparison.OrdinalIgnoreCase) &&
+                Regex.IsMatch(Path.GetFileName(full),
+                    @"^(staged|runner)-[a-f0-9]{32}$", RegexOptions.IgnoreCase);
+        }
+
+        static bool AnyProcessUsingDirectory(string directory)
+        {
+            foreach (string name in new[] {
+                "BlockCraftLauncher.Wpf", "BlockCraftLauncher.Updater" })
+                foreach (var process in Process.GetProcessesByName(name))
+                {
+                    using (process)
+                    {
+                        try
+                        {
+                            string executable = process.MainModule.FileName;
+                            if (executable.StartsWith(directory.TrimEnd('\\') + "\\",
+                                StringComparison.OrdinalIgnoreCase))
+                                return true;
+                        }
+                        catch (System.ComponentModel.Win32Exception) { return true; }
+                        catch (InvalidOperationException) { return true; }
+                    }
+                }
+            return false;
+        }
+
+        static bool HasLinkedOrUnexpectedChildren(string root)
+        {
+            // Inspect only real directories; do not recursively enumerate
+            // through reparse points, which could lead outside update storage.
+            var pending = new Stack<string>();
+            pending.Push(root);
+            int checkedEntries = 0;
+            while (pending.Count > 0)
+            {
+                string directory = pending.Pop();
+                foreach (string item in Directory.GetDirectories(directory))
+                {
+                    if (++checkedEntries > 2048 ||
+                        (File.GetAttributes(item) & FileAttributes.ReparsePoint) != 0)
+                        return true;
+                    pending.Push(item);
+                }
+                foreach (string item in Directory.GetFiles(directory))
+                    if (++checkedEntries > 2048 ||
+                        (File.GetAttributes(item) & FileAttributes.ReparsePoint) != 0)
+                        return true;
+            }
+            return false;
+        }
+
+        static void TryCleanupStaleUpdateFolders()
+        {
+            string root = Path.Combine(Environment.GetFolderPath(
+                Environment.SpecialFolder.LocalApplicationData),
+                "BlockCraftLauncher", "updates");
+            try
+            {
+                if (!Directory.Exists(root) ||
+                    (File.GetAttributes(root) & FileAttributes.ReparsePoint) != 0)
+                    return;
+                DateTime cutoff = DateTime.UtcNow.AddDays(-2);
+                foreach (string folder in Directory.GetDirectories(root))
+                {
+                    try
+                    {
+                        if (!IsOwnedUpdateWorkFolder(root, folder) ||
+                            (File.GetAttributes(folder) & FileAttributes.ReparsePoint) != 0 ||
+                            Directory.GetLastWriteTimeUtc(folder) >= cutoff ||
+                            AnyProcessUsingDirectory(folder))
+                            continue;
+                        if (HasLinkedOrUnexpectedChildren(folder)) continue;
+                        Directory.Delete(folder, true);
+                    }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
         }
 
         internal static bool IsOneFileEnvironment(string baseDir, string bootstrap)

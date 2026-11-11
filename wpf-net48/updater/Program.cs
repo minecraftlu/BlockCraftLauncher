@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -219,7 +220,7 @@ namespace BlockCraftLauncher.Updater
         /// On success a new WPF main window must have rendered and acknowledged
         /// itself, including when an outer OneFile bootstrap has already exited.
         /// </summary>
-        static void Restart(string executable)
+        static bool Restart(string executable)
         {
             string token = Guid.NewGuid().ToString("N");
             string marker = RelaunchFile(token);
@@ -249,12 +250,143 @@ namespace BlockCraftLauncher.Updater
                     WriteLog(new IOException(text));
                     MessageBox.Show(text, "BlockCraft Launcher · 启动确认",
                         MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return false;
                 }
+                return true;
             }
             finally
             {
                 try { if (File.Exists(marker)) File.Delete(marker); }
                 catch (IOException) { }
+            }
+        }
+
+        // Best-effort housekeeping happens ONLY after the new window has
+        // rendered. An unconfirmed upgrade retains the rollback copy.
+        static void BestEffortCleanup(Action cleanup)
+        {
+            // Never roll back a successfully relaunched EXE because disk
+            // cleanup failed; log the reason and retry on a later launch.
+            try { cleanup(); }
+            catch (Exception error) { WriteLog(error); }
+        }
+
+        static void TryDeleteOwnedFile(string file)
+        {
+            try
+            {
+                if (File.Exists(file) && !Reparse(file)) File.Delete(file);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+
+        static void TryDeleteOwnedDirectory(string directory)
+        {
+            try
+            {
+                if (Directory.Exists(directory) && !Reparse(directory))
+                    Directory.Delete(directory, true);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+
+        internal static bool IsOwnedBackupExe(string target, string candidate)
+        {
+            if (string.IsNullOrWhiteSpace(target) ||
+                string.IsNullOrWhiteSpace(candidate)) return false;
+            string full = Path.GetFullPath(target);
+            string item = Path.GetFullPath(candidate);
+            return string.Equals(Path.GetDirectoryName(full),
+                    Path.GetDirectoryName(item), StringComparison.OrdinalIgnoreCase) &&
+                Regex.IsMatch(Path.GetFileName(item),
+                    "^" + Regex.Escape(Path.GetFileName(full)) +
+                    @"\.blockcraft-previous-[a-f0-9]{32}\.exe$",
+                    RegexOptions.IgnoreCase);
+        }
+
+        static void CleanupOwnedExeBackups(string target)
+        {
+            string directory = Path.GetDirectoryName(Path.GetFullPath(target));
+            foreach (var candidate in Directory.GetFiles(directory,
+                Path.GetFileName(target) + ".blockcraft-previous-*.exe"))
+                if (IsOwnedBackupExe(target, candidate))
+                    TryDeleteOwnedFile(candidate);
+        }
+
+        internal static string OwnedStageDirectory(string staged)
+        {
+            if (string.IsNullOrWhiteSpace(staged)) return null;
+            string updates = Path.GetFullPath(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "BlockCraftLauncher", "updates"));
+            string current = Path.GetFullPath(staged);
+            while (!string.IsNullOrWhiteSpace(current) &&
+                current.StartsWith(updates + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.Equals(Path.GetDirectoryName(current), updates,
+                    StringComparison.OrdinalIgnoreCase) &&
+                    Regex.IsMatch(Path.GetFileName(current),
+                        @"^staged-[a-f0-9]{32}$", RegexOptions.IgnoreCase))
+                    return current;
+                current = Path.GetDirectoryName(current);
+            }
+            return null;
+        }
+
+        static void CleanupOwnedStage(string staged)
+        {
+            string directory = OwnedStageDirectory(staged);
+            if (directory != null) TryDeleteOwnedDirectory(directory);
+        }
+
+        static bool CacheIsInUse(string directory)
+        {
+            foreach (var process in Process.GetProcessesByName("BlockCraftLauncher.Wpf"))
+            {
+                using (process)
+                {
+                    try
+                    {
+                        string running = process.MainModule.FileName;
+                        if (running.StartsWith(directory.TrimEnd('\\') + "\\",
+                            StringComparison.OrdinalIgnoreCase))
+                            return true;
+                    }
+                    catch (System.ComponentModel.Win32Exception) { return true; }
+                    catch (InvalidOperationException) { return true; }
+                }
+            }
+            return false;
+        }
+
+        static void CleanupOldOneFileCaches(string staged)
+        {
+            // Never walk Downloads, Desktop, game libraries or user-managed
+            // directories: only launcher-created, manifest-bearing caches.
+            var match = Regex.Match(Path.GetFileName(staged),
+                @"^BlockCraftLauncher-(v\d+\.\d+\.\d+)-WPF-OneFile-Windows-x64\.exe$",
+                RegexOptions.IgnoreCase);
+            if (!match.Success) return;
+            string keepVersion = match.Groups[1].Value;
+            string cacheRoot = Path.Combine(Environment.GetFolderPath(
+                Environment.SpecialFolder.LocalApplicationData), "BlockCraftLauncher", "onefile");
+            if (!Directory.Exists(cacheRoot) || Reparse(cacheRoot)) return;
+            foreach (string candidate in Directory.GetDirectories(cacheRoot))
+            {
+                string name = Path.GetFileName(candidate);
+                var version = Regex.Match(name,
+                    @"^(v\d+\.\d+\.\d+)-[a-f0-9]{16}$", RegexOptions.IgnoreCase);
+                if (!version.Success ||
+                    string.Equals(version.Groups[1].Value, keepVersion,
+                        StringComparison.OrdinalIgnoreCase) ||
+                    Reparse(candidate) ||
+                    !File.Exists(Path.Combine(candidate, ".blockcraft-ready")) ||
+                    !File.Exists(Path.Combine(candidate, ManifestName)))
+                    continue;
+                if (!CacheIsInUse(candidate)) TryDeleteOwnedDirectory(candidate);
             }
         }
 
@@ -287,8 +419,17 @@ namespace BlockCraftLauncher.Updater
                 if (simulateLaunchFailure)
                     throw new IOException("CI 模拟新版启动自检失败");
                 SmokeTest(target);
-                Restart(target);
-                // Keep previous EXE for manual rollback if later needed.
+                // The EXE is replaced IN PLACE: desktop shortcuts and the
+                // original filename still point to the newly installed code.
+                // Keep rollback until the new GUI has actually appeared.
+                bool confirmed = Restart(target);
+                if (confirmed)
+                    BestEffortCleanup(() =>
+                    {
+                        CleanupOwnedExeBackups(target);
+                        CleanupOldOneFileCaches(staged);
+                        CleanupOwnedStage(staged);
+                    });
             }
             catch
             {
@@ -472,8 +613,15 @@ namespace BlockCraftLauncher.Updater
                 if (simulateLaunchFailure)
                     throw new IOException("CI 模拟新版 WPF 启动自检失败");
                 SmokeTest(main);
-                Restart(main);
-                // Retain backup rather than touching user-managed game files.
+                bool confirmed = Restart(main);
+                if (confirmed)
+                    BestEffortCleanup(() =>
+                    {
+                        // Only signed ZIP files are backed up; Minecraft
+                        // worlds, mods and personal files are not touched.
+                        TryDeleteOwnedDirectory(backup);
+                        CleanupOwnedStage(stage);
+                    });
             }
             catch
             {
@@ -525,6 +673,18 @@ namespace BlockCraftLauncher.Updater
                 catch { onefileRollback = true; }
                 if (!onefileRollback || File.ReadAllText(originalExe) != "old-single-exe")
                     throw new Exception("单文件启动失败后未自动回滚");
+                string legacyBackup = originalExe + ".blockcraft-previous-" +
+                    Guid.NewGuid().ToString("N") + ".exe";
+                string notOurs = Path.Combine(target, "my-other-launcher.exe");
+                File.WriteAllText(legacyBackup, "updater-created old version");
+                File.WriteAllText(notOurs, "never delete");
+                if (!IsOwnedBackupExe(originalExe, legacyBackup) ||
+                    IsOwnedBackupExe(originalExe, notOurs) ||
+                    OwnedStageDirectory(notOurs) != null)
+                    throw new Exception("旧 EXE 清理目标范围不安全");
+                CleanupOwnedExeBackups(originalExe);
+                if (File.Exists(legacyBackup) || !File.Exists(notOurs))
+                    throw new Exception("清理旧版 EXE 时删除了非启动器文件");
 
                 // The directory updater must also restore DLLs and the main
                 // WPF executable when its post-install smoke test fails.

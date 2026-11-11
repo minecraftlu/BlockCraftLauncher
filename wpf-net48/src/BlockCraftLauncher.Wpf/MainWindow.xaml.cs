@@ -2929,15 +2929,16 @@ namespace BlockCraftLauncher.Wpf
             };
             updateCheckButton = Btn("检查更新", async () =>
                 await CheckLauncherUpdatesAsync(true), true);
-            updateInstallButton = Btn("下载并安装", async () =>
+            updateInstallButton = Btn("更新并替换旧版", async () =>
                 await InstallLauncherUpdateAsync(), true);
-            updateDirectOpenButton = Btn("直接打开新版", async () =>
+            updateDirectOpenButton = Btn("临时试用（不替换）", async () =>
                 await OpenDownloadedUpdateDirectlyAsync());
             root.Children.Add(Card(Col(Txt("更新状态", 16, true),
                 updateStatusText, updateProgressBar,
                 Row(updateCheckButton, updateInstallButton, updateDirectOpenButton),
                 notes,
-                Txt("下载并安装完成后会自动打开新版。“直接打开”可在临时目录试用新版。",
+                Txt("安装会在原位置替换旧启动器 EXE，原路径、文件名及快捷方式保持不变；" +
+                    "成功后清理临时包和旧备份。“临时试用”不会替换旧 EXE。",
                     12, false, true))));
             root.Children.Add(Card(Col(Txt("更新选项", 16, true),
                 Row(Btn("更新设置", () => Navigate("更新设置")),
@@ -3116,7 +3117,7 @@ namespace BlockCraftLauncher.Wpf
                 "是否直接打开 " + candidate.Offer.Tag + "？\n\n" +
                 "将从已校验的临时下载目录直接运行新版，确认新版主窗口显示后才关闭旧窗口。" +
                 "\n不会替换桌面上的旧 EXE，也不影响 Minecraft 世界或游戏进程。" +
-                "\n下次仍从旧安装位置启动。需要永久升级请点击“下载并安装”。",
+                "\n下次仍从旧安装位置启动。需要永久升级请点击“更新并替换旧版”。",
                 "直接打开新版（不安装）",
                 MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
                 return;
@@ -3161,8 +3162,8 @@ namespace BlockCraftLauncher.Wpf
             try
             {
                 autoUpdater.StartExternalInstaller(preparedUpdate);
-                Status("正在安装已校验的 " + preparedUpdate.Offer.Tag +
-                    "；旧窗口即将关闭，完成后自动打开新版。");
+                Status("正在原位替换已校验的 " + preparedUpdate.Offer.Tag +
+                    "；原 EXE 路径保持不变，完成后自动打开新版并清理临时文件。");
                 Application.Current.Shutdown();
             }
             catch (Exception ex) { ShowError("无法启动独立更新程序", ex); }
