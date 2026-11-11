@@ -1,10 +1,12 @@
 # BlockCraft Launcher · Windows WPF
 
-**v0.9.41 正式稳定修复版 · Windows x64 · .NET Framework 4.8**
+**v0.9.42 正式版 · Windows x64 · .NET Framework 4.8**
 
-从 [v0.9.41 正式版](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.41) 下载单文件 EXE，或完整解压 ZIP 后运行 `BlockCraftLauncher.Wpf.exe`。
+从 [v0.9.42 正式版](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.42) 下载单文件 EXE，或完整解压 ZIP 后运行 `BlockCraftLauncher.Wpf.exe`。
 
 从 RC1 升级时，在「设置 → 更新设置」选择「稳定版」，保存后打开「启动器更新」检查新版。从 Python 版迁移时，在独立目录启动 WPF 版，再选择已有游戏实例。
+
+**v0.9.42 移动硬盘同盘配置修复**：可将游戏根目录与下载缓存目录同时设在同一块 USB 移动硬盘上。进入「启动设置」或「下载设置」，点击「同一移动硬盘设置游戏与下载目录」，选择如 `E:\\` 或 `E:\\BlockCraftLauncher`，会自动填写 `E:\\BlockCraftLauncher\\Minecraft` 与 `E:\\BlockCraftLauncher\\Downloads` 两个独立文件夹，之后点击「保存设置」生效。Windows 将 USB HDD 识别为本地固定磁盘也可使用；同目录、父子嵌套、网络共享及磁盘根作为直接缓存位置仍被拒绝，避免误清理游戏存档。已有实例不自动迁移；移动硬盘盘符改变时需重新设置。Windows 41 项发布检查及 v0.9.41 ZIP/OneFile → v0.9.42 原位更新均已通过。详细说明见 [移动硬盘同盘路径指南](docs/EXTERNAL_DRIVE_SAME_DISK_LAYOUT.md)。
 
 **v0.9.41 稳定性修复**：修复部分用户切换服务器搜索页面时出现 `CancellationTokenSource 已释放` 并导致窗口退出的问题。搜索结束后不再留下已释放的取消令牌；页面导航先解绑再取消旧任务，并增加 WPF 导航回归测试。正式发布工作流 41 项成功，实际验证 v0.9.40 ZIP 和单 EXE 均能在原路径升级并打开新版窗口。原有 Minecraft、微软登录、模组、皮肤、存档、自定义下载路径和自动替换旧 EXE 逻辑保持不变。不同设备上的其他异常仍以诊断日志中的堆栈为准。
 
