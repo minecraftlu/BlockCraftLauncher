@@ -1,0 +1,65 @@
+name: BlockCraft publisher metadata Windows verification
+
+on:
+  push:
+    branches:
+      - feature/publisher-xiaoyin-win32-metadata
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.repository == 'minecraftlu/BlockCraftLauncher' && github.ref == 'refs/heads/feature/publisher-xiaoyin-win32-metadata'
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: microsoft/setup-msbuild@v2
+      - name: Validate metadata and existing Windows packaging invariants
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($script in @('check_publisher_metadata.py','check_project.py','check_windows_packaging.py','check_onefile.py')) {
+            python "tests/$script"
+            if ($LASTEXITCODE -ne 0) { throw "Failed $script" }
+          }
+      - name: Compile three EXEs and package single-file Windows launcher
+        shell: cmd
+        working-directory: wpf-net48
+        run: call build\build-windows.bat
+      - name: Check compiled Windows VersionInfo (not code-signature identity)
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($path in @(
+            'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe',
+            'updater/bin/Release/net48/BlockCraftLauncher.Updater.exe',
+            'dist/BlockCraftLauncher-v0.9.44-WPF-OneFile-Windows-x64.exe'
+          )) {
+            $v=[System.Diagnostics.FileVersionInfo]::GetVersionInfo((Resolve-Path $path).Path)
+            if ($v.CompanyName -cne '晓银' -or $v.ProductName -cne 'BlockCraft Launcher' -or $v.FileVersion -ne '0.9.44.0') {
+              throw "Wrong EXE metadata: $path; company=$($v.CompanyName); product=$($v.ProductName); file=$($v.FileVersion)"
+            }
+            Write-Host "PASS: $path"
+          }
+          Write-Host 'This does not grant Windows Authenticode verified publisher status.'
+      - name: Verify WPF start and updater rollback
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($test in @(
+            @{Path='src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe';Args='--smoke-test'},
+            @{Path='dist/BlockCraftLauncher-v0.9.44-WPF-OneFile-Windows-x64.exe';Args='--smoke-test'},
+            @{Path='updater/bin/Release/net48/BlockCraftLauncher.Updater.exe';Args='--selftest'}
+          )) {
+            $proc=Start-Process -FilePath (Resolve-Path $test.Path).Path -ArgumentList $test.Args -PassThru
+            if (!$proc.WaitForExit(90000)) { $proc.Kill(); throw "Timeout $($test.Path)" }
+            $proc.Refresh()
+            if ($proc.ExitCode -ne 0) { throw "Failed $($test.Path): $($proc.ExitCode)" }
+          }
