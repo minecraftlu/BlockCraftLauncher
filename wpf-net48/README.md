@@ -1,10 +1,12 @@
 # BlockCraft Launcher · Windows WPF
 
-**v0.9.40 正式版 · Windows x64 · .NET Framework 4.8**
+**v0.9.41 正式稳定修复版 · Windows x64 · .NET Framework 4.8**
 
-从 [v0.9.40 正式版](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.40) 下载单文件 EXE，或完整解压 ZIP 后运行 `BlockCraftLauncher.Wpf.exe`。
+从 [v0.9.41 正式版](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.41) 下载单文件 EXE，或完整解压 ZIP 后运行 `BlockCraftLauncher.Wpf.exe`。
 
 从 RC1 升级时，在「设置 → 更新设置」选择「稳定版」，保存后打开「启动器更新」检查新版。从 Python 版迁移时，在独立目录启动 WPF 版，再选择已有游戏实例。
+
+**v0.9.41 稳定性修复**：修复部分用户切换服务器搜索页面时出现 `CancellationTokenSource 已释放` 并导致窗口退出的问题。搜索结束后不再留下已释放的取消令牌；页面导航先解绑再取消旧任务，并增加 WPF 导航回归测试。正式发布工作流 41 项成功，实际验证 v0.9.40 ZIP 和单 EXE 均能在原路径升级并打开新版窗口。原有 Minecraft、微软登录、模组、皮肤、存档、自定义下载路径和自动替换旧 EXE 逻辑保持不变。不同设备上的其他异常仍以诊断日志中的堆栈为准。
 
 **v0.9.40 稳定版**：保留 Minecraft 安装与启动、微软登录、Modrinth/CurseForge 与 GitHub 模组下载、皮肤预览/DIY、存档和已有实例。更新页面的「更新并替换旧版」会在原位置更新旧 EXE，成功后重新打开新版并清理启动器自己生成的旧备份；在「设置 → 更新设置」还可明确开启「正常关闭启动器时自动替换原 EXE」，它默认关闭，且不会在游戏运行、任务下载中或 Windows 注销时强制替换。可在「下载设置」单独配置缓存路径、在「启动设置」选择新的游戏默认根目录；不会迁移已有游戏文件。本版 Windows 正式发布测试 41 项步骤通过，并实际验证 v0.9.38 ZIP/OneFile 原位升级和新版窗口重新打开。官方 SHA-256、Sigstore 和 GitHub 来源证明均可在发行页下载；**Sigstore 不代表 Windows Authenticode**。
 
