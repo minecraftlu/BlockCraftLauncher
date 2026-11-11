@@ -40,6 +40,7 @@ namespace BlockCraftLauncher.Wpf.Services
         public string StagedPath { get; internal set; }
         public string Sha256 { get; internal set; }
         public string TargetPath { get; internal set; }
+        public string UpdatesRoot { get; internal set; }
     }
 
     /// <summary>
@@ -69,7 +70,13 @@ namespace BlockCraftLauncher.Wpf.Services
             // Self-contained updates use one transient helper EXE. Once the
             // helper has exited, prune only old launcher-owned working folders.
             // No game instance, world, mod or user-selected download is scanned.
-            TryCleanupStaleUpdateFolders();
+            TryCleanupStaleUpdateFolders(DownloadPathService.UpdatesRoot(null), false);
+            // New user-selected download folders are safe cleanup candidates
+            // only when a launcher-generated marker exists in the stage.
+            string custom = DownloadPathService.UpdatesRoot(settings.DownloadDirectory);
+            if (!string.Equals(custom, DownloadPathService.UpdatesRoot(null),
+                StringComparison.OrdinalIgnoreCase))
+                TryCleanupStaleUpdateFolders(custom, true);
             TryCleanupLegacyExeBackups();
         }
 
@@ -171,11 +178,8 @@ namespace BlockCraftLauncher.Wpf.Services
             return false;
         }
 
-        static void TryCleanupStaleUpdateFolders()
+        static void TryCleanupStaleUpdateFolders(string root, bool requireMarker)
         {
-            string root = Path.Combine(Environment.GetFolderPath(
-                Environment.SpecialFolder.LocalApplicationData),
-                "BlockCraftLauncher", "updates");
             try
             {
                 if (!Directory.Exists(root) ||
@@ -188,6 +192,8 @@ namespace BlockCraftLauncher.Wpf.Services
                     {
                         if (!IsOwnedUpdateWorkFolder(root, folder) ||
                             (File.GetAttributes(folder) & FileAttributes.ReparsePoint) != 0 ||
+                            (requireMarker && !File.Exists(Path.Combine(folder,
+                                ".blockcraft-stage"))) ||
                             Directory.GetLastWriteTimeUtc(folder) >= cutoff ||
                             AnyProcessUsingDirectory(folder))
                             continue;
@@ -596,11 +602,17 @@ namespace BlockCraftLauncher.Wpf.Services
         {
             if (offer == null || offer.Mode != InstallMode)
                 throw new ArgumentException("更新包格式与当前安装方式不一致");
-            string folder = Path.Combine(Environment.GetFolderPath(
-                Environment.SpecialFolder.LocalApplicationData), "BlockCraftLauncher",
-                "updates", "staged-" + Guid.NewGuid().ToString("N"));
+            if (!DownloadPathService.TryValidate(settings.DownloadDirectory,
+                settings.Root, out var selectedRoot, out var directoryError))
+                throw new IOException("自定义下载路径无效：" + directoryError);
+            string updatesRoot = DownloadPathService.UpdatesRoot(selectedRoot);
+            string folder = Path.Combine(updatesRoot, "staged-" +
+                Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(folder);
             try
+            {
+                File.WriteAllText(Path.Combine(folder, ".blockcraft-stage"),
+                    "BlockCraftLauncher update staging v1", Encoding.ASCII);
             {
                 progress?.Report(new LauncherUpdateProgress { Message = "正在获取校验信息..." });
                 string manifestPath = Path.Combine(folder, "RELEASE-SHA256SUMS.txt");
@@ -628,7 +640,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 return new PreparedLauncherUpdate
                 {
                     Offer = offer, StagedPath = staged, Sha256 = hash,
-                    TargetPath = target
+                    TargetPath = target, UpdatesRoot = updatesRoot
                 };
             }
             catch
@@ -838,7 +850,9 @@ namespace BlockCraftLauncher.Wpf.Services
                 " --pid " + Q(Process.GetCurrentProcess().Id.ToString()) +
                 " --target " + Q(target) +
                 " --staged " + Q(prepared.StagedPath) +
-                " --sha256 " + Q(prepared.Sha256);
+                " --sha256 " + Q(prepared.Sha256) +
+                " --updates-root " + Q(prepared.UpdatesRoot ??
+                    DownloadPathService.UpdatesRoot(null));
             var process = Process.Start(new ProcessStartInfo(helper, args)
             {
                 UseShellExecute = false, WorkingDirectory = runner
