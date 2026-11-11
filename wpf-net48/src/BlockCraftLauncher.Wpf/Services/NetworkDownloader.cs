@@ -420,6 +420,52 @@ namespace BlockCraftLauncher.Wpf.Services
 
         internal static bool ValidSha1(string sha) => sha != null && sha.Length == 40 && sha.All(Uri.IsHexDigit);
 
+        // ReplaceFileW is atomic on supported disks, but FAT/exFAT USB media
+        // may reject it. Keep the old file intact until the SHA-1-verified
+        // replacement is committed, restoring it if the portable move fails.
+        internal static void CommitVerifiedFile(string part, string destination,
+            bool forcePortableFallback = false)
+        {
+            if (!File.Exists(destination))
+            {
+                File.Move(part, destination);
+                return;
+            }
+            if ((File.GetAttributes(destination) & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException("拒绝替换符号链接或重解析点文件");
+            if (!forcePortableFallback)
+            {
+                try
+                {
+                    File.Replace(part, destination, null);
+                    return;
+                }
+                catch (IOException) { if (!File.Exists(part)) throw; }
+                catch (PlatformNotSupportedException) { }
+            }
+
+            string backup = destination + ".blockcraft-previous-" +
+                Guid.NewGuid().ToString("N") + ".bak";
+            bool movedOld = false;
+            try
+            {
+                File.Move(destination, backup);
+                movedOld = true;
+                File.Move(part, destination);
+            }
+            catch
+            {
+                if (movedOld && !File.Exists(destination) && File.Exists(backup))
+                    File.Move(backup, destination);
+                throw;
+            }
+            // If backup cleanup fails, the newly verified file remains intact.
+            // Never roll back after the new file has been committed.
+            try { File.Delete(backup); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+
         public Task DownloadVerifiedAsync(string url, string destination, string sha1,
             CancellationToken ct, IProgress<long> progress = null)
         {
@@ -518,8 +564,7 @@ namespace BlockCraftLauncher.Wpf.Services
                             File.Delete(part);
                             throw new InvalidDataException("SHA-1 校验失败");
                         }
-                        if (File.Exists(fullPath)) File.Replace(part, fullPath, null);
-                        else File.Move(part, fullPath);
+                        CommitVerifiedFile(part, fullPath);
                         try { File.Delete(part + ".origin"); }
                         catch (IOException) { /* The verified file has already been committed. */ }
                         RecordRoute(url, candidate, mode, routes.Count);

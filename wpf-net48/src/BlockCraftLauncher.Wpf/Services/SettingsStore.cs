@@ -25,12 +25,14 @@ namespace BlockCraftLauncher.Wpf.Services
         }
         public LauncherConfig Load()
         {
-            var config = new LauncherConfig();
             foreach (string path in new[] { FilePath, Path.ChangeExtension(FilePath, ".bak"), Path.Combine(Path.GetDirectoryName(FilePath), "settings.json"), Path.Combine(Path.GetDirectoryName(FilePath), "settings.bak") })
             {
                 if (!File.Exists(path)) continue;
                 try
                 {
+                    // A partially parsed primary settings file must not leak
+                    // profiles or paths into the backup candidate.
+                    var config = new LauncherConfig();
                     var data = json.Deserialize<Dictionary<string, object>>(File.ReadAllText(path, Encoding.UTF8));
                     if (data == null) continue;
                     config.Raw = data;
@@ -73,7 +75,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 }
                 catch (Exception ex) when (ex is IOException || ex is ArgumentException || ex is InvalidOperationException) { }
             }
-            return config;
+            return new LauncherConfig();
         }
         public void Save(LauncherConfig c)
         {

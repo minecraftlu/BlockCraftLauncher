@@ -15,7 +15,7 @@
     <ApplicationIcon>Assets\blockcraft_icon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Version>0.9.45.0</Version>
+    <Version>0.9.46.0</Version>
     <!-- Windows File Properties descriptive metadata. Not Authenticode signing. -->
     <Company>晓银</Company>
     <Authors>晓银</Authors>
@@ -23,7 +23,7 @@
     <AssemblyTitle>BlockCraft Launcher WPF</AssemblyTitle>
     <Description>BlockCraft Launcher - Minecraft Java Edition 启动器</Description>
     <Copyright>Copyright © 2026 晓银</Copyright>
-    <FileVersion>0.9.45.0</FileVersion>
+    <FileVersion>0.9.46.0</FileVersion>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="CmlLib.Core" Version="4.1.0" />
