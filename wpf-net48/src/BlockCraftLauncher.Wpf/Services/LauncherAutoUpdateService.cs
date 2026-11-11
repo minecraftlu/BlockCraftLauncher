@@ -106,6 +106,31 @@ namespace BlockCraftLauncher.Wpf.Services
             return false;
         }
 
+        static bool HasLinkedOrUnexpectedChildren(string root)
+        {
+            // Inspect only real directories; do not recursively enumerate
+            // through reparse points, which could lead outside update storage.
+            var pending = new Stack<string>();
+            pending.Push(root);
+            int checkedEntries = 0;
+            while (pending.Count > 0)
+            {
+                string directory = pending.Pop();
+                foreach (string item in Directory.GetDirectories(directory))
+                {
+                    if (++checkedEntries > 2048 ||
+                        (File.GetAttributes(item) & FileAttributes.ReparsePoint) != 0)
+                        return true;
+                    pending.Push(item);
+                }
+                foreach (string item in Directory.GetFiles(directory))
+                    if (++checkedEntries > 2048 ||
+                        (File.GetAttributes(item) & FileAttributes.ReparsePoint) != 0)
+                        return true;
+            }
+            return false;
+        }
+
         static void TryCleanupStaleUpdateFolders()
         {
             string root = Path.Combine(Environment.GetFolderPath(
@@ -126,11 +151,7 @@ namespace BlockCraftLauncher.Wpf.Services
                             Directory.GetLastWriteTimeUtc(folder) >= cutoff ||
                             AnyProcessUsingDirectory(folder))
                             continue;
-                        // Never recurse into directory junctions or symlinks.
-                        if (Directory.GetDirectories(folder, "*",
-                                SearchOption.AllDirectories).Any(item =>
-                                    (File.GetAttributes(item) & FileAttributes.ReparsePoint) != 0))
-                            continue;
+                        if (HasLinkedOrUnexpectedChildren(folder)) continue;
                         Directory.Delete(folder, true);
                     }
                     catch (IOException) { }
