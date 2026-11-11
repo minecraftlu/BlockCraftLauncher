@@ -260,8 +260,10 @@ function Test-Upgrade($mode, $probe, $sha, $bootstrap) {
     $old.Dispose()
   }
 }
-Test-Upgrade 'zip' $env:BCL_ZIP_PROBE $env:BCL_ZIP_SHA '-'
+## OneFile cache is launcher-owned and can be pruned by a subsequent
+## successful update. Exercise its probe before any ZIP update can affect it.
 Test-Upgrade 'onefile' $env:BCL_SINGLE_PROBE $env:BCL_SINGLE_SHA $env:BCL_OLD_BOOTSTRAP
+Test-Upgrade 'zip' $env:BCL_ZIP_PROBE $env:BCL_ZIP_SHA '-'
 # Test-Upgrade is implemented with PowerShell/.NET APIs. A stale or unset
 # native exit code is NOT the test result; all assertions throw on failure.
 $global:LASTEXITCODE = 0

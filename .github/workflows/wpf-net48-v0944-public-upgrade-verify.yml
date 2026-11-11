@@ -1,0 +1,94 @@
+name: Verify published v0.9.44 Stable upgrade without republishing
+
+on:
+  push:
+    branches:
+      - verify/v0944-stable-public-upgrade
+
+concurrency:
+  group: blockcraft-v0944-stable-public-upgrade
+  cancel-in-progress: false
+
+jobs:
+  verify-public-stable:
+    if: github.repository == 'minecraftlu/BlockCraftLauncher' && github.ref == 'refs/heads/verify/v0944-stable-public-upgrade'
+    runs-on: windows-2022
+    permissions:
+      contents: read
+    env:
+      RELEASE_TAG: v0.9.44
+      RELEASE_ZIP: BlockCraftLauncher-v0.9.44-WPF-net48-Windows-x64.zip
+      RELEASE_EXE: BlockCraftLauncher-v0.9.44-WPF-OneFile-Windows-x64.exe
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Assert published Stable source is unchanged and release is public
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $original = (& git rev-parse HEAD^).Trim()
+          if ($LASTEXITCODE -ne 0 -or $original -ne '8ccd5b7d60fcee95a57b3184950763cbc7680b5c') {
+            throw 'This verifier must descend directly from published v0.9.44 Stable'
+          }
+          $changes = @(& git diff --name-only $original HEAD)
+          $expected = @('.github/workflows/wpf-net48-v0944-public-upgrade-verify.yml',
+            'wpf-net48/tests/check_v0944_stable_promotion.ps1')
+          if ($changes.Count -ne $expected.Count -or @($changes | Where-Object { $_ -notin $expected }).Count -gt 0) {
+            throw 'Verifier changed release source code or unexpected files'
+          }
+          & git fetch --no-tags --depth=1 origin refs/tags/v0.9.44
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve Stable release tag' }
+          $tagCommit = (& git rev-parse 'FETCH_HEAD^{commit}').Trim()
+          if ($LASTEXITCODE -ne 0 -or $tagCommit -ne $original) {
+            throw 'Public Stable release tag does not point to the tested original source'
+          }
+          $version = Get-Content -LiteralPath 'wpf-net48/src/BlockCraftLauncher.Wpf/Services/LauncherAutoUpdateService.cs' -Raw
+          if ($version -cnotmatch 'internal const string CurrentTag = "v0\.9\.44";') {
+            throw 'Stable binary version is mismatched'
+          }
+          Write-Host 'PASS: source code is identical to published Stable commit, only test harness differs'
+
+      - name: Download and hash-verify exact published Stable ZIP and EXE
+        working-directory: wpf-net48
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force 'dist' | Out-Null
+          $files = @{
+            $env:RELEASE_ZIP = '7632d284795942fa7ffd6780a8dea5b8a15b617a6425f728f99c6da79325648a'
+            $env:RELEASE_EXE = '66c5927e376423693954fde28f829731ef5bc459ffedafeb1764d65739779ec8'
+          }
+          foreach ($name in $files.Keys) {
+            $uri = "https://github.com/minecraftlu/BlockCraftLauncher/releases/download/v0.9.44/$name"
+            Invoke-WebRequest -Uri $uri -OutFile (Join-Path 'dist' $name) -TimeoutSec 55
+            $got = (Get-FileHash -LiteralPath (Join-Path 'dist' $name) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($got -ne $files[$name]) { throw "Published stable hash mismatch: $name" }
+            Write-Host "PASS: published $name SHA-256 $got"
+          }
+          $sum = foreach ($name in @($env:RELEASE_EXE,$env:RELEASE_ZIP)) {
+            $got = (Get-FileHash -LiteralPath (Join-Path 'dist' $name) -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$got  $name"
+          }
+          $sum | Set-Content -LiteralPath 'dist/RELEASE-SHA256SUMS.txt' -Encoding ASCII
+
+      - name: Preflight verify v0.9.42 can parse and stage published Stable
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 8
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./tests/check_v0944_stable_promotion.ps1 -Phase Preflight
+          if ($LASTEXITCODE -ne 0) { throw 'Public Stable preflight failed' }
+
+      - name: Live upgrade old OneFile and ZIP using public Stable 0.9.44
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 16
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./tests/check_v0944_stable_promotion.ps1 -Phase Live
+          if ($LASTEXITCODE -ne 0) { throw 'Public Stable OneFile and ZIP in-place upgrades failed' }
+          Write-Host 'PASS: BOTH published Stable upgrade paths completed with original targets, relaunch and cleanup'
