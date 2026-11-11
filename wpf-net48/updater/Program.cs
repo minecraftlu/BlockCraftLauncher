@@ -46,6 +46,7 @@ namespace BlockCraftLauncher.Updater
             string completedZipStage = null;
             Process previous = null, visible = null;
             bool previousClosed = false, installed = false;
+            string fallbackExe = null, fallbackSha256 = null;
             try
             {
                 var opt = ParseArguments(args);
@@ -68,6 +69,11 @@ namespace BlockCraftLauncher.Updater
                 if (digest.Length != 64 || digest.Any(c => !Uri.IsHexDigit(c)))
                     throw new InvalidDataException("更新包 SHA-256 无效");
                 string entryPoint = mode == "onefile" ? target : Path.Combine(target, WpfExe);
+                // Record the original executable hash before the old window
+                // closes; only reopen it if rollback restored these same bytes.
+                CheckLauncherExe(entryPoint);
+                fallbackExe = entryPoint;
+                fallbackSha256 = Hash(entryPoint);
                 using (var sha = SHA256.Create())
                 {
                     string key = BitConverter.ToString(sha.ComputeHash(
@@ -125,6 +131,22 @@ namespace BlockCraftLauncher.Updater
                             previousClosed ? LauncherRelaunchSignal.Failed : LauncherRelaunchSignal.Rejected,
                             error.GetBaseException().Message));
                     return 1;
+                }
+                if (handoff == null && previousClosed &&
+                    !string.IsNullOrEmpty(fallbackExe) && File.Exists(fallbackExe))
+                {
+                    // A failed upgrade must not leave the user with no launcher.
+                    // Do not start a partially applied or unverified replacement.
+                    BestEffortCleanup(() =>
+                    {
+                        if (!string.Equals(Hash(fallbackExe), fallbackSha256,
+                            StringComparison.OrdinalIgnoreCase)) return;
+                        using (var recovered = Process.Start(new ProcessStartInfo(fallbackExe)
+                        {
+                            UseShellExecute = true,
+                            WorkingDirectory = Path.GetDirectoryName(fallbackExe)
+                        })) { }
+                    });
                 }
                 try
                 {
