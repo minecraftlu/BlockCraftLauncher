@@ -563,17 +563,27 @@ namespace BlockCraftLauncher.Wpf
             Status("皮肤下载已加入任务队列：" + item.Name);
         }
 
+        // Navigation can race a finished async request that already disposed
+        // its token source. Detach the shared reference before cancellation.
+        static void CancelAndDetach(ref CancellationTokenSource source)
+        {
+            var pending = source;
+            source = null;
+            if (pending == null) return;
+            try { pending.Cancel(); }
+            catch (ObjectDisposedException)
+            {
+                // The owning task already disposed this finished request.
+            }
+        }
+
         void Navigate(string page)
         {
-            localModIconLoad?.Cancel();
-            resourceSearchCancellation?.Cancel();
-            resourceSearchCancellation = null;
-            cfSearchCancellation?.Cancel();
-            cfSearchCancellation = null;
-            packSearchCancellation?.Cancel();
-            packSearchCancellation = null;
-            serverFinderCancellation?.Cancel();
-            serverFinderCancellation = null;
+            CancelAndDetach(ref localModIconLoad);
+            CancelAndDetach(ref resourceSearchCancellation);
+            CancelAndDetach(ref cfSearchCancellation);
+            CancelAndDetach(ref packSearchCancellation);
+            CancelAndDetach(ref serverFinderCancellation);
             serverFinderSearching = false;
             ClearDetails();
             detailTrigger = null;
@@ -1684,8 +1694,7 @@ namespace BlockCraftLauncher.Wpf
 
             bool searchGitHub = resourceType == "mod" &&
                 resourceSource?.SelectedIndex == 2;
-            var oldRequest = resourceSearchCancellation;
-            oldRequest?.Cancel();
+            CancelAndDetach(ref resourceSearchCancellation);
             using (var request = new CancellationTokenSource(TimeSpan.FromSeconds(35)))
             {
                 resourceSearchCancellation = request;
@@ -2104,7 +2113,7 @@ namespace BlockCraftLauncher.Wpf
             var label = cfSearchStatus;
             if (results == null || !settings.McimEnabled) return;
 
-            cfSearchCancellation?.Cancel();
+            CancelAndDetach(ref cfSearchCancellation);
             var cancellation = new CancellationTokenSource();
             cfSearchCancellation = cancellation;
             if (label != null) label.Text = "正在加载模组封面、作者和截图信息...";
@@ -2256,7 +2265,7 @@ namespace BlockCraftLauncher.Wpf
         async Task SearchModpacksAsync()
         {
             if (packSearchResults == null) return;
-            packSearchCancellation?.Cancel();
+            CancelAndDetach(ref packSearchCancellation);
             using (var request = new CancellationTokenSource(TimeSpan.FromSeconds(35)))
             {
                 packSearchCancellation = request;
@@ -2466,7 +2475,7 @@ namespace BlockCraftLauncher.Wpf
         }
         async Task RefreshLocalResourceListAsync()
         {
-            localModIconLoad?.Cancel();
+            CancelAndDetach(ref localModIconLoad);
             if (localResourceList == null || localResourceKind == null || activeProfile == null) return;
             string kind = Convert.ToString(localResourceKind.SelectedItem);
             IReadOnlyList<LocalResourceItem> items;
@@ -2711,7 +2720,7 @@ namespace BlockCraftLauncher.Wpf
             string sort = serverFinderSort.SelectedIndex == 1 ? "players" :
                 serverFinderSort.SelectedIndex == 2 ? "newest" : "score";
             bool onlineOnly = serverFinderOnlineOnly.IsChecked == true;
-            serverFinderCancellation?.Cancel();
+            CancelAndDetach(ref serverFinderCancellation);
             var cancel = new CancellationTokenSource();
             serverFinderCancellation = cancel;
             serverFinderSearching = true;
@@ -2749,6 +2758,8 @@ namespace BlockCraftLauncher.Wpf
             {
                 if (ReferenceEquals(serverFinderCancellation, cancel))
                 {
+                    // Never publish a disposed source to later navigation.
+                    serverFinderCancellation = null;
                     serverFinderSearching = false;
                     serverFinderSearchButton.IsEnabled = true;
                 }
