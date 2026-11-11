@@ -1,10 +1,12 @@
 # BlockCraft Launcher · Windows WPF
 
-**v0.9.38 正式版 · Windows x64 · .NET Framework 4.8**
+**v0.9.40 正式版 · Windows x64 · .NET Framework 4.8**
 
-从 [v0.9.38 正式版](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.38) 下载单文件 EXE，或完整解压 ZIP 后运行 `BlockCraftLauncher.Wpf.exe`。
+从 [v0.9.40 正式版](https://github.com/minecraftlu/BlockCraftLauncher/releases/tag/v0.9.40) 下载单文件 EXE，或完整解压 ZIP 后运行 `BlockCraftLauncher.Wpf.exe`。
 
 从 RC1 升级时，在「设置 → 更新设置」选择「稳定版」，保存后打开「启动器更新」检查新版。从 Python 版迁移时，在独立目录启动 WPF 版，再选择已有游戏实例。
+
+**v0.9.40 稳定版**：保留 Minecraft 安装与启动、微软登录、Modrinth/CurseForge 与 GitHub 模组下载、皮肤预览/DIY、存档和已有实例。更新页面的「更新并替换旧版」会在原位置更新旧 EXE，成功后重新打开新版并清理启动器自己生成的旧备份；在「设置 → 更新设置」还可明确开启「正常关闭启动器时自动替换原 EXE」，它默认关闭，且不会在游戏运行、任务下载中或 Windows 注销时强制替换。可在「下载设置」单独配置缓存路径、在「启动设置」选择新的游戏默认根目录；不会迁移已有游戏文件。本版 Windows 正式发布测试 41 项步骤通过，并实际验证 v0.9.38 ZIP/OneFile 原位升级和新版窗口重新打开。官方 SHA-256、Sigstore 和 GitHub 来源证明均可在发行页下载；**Sigstore 不代表 Windows Authenticode**。
 
 **v0.9.38 稳定版补丁**：修复了 v0.9.37 单文件启动器仍使用旧版 `v0.9.36` 缓存名称，导致发布后的单文件自动升级验证失败的问题。现在通过 CI 强制校验 OneFile 解包版本、更新服务版本和发行包版本一致。2026-11-11 的正式发布构建已通过 SHA-256、Sigstore/GitHub 来源证明，并实际验证 v0.9.36 的 ZIP 与 OneFile 均能升级到 v0.9.38 并重新打开窗口。RC5 的鼠标 360° 皮肤预览及之前的功能保持不变。
 
@@ -43,7 +45,7 @@ GitHub Actions 中的 **WPF net48 (Windows build)** 工作流会在 Windows 上�
 
 「更多 → 皮肤 DIY」页面提供两种在线皮肤查找方式：**Mojang 玩家名/UUID** 和 **第三方社区关键词搜索**。可预览人物、下载标准 PNG 到本地皮肤库，或在确认后直接导入编辑器。联网失败不影响离线编辑；社区内容应遵守作者许可。
 
-数据来源、功能边界和验证方法参见 [在线皮肤搜索说明](docs/ONLINE_SKIN_SEARCH.md)。当前正式版为 v0.9.36；下方 RC1–RC5 章节记录先前版本的研发历史。
+数据来源、功能边界和验证方法参见 [在线皮肤搜索说明](docs/ONLINE_SKIN_SEARCH.md)。当前正式版为 v0.9.40；下方 RC1–RC5 章节为早期研发历史。
 
 ### v0.9.36 RC1 皮肤搜索测试版
 
