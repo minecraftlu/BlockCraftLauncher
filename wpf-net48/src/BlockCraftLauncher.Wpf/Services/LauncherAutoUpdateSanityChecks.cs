@@ -117,6 +117,39 @@ namespace BlockCraftLauncher.Wpf.Services
                 Require(!LauncherAutoUpdateService.IsOwnedUpdateWorkFolder(workRoot, unsafePath),
                     "清理器不得扫描 Minecraft、用户目录或回滚资料：" + unsafePath);
 
+            // The custom cache is separate from Minecraft and accepts only
+            // an absolute on-disk folder. No deletion of an arbitrary root.
+            string gameRoot = Path.Combine(Path.GetTempPath(),
+                "Minecraft-" + Guid.NewGuid().ToString("N"));
+            string downloadsRoot = Path.Combine(Path.GetTempPath(),
+                "BlockCraft-Downloads-" + Guid.NewGuid().ToString("N"));
+            Require(DownloadPathService.TryValidate(downloadsRoot, gameRoot,
+                out var resolvedPath, out var pathError) &&
+                resolvedPath == Path.GetFullPath(downloadsRoot),
+                "应允许将下载缓存设在独立的本地磁盘目录");
+            Require(!DownloadPathService.TryValidate("relative\\downloads",
+                gameRoot, out resolvedPath, out pathError),
+                "拒绝相对路径");
+            Require(!DownloadPathService.TryValidate(gameRoot,
+                gameRoot, out resolvedPath, out pathError),
+                "拒绝下载缓存等于 Minecraft 游戏目录");
+            Require(!DownloadPathService.TryValidate(
+                Path.Combine(gameRoot, "worlds"),
+                gameRoot, out resolvedPath, out pathError),
+                "拒绝将下载缓存放入游戏存档目录");
+            Require(!DownloadPathService.TryValidate(
+                Path.GetPathRoot(gameRoot), gameRoot,
+                out resolvedPath, out pathError),
+                "拒绝直接选择磁盘根目录作为清理范围");
+            Require(!DownloadPathService.TryValidate(@"\\server\\share",
+                gameRoot, out resolvedPath, out pathError),
+                "拒绝不可靠的网络共享更新目录");
+            Require(DownloadPathService.ModpackCache(downloadsRoot) ==
+                Path.Combine(downloadsRoot, "wpf-pack-cache") &&
+                DownloadPathService.UpdatesRoot(downloadsRoot) ==
+                Path.Combine(downloadsRoot, "updates"),
+                "整合包和更新暂存目录必须使用自定义根路径的独立子目录");
+
             bool rejected = false;
             try { LauncherAutoUpdateService.ChecksumFromManifest(sample + "\n" + sample, exe29); }
             catch (InvalidDataException) { rejected = true; }
@@ -300,13 +333,16 @@ namespace BlockCraftLauncher.Wpf.Services
                 var settings = new LauncherConfig {
                     AutoCheckUpdates = true, AutoDownloadUpdates = true,
                     AutoInstallUpdatesOnExit = true,
+                    DownloadDirectory = Path.Combine(folder, "custom-downloads"),
                     UpdateChannel = "preview",
                     LastUpdateCheckUtc = new DateTime(2026, 11, 10, 0, 0, 0, DateTimeKind.Utc)
                 };
                 store.Save(settings);
                 var restored = store.Load();
                 Require(restored.AutoCheckUpdates && restored.AutoDownloadUpdates &&
-                    restored.AutoInstallUpdatesOnExit && restored.UpdateChannel == "preview" &&
+                    restored.AutoInstallUpdatesOnExit &&
+                    restored.DownloadDirectory == settings.DownloadDirectory &&
+                    restored.UpdateChannel == "preview" &&
                     restored.LastUpdateCheckUtc.Year == 2026,
                     "自动检查、通道与时间持久化");
             }

@@ -44,14 +44,16 @@ namespace BlockCraftLauncher.Updater
                 string target = Path.GetFullPath(Require(opt, "target"));
                 string staged = Path.GetFullPath(Require(opt, "staged"));
                 string digest = Require(opt, "sha256");
+                string updatesRoot = opt.TryGetValue("updates-root",
+                    out var selectedRoot) ? Path.GetFullPath(selectedRoot) : null;
                 if (digest.Length != 64 || digest.Any(c => !Uri.IsHexDigit(c)))
                     throw new InvalidDataException("更新包 SHA-256 无效");
                 if (!WaitForPreviousProcess(pid, WaitSeconds))
                     throw new IOException("原启动器仍在运行；没有覆盖任何文件。请关闭后重试。");
                 if (mode == "onefile")
-                    ApplySingleExe(target, staged, digest);
+                    ApplySingleExe(target, staged, digest, updatesRoot: updatesRoot);
                 else
-                    ApplyDirectory(target, staged, digest);
+                    ApplyDirectory(target, staged, digest, updatesRoot: updatesRoot);
                 return 0;
             }
             catch (Exception error)
@@ -71,7 +73,7 @@ namespace BlockCraftLauncher.Updater
 
         static Dictionary<string, string> ParseArguments(string[] args)
         {
-            if (args.Length != 11 || args[0] != "--apply")
+            if ((args.Length != 11 && args.Length != 13) || args[0] != "--apply")
                 throw new ArgumentException("缺少安全更新参数");
             var result = new Dictionary<string, string>(StringComparer.Ordinal);
             for (int i = 1; i < args.Length; i += 2)
@@ -315,12 +317,23 @@ namespace BlockCraftLauncher.Updater
                     TryDeleteOwnedFile(candidate);
         }
 
-        internal static string OwnedStageDirectory(string staged)
+        internal static string OwnedStageDirectory(string staged, string updatesRoot = null)
         {
             if (string.IsNullOrWhiteSpace(staged)) return null;
-            string updates = Path.GetFullPath(Path.Combine(
+            string legacy = Path.GetFullPath(Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "BlockCraftLauncher", "updates"));
+            string updates = string.IsNullOrWhiteSpace(updatesRoot) ?
+                legacy : Path.GetFullPath(updatesRoot);
+            bool custom = !string.Equals(updates, legacy, StringComparison.OrdinalIgnoreCase);
+            // Custom stage roots can never be the drive root, an arbitrary
+            // game folder, or a symlink. Only a named child "updates" is valid.
+            if (custom &&
+                (!string.Equals(Path.GetFileName(updates.TrimEnd('\\')), "updates",
+                    StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(Path.GetDirectoryName(updates.TrimEnd('\\')),
+                    Path.GetPathRoot(updates), StringComparison.OrdinalIgnoreCase)))
+                return null;
             string current = Path.GetFullPath(staged);
             while (!string.IsNullOrWhiteSpace(current) &&
                 current.StartsWith(updates + Path.DirectorySeparatorChar,
@@ -330,15 +343,19 @@ namespace BlockCraftLauncher.Updater
                     StringComparison.OrdinalIgnoreCase) &&
                     Regex.IsMatch(Path.GetFileName(current),
                         @"^staged-[a-f0-9]{32}$", RegexOptions.IgnoreCase))
+                {
+                    if (custom && !File.Exists(Path.Combine(current, ".blockcraft-stage")))
+                        return null;
                     return current;
+                }
                 current = Path.GetDirectoryName(current);
             }
             return null;
         }
 
-        static void CleanupOwnedStage(string staged)
+        static void CleanupOwnedStage(string staged, string updatesRoot)
         {
-            string directory = OwnedStageDirectory(staged);
+            string directory = OwnedStageDirectory(staged, updatesRoot);
             if (directory != null) TryDeleteOwnedDirectory(directory);
         }
 
@@ -391,7 +408,7 @@ namespace BlockCraftLauncher.Updater
         }
 
         static void ApplySingleExe(string target, string staged, string digest,
-            bool simulateLaunchFailure = false)
+            bool simulateLaunchFailure = false, string updatesRoot = null)
         {
             if (!target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
                 !staged.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
@@ -428,7 +445,7 @@ namespace BlockCraftLauncher.Updater
                     {
                         CleanupOwnedExeBackups(target);
                         CleanupOldOneFileCaches(staged);
-                        CleanupOwnedStage(staged);
+                        CleanupOwnedStage(staged, updatesRoot);
                     });
             }
             catch
@@ -587,7 +604,7 @@ namespace BlockCraftLauncher.Updater
         }
 
         static void ApplyDirectory(string target, string stage, string digest,
-            bool simulateLaunchFailure = false)
+            bool simulateLaunchFailure = false, string updatesRoot = null)
         {
             string main = Path.Combine(target, WpfExe);
             CheckLauncherExe(main);
@@ -620,7 +637,7 @@ namespace BlockCraftLauncher.Updater
                         // Only signed ZIP files are backed up; Minecraft
                         // worlds, mods and personal files are not touched.
                         TryDeleteOwnedDirectory(backup);
-                        CleanupOwnedStage(stage);
+                        CleanupOwnedStage(stage, updatesRoot);
                     });
             }
             catch
@@ -685,6 +702,28 @@ namespace BlockCraftLauncher.Updater
                 CleanupOwnedExeBackups(originalExe);
                 if (File.Exists(legacyBackup) || !File.Exists(notOurs))
                     throw new Exception("清理旧版 EXE 时删除了非启动器文件");
+
+                // Custom download roots are never deleted wholesale, and a
+                // named stage requires an exact marker before helper cleanup.
+                string external = Path.Combine(root, "external-cache", "updates");
+                string stageName = "staged-" + Guid.NewGuid().ToString("N");
+                string customStage = Path.Combine(external, stageName);
+                Directory.CreateDirectory(customStage);
+                File.WriteAllText(Path.Combine(customStage, "personal-data.txt"),
+                    "not eligible until marked", Encoding.ASCII);
+                if (OwnedStageDirectory(customStage, external) != null)
+                    throw new Exception("没有标记的自定义缓存不允许自动删除");
+                File.WriteAllText(Path.Combine(customStage, ".blockcraft-stage"),
+                    "BlockCraftLauncher update staging v1", Encoding.ASCII);
+                if (OwnedStageDirectory(Path.Combine(customStage, "unpacked", "payload"),
+                    external) != customStage ||
+                    OwnedStageDirectory(Path.Combine(root, "unrelated"), external) != null)
+                    throw new Exception("自定义下载路径的暂存目录边界验证失败");
+                string unsafeFile = Path.Combine(external, "other-user-file.txt");
+                File.WriteAllText(unsafeFile, "keep", Encoding.ASCII);
+                CleanupOwnedStage(Path.Combine(customStage, "unpacked", "payload"), external);
+                if (Directory.Exists(customStage) || !File.Exists(unsafeFile))
+                    throw new Exception("清理自定义缓存时误删非启动器文件");
 
                 // The directory updater must also restore DLLs and the main
                 // WPF executable when its post-install smoke test fails.

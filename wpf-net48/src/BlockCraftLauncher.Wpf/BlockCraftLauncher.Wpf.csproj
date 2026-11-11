@@ -29,5 +29,6 @@
     <Resource Include="Assets\blockcraft_icon.png" />
     <Resource Include="Assets\blockcraft_icon.ico" />
     <Reference Include="System.Net.Http" />
+    <Reference Include="System.Windows.Forms" />
   </ItemGroup>
 </Project>
