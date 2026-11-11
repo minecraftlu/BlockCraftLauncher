@@ -29,7 +29,9 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $tag = 'v0.9.40'
           # The one-file trigger must be the ONLY edit after full Windows CI.
-          $record = Get-Content -LiteralPath 'wpf-net48/docs/V0940_STABLE_RELEASE_TRIGGER.md' -Raw
+          # The checked-out file has CRLF on Windows; normalize line
+          # endings before anchored receipt validation.
+          $record = (Get-Content -LiteralPath 'wpf-net48/docs/V0940_STABLE_RELEASE_TRIGGER.md' -Raw) -replace "`r`n", "`n"
           $reviewed = (& git rev-parse 'HEAD^').Trim()
           if ($LASTEXITCODE -ne 0 -or
               $record -notmatch '(?m)^OWNER_RELEASE_AUTHORIZATION: true$' -or
