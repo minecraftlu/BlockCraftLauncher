@@ -1,17 +1,17 @@
-name: BlockCraft Launcher v0.9.44 RC1 Windows build and prerelease
+name: BlockCraft Launcher v0.9.44 Stable Windows build and prerelease
 
 on:
   push:
     branches:
-      - release/v0944-rc1-auto-switch
+      - release/v0944-stable-auto-switch
 
 concurrency:
-  group: blockcraft-v0944-rc1-publish
+  group: blockcraft-v0944-stable-publish
   cancel-in-progress: false
 
 jobs:
   build:
-    if: github.repository == 'minecraftlu/BlockCraftLauncher' && github.ref == 'refs/heads/release/v0944-rc1-auto-switch'
+    if: github.repository == 'minecraftlu/BlockCraftLauncher' && github.ref == 'refs/heads/release/v0944-stable-auto-switch'
     runs-on: windows-2022
     permissions:
       contents: write
@@ -23,17 +23,17 @@ jobs:
         with:
           persist-credentials: false
       - uses: microsoft/setup-msbuild@v2
-      - name: Verify the exact RC1 version and unused release tag
+      - name: Verify exact Stable compiled version and unused release tag
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $tag = 'v0.9.44-wpf-rc.1'
+          $tag = 'v0.9.44'
           $source = Get-Content -LiteralPath 'wpf-net48/src/BlockCraftLauncher.Wpf/Services/LauncherAutoUpdateService.cs' -Raw
           if ($source -cnotmatch ('internal const string CurrentTag = "' + [regex]::Escape($tag) + '";')) {
             throw 'Compiled launcher must identify itself as this preview'
           }
           $existing = & git ls-remote --tags origin "refs/tags/$tag"
-          if ($LASTEXITCODE -ne 0 -or $existing) { throw 'RC1 tag exists or cannot be verified; refusing overwrite' }
+          if ($LASTEXITCODE -ne 0 -or $existing) { throw 'Stable tag exists or cannot be verified; refusing overwrite' }
       - name: Static migration checks (not a substitute for WPF build)
         shell: pwsh
         working-directory: wpf-net48
@@ -61,13 +61,13 @@ jobs:
         shell: cmd
         working-directory: wpf-net48
         run: call build\build-windows.bat
-      - name: Verify v0.9.42 can select both RC1 preview packages
+      - name: Verify v0.9.42 can select both Stable preview packages
         working-directory: wpf-net48
         shell: pwsh
         timeout-minutes: 8
         env:
-          RELEASE_TAG: v0.9.44-wpf-rc.1
-          RELEASE_ZIP: BlockCraftLauncher-v0.9.44-WPF-net48-Alpha-Windows-x64.zip
+          RELEASE_TAG: v0.9.44
+          RELEASE_ZIP: BlockCraftLauncher-v0.9.44-WPF-net48-Windows-x64.zip
           RELEASE_EXE: BlockCraftLauncher-v0.9.44-WPF-OneFile-Windows-x64.exe
         run: |
           $ErrorActionPreference = 'Stop'
@@ -77,7 +77,7 @@ jobs:
             "$hash  $file"
           }
           $sums | Set-Content -LiteralPath 'dist/RELEASE-SHA256SUMS.txt' -Encoding ASCII
-          & ./tests/check_v0944_rc1_promotion.ps1 -Phase Preflight
+          & ./tests/check_v0944_stable_promotion.ps1 -Phase Preflight
           if ($LASTEXITCODE -ne 0) { throw 'Preview upgrade preflight failed' }
 
       - name: Standalone updater safe file replacement / rollback selftest
@@ -534,7 +534,7 @@ jobs:
         working-directory: wpf-net48
         run: |
           if (!(Test-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe')) { throw 'EXE not produced' }
-          if (!(Test-Path 'dist/BlockCraftLauncher-v0.9.44-WPF-net48-Alpha-Windows-x64.zip')) { throw 'ZIP not produced' }
+          if (!(Test-Path 'dist/BlockCraftLauncher-v0.9.44-WPF-net48-Windows-x64.zip')) { throw 'ZIP not produced' }
           if (!(Test-Path 'dist/BlockCraftLauncher-v0.9.44-WPF-OneFile-Windows-x64.exe')) { throw 'One-file EXE not produced' }
       - name: Verify public CI build hashes before provenance attestation
         shell: pwsh
@@ -543,7 +543,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $names = @(
             'BlockCraftLauncher-v0.9.44-WPF-OneFile-Windows-x64.exe',
-            'BlockCraftLauncher-v0.9.44-WPF-net48-Alpha-Windows-x64.zip'
+            'BlockCraftLauncher-v0.9.44-WPF-net48-Windows-x64.zip'
           )
           $lines = @(Get-Content -LiteralPath 'dist/RELEASE-SHA256SUMS.txt')
           if ($lines.Count -ne 2) { throw 'Expected exactly two release hashes' }
@@ -557,7 +557,7 @@ jobs:
         with:
           subject-path: |
             wpf-net48/dist/BlockCraftLauncher-v0.9.44-WPF-OneFile-Windows-x64.exe
-            wpf-net48/dist/BlockCraftLauncher-v0.9.44-WPF-net48-Alpha-Windows-x64.zip
+            wpf-net48/dist/BlockCraftLauncher-v0.9.44-WPF-net48-Windows-x64.zip
 
       # Exercise the same real keyless signing service on the CI branch, so
       # stable publishing does not become the first time Cosign is tried.
@@ -575,7 +575,7 @@ jobs:
           $signer = 'github.com/${{ github.repository }}/.github/workflows/wpf-net48-alpha-build.yml'
           foreach ($name in @(
             'BlockCraftLauncher-v0.9.44-WPF-OneFile-Windows-x64.exe',
-            'BlockCraftLauncher-v0.9.44-WPF-net48-Alpha-Windows-x64.zip'
+            'BlockCraftLauncher-v0.9.44-WPF-net48-Windows-x64.zip'
           )) {
             $file = Join-Path 'dist' $name
             & cosign sign-blob --yes --bundle "$file.sigstore.json" $file
@@ -588,27 +588,27 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: BlockCraftLauncher-v0.9.44-RC1-Windows
+          name: BlockCraftLauncher-v0.9.44-Stable-Windows
           path: |
-            wpf-net48/dist/BlockCraftLauncher-v0.9.44-WPF-net48-Alpha-Windows-x64.zip
+            wpf-net48/dist/BlockCraftLauncher-v0.9.44-WPF-net48-Windows-x64.zip
             wpf-net48/dist/BlockCraftLauncher-v0.9.44-WPF-OneFile-Windows-x64.exe
             wpf-net48/dist/BlockCraftLauncher-v0.9.44-WPF-OneFile-Windows-x64.exe.sha256
             wpf-net48/dist/RELEASE-SHA256SUMS.txt
             wpf-net48/dist/BlockCraftLauncher-v0.9.44-WPF-OneFile-Windows-x64.exe.sigstore.json
-            wpf-net48/dist/BlockCraftLauncher-v0.9.44-WPF-net48-Alpha-Windows-x64.zip.sigstore.json
+            wpf-net48/dist/BlockCraftLauncher-v0.9.44-WPF-net48-Windows-x64.zip.sigstore.json
           if-no-files-found: error
           retention-days: 14
 
-      - name: Publish verified v0.9.44 RC1 test release (never Stable)
+      - name: Publish verified v0.9.44 Stable release
         shell: pwsh
         working-directory: wpf-net48
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $tag = 'v0.9.44-wpf-rc.1'
+          $tag = 'v0.9.44'
           $exe = 'BlockCraftLauncher-v0.9.44-WPF-OneFile-Windows-x64.exe'
-          $zip = 'BlockCraftLauncher-v0.9.44-WPF-net48-Alpha-Windows-x64.zip'
+          $zip = 'BlockCraftLauncher-v0.9.44-WPF-net48-Windows-x64.zip'
           $files = @(
             "dist/$exe",
             "dist/$exe.sha256",
@@ -630,30 +630,54 @@ jobs:
             if (!(Test-Path -LiteralPath $file)) { throw "Missing release asset: $file" }
           }
           $notes = @'
-          ## BlockCraft Launcher v0.9.44 RC1 测试版
+          ## BlockCraft Launcher v0.9.44 · 正式版 Stable
+
+          本版继续使用独立 WPF 启动器与 .NET Framework 4.8，保留已有的启动、微软账号登录、游戏版本/Modrinth/CurseForge 模组下载、整合包、资源包、光影、存档和皮肤 DIY 等模块。
+
+          ### 主要改进
+          - 更新下载和 SHA-256 校验完成后，在没有 Minecraft 游戏进程、下载任务或未保存皮肤编辑时，自动关闭旧版启动器窗口。
+          - **关闭旧版后**由独立更新助手原位替换原 EXE（或 ZIP 安装目录），进行新版启动自检并自动打开新版主窗口；更新失败支持回滚，回滚恢复为原始 SHA-256 后才尝试重新打开旧版。
+          - 已安装用户原有的自动更新开关继续生效；新安装默认自动检查/下载并空闲自动切换。如已手动关闭自动更新，可在「设置 → 更新设置」重新开启。
+          - 统一 PCL2 风格的顶部导航、侧栏、页面卡片、搜索筛选和设置布局，使用 BlockCraft 自有视觉元素，不包含 PCL2 原版资源。
+          - 保留皮肤 360° 鼠标旋转、DIY 编辑、模组图标与回退、下载加速、移动硬盘同盘的 Minecraft/Downloads 自定义目录以及独立下载目录。
+          - Windows CI 测试 WPF/OneFile 启动、窗口就绪、更新安装/回滚、路径隔离、下载离线回归、皮肤/模组/存档和主题布局。
+          - 提供完整 ZIP 与独立 EXE，附 SHA-256、Sigstore 包签名以及 GitHub 生成来源证明。
+
+          ### 重要提示
+          - 支持 Windows 10/11 x64；ZIP 需解压后在完整目录中运行。Microsoft 登录需要 WebView2 Runtime。
+          - GitHub API 限流、第三方资源不存在或地区网络限制时，部分模组/资源可能暂时无法下载；不保证所有公开资源都能安装。
+          - 自动化测试不等于所有 Windows 设备和网络环境的实测认证。没有 Windows Authenticode 代码签名证书，首次运行可能显示“未知发布者”。
+          - 更新不会主动扫描并删除 Minecraft 存档、模组或用户自行下载的 EXE；仅替换当前安装位置及启动器专用临时更新文件。
+          - 稳定通道的旧版本会发现此版本。若曾关闭自动更新，请手动进入「启动器更新」检测。
           
-          - 按 PCL2 的页面组织方式统一顶部导航、侧栏、卡片及筛选布局；继续使用 BlockCraft 自有图标与素材。
-          - 新安装默认检查并自动下载更新。SHA-256 校验通过、且游戏/下载/未保存皮肤等任务空闲时，自动关闭旧版窗口。
-          - 旧进程退出后，独立更新助手原位替换旧 EXE 或 ZIP，执行新版本启动自检并自动打开新版窗口。
-          - 更新失败时保留回滚保护；仅在旧版文件恢复并匹配原 SHA-256 后尝试重新打开旧版。
-          - 本地磁盘、U 盘和移动硬盘可将游戏根目录与下载目录配置在同一自定义父文件夹内。
-          
-          **测试版提醒：** 自动更新需要启动器空闲；若旧版本曾明确关闭自动下载或自动切换，请在「设置 → 更新设置」中重新开启。此版本未完成所有真实设备和网络环境验证，不是正式版。
-          
-          Windows 10/11 x64；单文件 EXE 可直接运行，完整 ZIP 必须解压。附 SHA-256 和 Sigstore 校验材料。
+          反馈：https://github.com/minecraftlu/BlockCraftLauncher/issues
           '@
-          $notes | Set-Content -LiteralPath 'dist/RELEASE-NOTES-RC1.txt' -Encoding UTF8
-          & gh release create $tag @files --repo '${{ github.repository }}' --target '${{ github.sha }}' --title 'BlockCraft Launcher v0.9.44 RC1（测试版）' --notes-file 'dist/RELEASE-NOTES-RC1.txt' --prerelease --latest=false
-          if ($LASTEXITCODE -ne 0) { throw 'Publishing RC1 prerelease failed' }
+          $notes | Set-Content -LiteralPath 'dist/RELEASE-NOTES-STABLE.txt' -Encoding UTF8
+          & gh release create $tag @files --repo '${{ github.repository }}' --target '${{ github.sha }}' --title 'BlockCraft Launcher v0.9.44 (Stable)' --notes-file 'dist/RELEASE-NOTES-STABLE.txt' --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Publishing Stable prerelease failed' }
           $published = & gh release view $tag --repo '${{ github.repository }}' --json tagName,isPrerelease,assets | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0 -or !$published.isPrerelease -or $published.tagName -ne $tag) {
-            throw 'Published release is not the exact intended prerelease'
+          if ($LASTEXITCODE -ne 0 -or $published.isPrerelease -or $published.tagName -ne $tag) {
+            throw 'Published release is not the exact intended stable release'
           }
           $actualNames = @($published.assets | ForEach-Object { $_.name })
           foreach ($file in $files) {
             if ($actualNames -cnotcontains (Split-Path $file -Leaf)) {
-              throw "Published RC1 missing required asset: $file"
+              throw "Published Stable missing required asset: $file"
             }
           }
           Write-Host "SUCCESS: https://github.com/${{ github.repository }}/releases/tag/$tag"
 
+
+      - name: Verify published v0.9.44 Stable upgrades v0.9.42 ZIP and OneFile in place
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 16
+        env:
+          RELEASE_TAG: v0.9.44
+          RELEASE_ZIP: BlockCraftLauncher-v0.9.44-WPF-net48-Windows-x64.zip
+          RELEASE_EXE: BlockCraftLauncher-v0.9.44-WPF-OneFile-Windows-x64.exe
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./tests/check_v0944_stable_promotion.ps1 -Phase Live
+          if ($LASTEXITCODE -ne 0) { throw 'Published Stable ZIP/OneFile original-path upgrade failed' }
+          Write-Host 'PASS: v0.9.42 stable detects, verifies and upgrades to v0.9.44 Stable; both original paths and windows verified'
