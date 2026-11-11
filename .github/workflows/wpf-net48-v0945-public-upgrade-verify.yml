@@ -44,7 +44,7 @@ jobs:
             throw 'Public Stable release tag does not point to the tested original source'
           }
           $version = Get-Content -LiteralPath 'wpf-net48/src/BlockCraftLauncher.Wpf/Services/LauncherAutoUpdateService.cs' -Raw
-          if ($version -cnotmatch 'internal const string CurrentTag = "v0\.9\.44";') {
+          if ($version -cnotmatch 'internal const string CurrentTag = "v0\.9\.45";') {
             throw 'Stable binary version is mismatched'
           }
           Write-Host 'PASS: source code is identical to published Stable commit, only test harness differs'
