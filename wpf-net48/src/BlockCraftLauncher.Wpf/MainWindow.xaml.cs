@@ -163,11 +163,21 @@ namespace BlockCraftLauncher.Wpf
                 if (!SuppressAutomaticUpdateCheck)
                     await CheckLauncherUpdatesAsync(false);
             };
+            if (Application.Current != null)
+                Application.Current.SessionEnding += (sender, args) =>
+                    suppressAutomaticInstallOnClose = true;
             Closing += (sender, args) =>
             {
+                // Do not reopen the launcher in the middle of a Minecraft
+                // session, a game download, a mod installation or logoff.
+                bool activeDownload = downloads.Jobs.Any(job => job.IsRunning);
+                bool activeGame = settings.Profiles.Any(profile =>
+                    gameProcesses.GetState(profile).Status == GameProcessStatus.Running);
+                bool workInProgress = currentOperation != null ||
+                    activeDownload || activeGame;
                 if (!LauncherAutoUpdateService.ShouldAutoInstallOnExit(settings,
                     preparedUpdate, offeredUpdate, updateChecking || updatePreparing ||
-                    updateCancellation.IsCancellationRequested,
+                    workInProgress || updateCancellation.IsCancellationRequested,
                     suppressAutomaticInstallOnClose || SuppressAutomaticUpdateCheck))
                     return;
                 // A verified update is installed only after the user closes
