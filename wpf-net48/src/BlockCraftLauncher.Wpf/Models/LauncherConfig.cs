@@ -18,6 +18,10 @@ namespace BlockCraftLauncher.Wpf.Models
     public sealed class LauncherConfig
     {
         public string Root { get; set; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BlockCraftLauncher", "minecraft");
+        // Root is the Minecraft installation destination; DownloadDirectory
+        // is separate and only hosts launcher-owned temporary packages.
+        // Empty retains the legacy LocalAppData cache root.
+        public string DownloadDirectory { get; set; } = "";
         public string JavaPath { get; set; } = "";
         public string Proxy { get; set; } = "";
         public bool McimEnabled { get; set; } = false;
