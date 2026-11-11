@@ -45,7 +45,13 @@ for item in ("BuildServerFinder()", "SearchServersAsync(", "serverFinderResults"
              "CopyDiscoveredServer", "OpenDiscoveredSource", "MultiplayerService.ParseAddress",
              "multiplayer.Load()", "multiplayer.Save(saved)", "LaunchAsync(hit.Address)"):
     assert item in main, item
-assert 'serverFinderCancellation?.Cancel()' in main
+# Navigation must not call Cancel on a completed request that has already
+# disposed its CancellationTokenSource. The old direct Cancel implementation
+# crashed the entire WPF window after searches/navigation.
+assert 'CancelAndDetach(ref serverFinderCancellation)' in main
+assert 'serverFinderCancellation = null;' in main
+assert 'catch (ObjectDisposedException)' in main
+assert '切换页面后仍保留已释放的 CancellationTokenSource' in main
 assert 'PublicServerDirectoryService.RunOfflineSelfTest()' in app
 assert '"--server-search-selftest"' in app
 assert "mc-monitor.app" in privacy and "minecraftserver.id" in privacy

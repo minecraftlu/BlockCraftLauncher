@@ -341,6 +341,20 @@ namespace BlockCraftLauncher.Wpf
                 Current.Shutdown(23);
                 return;
             }
+            // The CTS was already cancelled and disposed by its async owner.
+            // This particular WPF navigation race is recoverable after the
+            // main window is visible. Keep diagnostics but do not destroy
+            // a running Minecraft/launcher session for an obsolete request.
+            if (args.Exception.GetBaseException() is ObjectDisposedException expired &&
+                (expired.ObjectName ?? "").IndexOf("CancellationTokenSource",
+                    StringComparison.OrdinalIgnoreCase) >= 0 &&
+                Current?.MainWindow is MainWindow window && window.IsVisible)
+            {
+                args.Handled = true;
+                try { window.ReportRecoverableCancellation(); }
+                catch (Exception notificationError) { WriteDiagnostic(notificationError); }
+                return;
+            }
             MessageBox.Show("启动器发生错误：\n" + args.Exception.GetBaseException().Message
                 + "\n\n如涉及缺失 DLL，请完整解压新版 ZIP 后运行，勿只复制 EXE。"
                 + "\n\n诊断日志：\n" + path

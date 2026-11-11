@@ -563,17 +563,27 @@ namespace BlockCraftLauncher.Wpf
             Status("皮肤下载已加入任务队列：" + item.Name);
         }
 
+        // Navigation can race a finished async request that already disposed
+        // its token source. Detach the shared reference before cancellation.
+        static void CancelAndDetach(ref CancellationTokenSource source)
+        {
+            var pending = source;
+            source = null;
+            if (pending == null) return;
+            try { pending.Cancel(); }
+            catch (ObjectDisposedException)
+            {
+                // The owning task already disposed this finished request.
+            }
+        }
+
         void Navigate(string page)
         {
-            localModIconLoad?.Cancel();
-            resourceSearchCancellation?.Cancel();
-            resourceSearchCancellation = null;
-            cfSearchCancellation?.Cancel();
-            cfSearchCancellation = null;
-            packSearchCancellation?.Cancel();
-            packSearchCancellation = null;
-            serverFinderCancellation?.Cancel();
-            serverFinderCancellation = null;
+            CancelAndDetach(ref localModIconLoad);
+            CancelAndDetach(ref resourceSearchCancellation);
+            CancelAndDetach(ref cfSearchCancellation);
+            CancelAndDetach(ref packSearchCancellation);
+            CancelAndDetach(ref serverFinderCancellation);
             serverFinderSearching = false;
             ClearDetails();
             detailTrigger = null;
@@ -652,6 +662,14 @@ namespace BlockCraftLauncher.Wpf
         }
 
         void Status(string message) { StatusText.Text = message; Log(message); }
+
+        // A search callback completing during navigation is recoverable. If
+        // a stale CTS exception still reaches the Dispatcher, report it in
+        // the existing status/log instead of closing the entire launcher.
+        internal void ReportRecoverableCancellation()
+        {
+            Status("一个已结束的搜索或下载任务被重复取消，已跳过。启动器可以继续使用；如有问题请重试该操作。");
+        }
         internal void ShowPostUpdateSuccess()
         {
             Title = "BlockCraft Launcher · " + LauncherAutoUpdateService.CurrentTag + " · 更新完成";
@@ -1253,7 +1271,25 @@ namespace BlockCraftLauncher.Wpf
                 throw new InvalidOperationException("服务器查找搜索、筛选、分页或入口缺失");
             ArrangeLayoutProbe(1080, 680, "06-server-discovery");
             ArrangeLayoutProbe(850, 560, "06-server-discovery-narrow");
+            // Regression: an earlier completed search used to leave a
+            // disposed CTS in the server-search field. Navigating away
+            // then called Cancel() again, triggering the fatal dialog.
+            // Exercise the same failure for every navigation-owned source.
+            var finishedCancellation = new CancellationTokenSource();
+            finishedCancellation.Dispose();
+            localModIconLoad = finishedCancellation;
+            resourceSearchCancellation = finishedCancellation;
+            cfSearchCancellation = finishedCancellation;
+            packSearchCancellation = finishedCancellation;
+            serverFinderCancellation = finishedCancellation;
             Navigate("局域网");
+            if (localModIconLoad != null ||
+                resourceSearchCancellation != null ||
+                cfSearchCancellation != null ||
+                packSearchCancellation != null ||
+                serverFinderCancellation != null)
+                throw new InvalidOperationException(
+                    "切换页面后仍保留已释放的 CancellationTokenSource");
             if (lanWorldList?.ItemTemplate == null)
                 throw new InvalidOperationException("局域网列表缺少行布局模板");
 
@@ -1684,8 +1720,7 @@ namespace BlockCraftLauncher.Wpf
 
             bool searchGitHub = resourceType == "mod" &&
                 resourceSource?.SelectedIndex == 2;
-            var oldRequest = resourceSearchCancellation;
-            oldRequest?.Cancel();
+            CancelAndDetach(ref resourceSearchCancellation);
             using (var request = new CancellationTokenSource(TimeSpan.FromSeconds(35)))
             {
                 resourceSearchCancellation = request;
@@ -2104,7 +2139,7 @@ namespace BlockCraftLauncher.Wpf
             var label = cfSearchStatus;
             if (results == null || !settings.McimEnabled) return;
 
-            cfSearchCancellation?.Cancel();
+            CancelAndDetach(ref cfSearchCancellation);
             var cancellation = new CancellationTokenSource();
             cfSearchCancellation = cancellation;
             if (label != null) label.Text = "正在加载模组封面、作者和截图信息...";
@@ -2256,7 +2291,7 @@ namespace BlockCraftLauncher.Wpf
         async Task SearchModpacksAsync()
         {
             if (packSearchResults == null) return;
-            packSearchCancellation?.Cancel();
+            CancelAndDetach(ref packSearchCancellation);
             using (var request = new CancellationTokenSource(TimeSpan.FromSeconds(35)))
             {
                 packSearchCancellation = request;
@@ -2466,7 +2501,7 @@ namespace BlockCraftLauncher.Wpf
         }
         async Task RefreshLocalResourceListAsync()
         {
-            localModIconLoad?.Cancel();
+            CancelAndDetach(ref localModIconLoad);
             if (localResourceList == null || localResourceKind == null || activeProfile == null) return;
             string kind = Convert.ToString(localResourceKind.SelectedItem);
             IReadOnlyList<LocalResourceItem> items;
@@ -2711,7 +2746,7 @@ namespace BlockCraftLauncher.Wpf
             string sort = serverFinderSort.SelectedIndex == 1 ? "players" :
                 serverFinderSort.SelectedIndex == 2 ? "newest" : "score";
             bool onlineOnly = serverFinderOnlineOnly.IsChecked == true;
-            serverFinderCancellation?.Cancel();
+            CancelAndDetach(ref serverFinderCancellation);
             var cancel = new CancellationTokenSource();
             serverFinderCancellation = cancel;
             serverFinderSearching = true;
@@ -2749,6 +2784,8 @@ namespace BlockCraftLauncher.Wpf
             {
                 if (ReferenceEquals(serverFinderCancellation, cancel))
                 {
+                    // Never publish a disposed source to later navigation.
+                    serverFinderCancellation = null;
                     serverFinderSearching = false;
                     serverFinderSearchButton.IsEnabled = true;
                 }
