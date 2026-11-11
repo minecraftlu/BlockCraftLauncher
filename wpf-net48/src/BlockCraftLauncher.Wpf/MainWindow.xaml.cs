@@ -437,7 +437,7 @@ namespace BlockCraftLauncher.Wpf
             sidebarButtons.Clear();
             LaunchPane.Visibility = section == NavigationSection.Launch ? Visibility.Visible : Visibility.Collapsed;
             SideMenu.Visibility = section == NavigationSection.Launch ? Visibility.Collapsed : Visibility.Visible;
-            UpdateShellSize();
+            UpdateCompactLayout();
             switch (section)
             {
                 case NavigationSection.Versions:
@@ -717,17 +717,13 @@ namespace BlockCraftLauncher.Wpf
         {
             var value = Math.Max(80, Math.Min(140, settings.Zoom)) / 100.0;
             UiScale.ScaleX = value; UiScale.ScaleY = value;
-            UpdateShellSize();
+            UpdateCompactLayout();
         }
-        void UpdateShellSize()
+        void UpdateCompactLayout()
         {
             if (WindowViewport == null || Shell == null) return;
             double scale = UiScale.ScaleX;
-            double width = WindowViewport.ActualWidth > 2 ?
-                (WindowViewport.ActualWidth - 2) / scale : Width / scale;
-            if (WindowViewport.ActualWidth > 2) Shell.Width = width;
-            if (WindowViewport.ActualHeight > 2)
-                Shell.Height = (WindowViewport.ActualHeight - 2) / scale;
+            double width = (WindowViewport.ActualWidth > 0 ? WindowViewport.ActualWidth : Width) / scale;
 
             bool compact = width < 720;
             bool launch = SectionFor(currentPage) == NavigationSection.Launch;
@@ -735,7 +731,7 @@ namespace BlockCraftLauncher.Wpf
             PageScroll.Padding = compact ? new Thickness(12, 12, 12, 6) :
                 new Thickness(20, 16, 20, 9);
         }
-        void WindowViewport_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateShellSize();
+        void WindowViewport_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateCompactLayout();
 
         static void Place(Grid grid, UIElement element, int row, int col)
         {
@@ -1396,9 +1392,12 @@ namespace BlockCraftLauncher.Wpf
                 {
                     Navigate(page);
                     ArrangeLayoutProbe(760, 480, page == "下载设置" ? "08-settings-compact" : null);
-                    if (Shell.ActualWidth * UiScale.ScaleX > WindowViewport.ActualWidth + 1 ||
-                        WindowViewport.ScrollableWidth > 1)
-                        throw new InvalidOperationException(page + "在 140% 缩放时超出窗口宽度");
+                    var bounds = Shell.TransformToAncestor(WindowViewport).TransformBounds(
+                        new Rect(Shell.RenderSize));
+                    if (WindowViewport.ActualWidth <= 0 ||
+                        bounds.Left < -1 || bounds.Right > WindowViewport.ActualWidth + 1)
+                        throw new InvalidOperationException(page + "在 140% 缩放时超出窗口宽度：" +
+                            bounds + " / " + WindowViewport.ActualWidth);
                 }
                 if (settingsAutoInstallOnExit.ActualWidth <= 0 ||
                     settingsAutoInstallOnExit.TranslatePoint(new Point(settingsAutoInstallOnExit.ActualWidth, 0),
@@ -1464,7 +1463,7 @@ namespace BlockCraftLauncher.Wpf
             var rect = new Rect(size);
             root.Measure(size);
             root.Arrange(rect);
-            UpdateShellSize();
+            UpdateCompactLayout();
             root.Measure(size);
             root.Arrange(rect);
             root.UpdateLayout();
