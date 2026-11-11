@@ -263,6 +263,14 @@ namespace BlockCraftLauncher.Updater
 
         // Best-effort housekeeping happens ONLY after the new window has
         // rendered. An unconfirmed upgrade retains the rollback copy.
+        static void BestEffortCleanup(Action cleanup)
+        {
+            // Never roll back a successfully relaunched EXE because disk
+            // cleanup failed; log the reason and retry on a later launch.
+            try { cleanup(); }
+            catch (Exception error) { WriteLog(error); }
+        }
+
         static void TryDeleteOwnedFile(string file)
         {
             try
@@ -416,11 +424,12 @@ namespace BlockCraftLauncher.Updater
                 // Keep rollback until the new GUI has actually appeared.
                 bool confirmed = Restart(target);
                 if (confirmed)
-                {
-                    CleanupOwnedExeBackups(target);
-                    CleanupOldOneFileCaches(staged);
-                    CleanupOwnedStage(staged);
-                }
+                    BestEffortCleanup(() =>
+                    {
+                        CleanupOwnedExeBackups(target);
+                        CleanupOldOneFileCaches(staged);
+                        CleanupOwnedStage(staged);
+                    });
             }
             catch
             {
@@ -606,12 +615,13 @@ namespace BlockCraftLauncher.Updater
                 SmokeTest(main);
                 bool confirmed = Restart(main);
                 if (confirmed)
-                {
-                    // Only files included in the signed ZIP are backed up.
-                    // User-created Minecraft worlds/mods remain untouched.
-                    TryDeleteOwnedDirectory(backup);
-                    CleanupOwnedStage(stage);
-                }
+                    BestEffortCleanup(() =>
+                    {
+                        // Only signed ZIP files are backed up; Minecraft
+                        // worlds, mods and personal files are not touched.
+                        TryDeleteOwnedDirectory(backup);
+                        CleanupOwnedStage(stage);
+                    });
             }
             catch
             {
