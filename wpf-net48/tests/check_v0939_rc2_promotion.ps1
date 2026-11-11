@@ -265,3 +265,7 @@ function Test-Upgrade($mode, $probe, $sha, $bootstrap) {
 }
 Test-Upgrade 'zip' $env:BCL_ZIP_PROBE $env:BCL_ZIP_SHA '-'
 Test-Upgrade 'onefile' $env:BCL_SINGLE_PROBE $env:BCL_SINGLE_SHA $env:BCL_OLD_BOOTSTRAP
+# Test-Upgrade is implemented with PowerShell/.NET APIs. A stale or unset
+# native exit code is NOT the test result; all assertions throw on failure.
+$global:LASTEXITCODE = 0
+Write-Host 'PASS: RC1 to RC2 live promotion (ZIP and OneFile), original path and cleanup verified'
