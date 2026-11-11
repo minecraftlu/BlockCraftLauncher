@@ -1,0 +1,178 @@
+name: Publish BlockCraft Launcher v0.9.43 RC3
+
+on:
+  push:
+    branches:
+      - release/v0943-rc3-window-handoff
+
+concurrency:
+  group: blockcraft-v0943-rc3-publish
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == 'minecraftlu/BlockCraftLauncher' && github.ref == 'refs/heads/release/v0943-rc3-window-handoff'
+    runs-on: windows-2022
+    permissions:
+      actions: read
+      attestations: read
+      contents: write
+    env:
+      RELEASE_TAG: v0.9.43-wpf-rc.3
+      RELEASE_EXE: BlockCraftLauncher-v0.9.43-WPF-OneFile-Windows-x64.exe
+      RELEASE_ZIP: BlockCraftLauncher-v0.9.43-WPF-net48-Alpha-Windows-x64.zip
+      SOURCE_SHA: b8b7a924f91d76dc41ab55b5fcc694680ac7efd1
+      BUILD_RUN: '43055554833'
+      BUILD_REF: refs/heads/feature/v0943-rc3-window-handoff
+      BUILD_ARTIFACT: '13870753562'
+      BUILD_ARTIFACT_DIGEST: sha256:c2c21877a799f6d38c0ca7d7af39f92a99ea764bcc852ef8485f859e92ad0102
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check the tested source and Windows artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $run = & gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:BUILD_RUN" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $run.conclusion -ne 'success' -or $run.head_sha -ne $env:SOURCE_SHA) {
+            throw 'The pinned Windows build did not pass for the expected source'
+          }
+          $artifact = & gh api "repos/$env:GITHUB_REPOSITORY/actions/artifacts/$env:BUILD_ARTIFACT" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $artifact.expired -or
+              $artifact.workflow_run.id -ne [long]$env:BUILD_RUN -or
+              $artifact.workflow_run.head_sha -ne $env:SOURCE_SHA -or $artifact.digest -ne $env:BUILD_ARTIFACT_DIGEST) {
+            throw 'The artifact does not match the tested Windows build'
+          }
+          $tag = & git ls-remote --tags origin "refs/tags/$env:RELEASE_TAG"
+          if ($LASTEXITCODE -ne 0 -or $tag) { throw 'RC3 tag already exists or could not be checked' }
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: BlockCraftLauncher-v0.9.43-RC3-Windows
+          run-id: 43055554833
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: wpf-net48/dist
+
+      - uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Verify SHA-256, Sigstore signatures and build provenance
+        shell: pwsh
+        working-directory: wpf-net48
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $workflow = "$env:GITHUB_REPOSITORY/.github/workflows/wpf-net48-alpha-build.yml"
+          $identity = "https://github.com/$workflow@$env:BUILD_REF"
+          $manifest = @(Get-Content -LiteralPath 'dist/RELEASE-SHA256SUMS.txt')
+          if ($manifest.Count -ne 2) { throw 'Expected two package hashes' }
+          foreach ($name in @($env:RELEASE_EXE, $env:RELEASE_ZIP)) {
+            $path = Join-Path 'dist' $name
+            $sha = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($manifest -cnotcontains "$sha  $name") { throw "Package hash mismatch: $name" }
+            & cosign verify-blob $path --bundle "$path.sigstore.json" --certificate-identity $identity --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+            if ($LASTEXITCODE -ne 0) { throw "Sigstore verification failed: $name" }
+            & gh attestation verify $path --repo $env:GITHUB_REPOSITORY --source-ref $env:BUILD_REF --source-digest $env:SOURCE_SHA --signer-workflow "github.com/$workflow"
+            if ($LASTEXITCODE -ne 0) { throw "Provenance verification failed: $name" }
+          }
+          $exeHash = (Get-FileHash -LiteralPath (Join-Path 'dist' $env:RELEASE_EXE) -Algorithm SHA256).Hash.ToLowerInvariant()
+          $checksum = (Get-Content -LiteralPath (Join-Path 'dist' "$env:RELEASE_EXE.sha256") -Raw).Trim()
+          if ($checksum -cne "$exeHash  $env:RELEASE_EXE") { throw 'OneFile checksum mismatch' }
+
+      - name: Verify the published RC2 can select both RC3 packages
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 6
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./tests/check_v0943_rc3_promotion.ps1 -Phase Preflight
+          if ($LASTEXITCODE -ne 0) { throw 'RC2 preview preflight failed' }
+
+      - name: Publish the exact tested bytes as a GitHub prerelease
+        shell: pwsh
+        working-directory: wpf-net48
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = $env:RELEASE_TAG
+          $exe = $env:RELEASE_EXE
+          $zip = $env:RELEASE_ZIP
+          $files = @("dist/$exe", "dist/$zip", "dist/$exe.sha256", 'dist/RELEASE-SHA256SUMS.txt',
+            "dist/$exe.sigstore.json", "dist/$zip.sigstore.json")
+          $notes = Join-Path $env:RUNNER_TEMP 'blockcraft-v0943-rc3-notes.md'
+          @'
+          ## v0.9.43 RC3 测试版
+
+          - 手动或自动更新时，旧窗口会保持运行。确认新版主窗口显示后，旧窗口自动关闭。
+          - 更新助手随后在原位置替换启动器文件并清理旧 EXE 备份。新版未能打开时，旧窗口会保留。
+          - 单文件 EXE 和完整 ZIP 均通过 Windows 下的窗口切换、原位替换和清理测试。
+
+          在「设置 → 更新设置」选择「预览版」并保存，再打开「启动器更新」检查。从 RC2 升级到 RC3 时沿用 RC2 的更新流程，安装 RC3 后的后续更新会按新顺序切换。
+
+          支持 Windows 10/11 x64。单文件 EXE 可直接运行，完整 ZIP 须解压后使用。发布资产附 SHA-256 和 Sigstore 验证材料。
+          '@ | Set-Content -LiteralPath $notes -Encoding utf8
+          & gh release create $tag @files --repo $env:GITHUB_REPOSITORY --target $env:SOURCE_SHA --title 'BlockCraft Launcher v0.9.43 RC3（测试版）' --notes-file $notes --draft --prerelease --latest=false
+          if ($LASTEXITCODE -ne 0) { throw 'Could not stage the RC3 prerelease' }
+          $draft = & gh release view $tag --repo $env:GITHUB_REPOSITORY --json databaseId,tagName,isDraft,isPrerelease,targetCommitish | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or -not $draft.isDraft -or -not $draft.isPrerelease -or
+              $draft.tagName -ne $tag -or $draft.targetCommitish -ne $env:SOURCE_SHA) {
+            throw 'The draft points to an unexpected tag or source'
+          }
+          $remote = & gh api "repos/$env:GITHUB_REPOSITORY/releases/$($draft.databaseId)" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $remote.assets.Count -ne $files.Count) { throw 'Draft is missing assets' }
+          foreach ($file in $files) {
+            $name = Split-Path $file -Leaf
+            $asset = @($remote.assets | Where-Object { $_.name -ceq $name })
+            $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($asset.Count -ne 1 -or $asset[0].state -ne 'uploaded' -or $asset[0].digest -cne "sha256:$hash") {
+              throw "Uploaded bytes do not match: $name"
+            }
+          }
+          & gh release edit $tag --repo $env:GITHUB_REPOSITORY --draft=false --prerelease --latest=false
+          if ($LASTEXITCODE -ne 0) { throw 'Could not publish the RC3 prerelease' }
+          $published = & gh release view $tag --repo $env:GITHUB_REPOSITORY --json tagName,isDraft,isPrerelease,targetCommitish,url | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $published.isDraft -or -not $published.isPrerelease -or
+              $published.tagName -ne $tag -or $published.targetCommitish -ne $env:SOURCE_SHA) {
+            throw 'Published preview metadata is incorrect'
+          }
+          Write-Host "Published RC3: $($published.url)"
+
+      - name: Wait for the anonymous preview update feed
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases?per_page=100"
+          $available = $false
+          $wait = [Diagnostics.Stopwatch]::StartNew()
+          do {
+            try {
+              $feed = Invoke-RestMethod -Uri $url -UserAgent 'BlockCraftLauncher-RC3-Public-Check' -TimeoutSec 15
+              $preview = @($feed | Where-Object {
+                $_.tag_name -ceq $env:RELEASE_TAG -and $_.prerelease -and -not $_.draft
+              })
+              if ($preview.Count -eq 1) {
+                $names = @($preview[0].assets | Where-Object state -eq 'uploaded' | ForEach-Object name)
+                $available = $names -ccontains $env:RELEASE_EXE -and $names -ccontains $env:RELEASE_ZIP -and
+                  $names -ccontains 'RELEASE-SHA256SUMS.txt'
+              }
+            }
+            catch { Write-Host ('Preview list request will retry: ' + $_.Exception.Message) }
+            if (-not $available) { Start-Sleep -Seconds 8 }
+          } while (-not $available -and $wait.Elapsed.TotalSeconds -lt 140)
+          if (-not $available) { throw 'The anonymous update feed has not propagated RC3' }
+          Write-Host "PASS: public preview feed contains $env:RELEASE_TAG and both packages"
+
+      - name: Upgrade the published RC2 ZIP and OneFile through the preview channel
+        shell: pwsh
+        working-directory: wpf-net48
+        timeout-minutes: 9
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./tests/check_v0943_rc3_promotion.ps1 -Phase Live
+          if ($LASTEXITCODE -ne 0) { throw 'Live RC2-to-RC3 upgrade verification failed' }
