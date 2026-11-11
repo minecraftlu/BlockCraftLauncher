@@ -7,8 +7,8 @@ $dist = (Resolve-Path 'dist').Path
 $signals = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/updates'
 $updater = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Updater.exe').Path
 $main = 'BlockCraftLauncher.Wpf.exe'
-$single = 'BlockCraftLauncher-v0.9.43-WPF-OneFile-Windows-x64.exe'
-$archive = 'BlockCraftLauncher-v0.9.43-WPF-net48-Alpha-Windows-x64.zip'
+$single = 'BlockCraftLauncher-v0.9.44-WPF-OneFile-Windows-x64.exe'
+$archive = 'BlockCraftLauncher-v0.9.44-WPF-net48-Alpha-Windows-x64.zip'
 
 function Start-LauncherProcess([string]$Path, [string[]]$Arguments) {
     $start = [Diagnostics.ProcessStartInfo]::new($Path)
@@ -147,7 +147,7 @@ foreach ($mode in @('zip', 'onefile')) {
         Wait-Until {
             $candidate.Refresh()
             if ($candidate.HasExited) { throw "$mode displayed new window unexpectedly exited" }
-            $candidate.MainWindowTitle -like '*v0.9.43-wpf-rc.3*'
+            $candidate.MainWindowTitle -like '*v0.9.44-wpf-rc.1*'
         } 120 "$mode displayed window did not acknowledge successful installation"
         if ((Get-FileHash -LiteralPath $entry).Hash -ne $entryHash -or
             (Get-Content -LiteralPath $keep) -ne 'preserve user files') {
