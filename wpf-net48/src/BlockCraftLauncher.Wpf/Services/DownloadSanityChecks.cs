@@ -162,7 +162,7 @@ namespace BlockCraftLauncher.Wpf.Services
                     }}
                 };
                 File.WriteAllText(backupPath, serializer2.Serialize(backup), Encoding.UTF8);
-                File.WriteAllText(settingsPath, "{corrupt settings json", Encoding.UTF8);
+                File.WriteAllText(settingsPath, "invalid settings JSON", Encoding.UTF8);
                 var restored = new SettingsStore(settingsPath).Load();
                 Require(restored.Root == gamePath &&
                     restored.DownloadDirectory == cachePath &&
