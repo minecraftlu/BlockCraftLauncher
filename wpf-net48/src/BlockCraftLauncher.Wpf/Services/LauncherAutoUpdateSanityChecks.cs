@@ -99,6 +99,24 @@ namespace BlockCraftLauncher.Wpf.Services
             string sample = new string('a', 64) + "  " + exe29;
             Require(LauncherAutoUpdateService.ChecksumFromManifest(sample, exe29) ==
                 new string('a', 64), "严格匹配 SHA-256 清单的原始文件名");
+            string workRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "BlockCraftLauncher", "updates");
+            string validStage = Path.Combine(workRoot, "staged-" + new string('a', 32));
+            string validRunner = Path.Combine(workRoot, "runner-" + new string('b', 32));
+            Require(LauncherAutoUpdateService.IsOwnedUpdateWorkFolder(workRoot, validStage) &&
+                LauncherAutoUpdateService.IsOwnedUpdateWorkFolder(workRoot, validRunner),
+                "清理器必须只认可程序专用的更新暂存目录与更新助手目录");
+            foreach (string unsafePath in new[] {
+                Path.Combine(workRoot, "rollback-" + new string('c', 32)),
+                Path.Combine(workRoot, "Minecraft"),
+                Path.Combine(validStage, "saves"),
+                Path.Combine(workRoot, "runner-OTHER"),
+                Path.Combine(Path.GetTempPath(), "staged-" + new string('d', 32))
+            })
+                Require(!LauncherAutoUpdateService.IsOwnedUpdateWorkFolder(workRoot, unsafePath),
+                    "清理器不得扫描 Minecraft、用户目录或回滚资料：" + unsafePath);
+
             bool rejected = false;
             try { LauncherAutoUpdateService.ChecksumFromManifest(sample + "\n" + sample, exe29); }
             catch (InvalidDataException) { rejected = true; }
