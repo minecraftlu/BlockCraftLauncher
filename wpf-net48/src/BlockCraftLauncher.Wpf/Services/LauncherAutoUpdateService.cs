@@ -685,19 +685,38 @@ namespace BlockCraftLauncher.Wpf.Services
                     throw new InvalidDataException("新版解压目录含有非原始 ZIP 文件");
         }
 
-        static bool IsPathInsideUpdateStaging(string path)
+        static bool IsPathInsideUpdateStaging(string path, string updatesRoot)
         {
             if (string.IsNullOrWhiteSpace(path)) return false;
-            string root = Path.GetFullPath(Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "BlockCraftLauncher", "updates")).TrimEnd('\\') + "\\";
+            string legacy = DownloadPathService.UpdatesRoot(null);
+            string root = Path.GetFullPath(string.IsNullOrWhiteSpace(updatesRoot)
+                ? legacy : updatesRoot).TrimEnd('\\');
+            bool custom = !string.Equals(root, legacy.TrimEnd('\\'),
+                StringComparison.OrdinalIgnoreCase);
+            // An arbitrary caller-provided root must never turn a Downloads
+            // folder, Minecraft instance or symlink into an executable stage.
+            if (custom)
+            {
+                if (!string.Equals(Path.GetFileName(root), "updates",
+                    StringComparison.OrdinalIgnoreCase))
+                    return false;
+                if (!DownloadPathService.TryValidate(Path.GetDirectoryName(root),
+                    null, out var allowed, out var reason) ||
+                    !string.Equals(Path.Combine(allowed, "updates"), root,
+                        StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
             string full = Path.GetFullPath(path);
-            if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return false;
-            string remainder = full.Substring(root.Length);
+            string prefix = root + Path.DirectorySeparatorChar;
+            if (!full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return false;
+            string remainder = full.Substring(prefix.Length);
             string first = remainder.Split(Path.DirectorySeparatorChar)[0];
-            return first.StartsWith("staged-", StringComparison.OrdinalIgnoreCase) &&
-                first.Length == 39 &&
-                first.Substring(7).All(Uri.IsHexDigit);
+            if (!first.StartsWith("staged-", StringComparison.OrdinalIgnoreCase) ||
+                first.Length != 39 || !first.Substring(7).All(Uri.IsHexDigit))
+                return false;
+            return !custom || File.Exists(Path.Combine(root, first,
+                ".blockcraft-stage"));
         }
 
         internal static string DirectPreviewExecutable(PreparedLauncherUpdate prepared)
@@ -705,7 +724,8 @@ namespace BlockCraftLauncher.Wpf.Services
             if (prepared == null || prepared.Offer == null ||
                 (prepared.Offer.Mode != "onefile" && prepared.Offer.Mode != "zip"))
                 throw new InvalidOperationException("更新包类型无效");
-            if (!IsPathInsideUpdateStaging(prepared.StagedPath))
+            if (!IsPathInsideUpdateStaging(prepared.StagedPath,
+                prepared.UpdatesRoot))
                 throw new InvalidDataException("直接打开只能使用安全暂存目录中的已验证版本");
             if (prepared.Offer.Mode == "onefile")
             {

@@ -220,6 +220,42 @@ namespace BlockCraftLauncher.Wpf.Services
                 Require(rejected && !File.Exists(Path.Combine(folder, "escape.txt")),
                     "不能通过 ZIP 目录穿越覆盖任意文件");
 
+                // A user-selected D:/E: cache must preserve the same
+                // strict preview verification. A fake stage with no marker,
+                // or a staged executable outside its declared root, fails.
+                string chosenRoot = Path.Combine(folder, "chosen-download-cache");
+                string chosenUpdates = DownloadPathService.UpdatesRoot(chosenRoot);
+                string chosenStage = Path.Combine(chosenUpdates,
+                    "staged-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(chosenStage);
+                string customExe = Path.Combine(chosenStage, exe29);
+                byte[] customBytes = Encoding.ASCII.GetBytes("Custom stage preview fixture");
+                File.WriteAllBytes(customExe, customBytes);
+                var preparedCustom = new PreparedLauncherUpdate {
+                    Offer = rcOne, StagedPath = customExe, Sha256 = Hash(customBytes),
+                    TargetPath = Path.Combine(folder, "installed.exe"),
+                    UpdatesRoot = chosenUpdates
+                };
+                rejected = false;
+                try { LauncherAutoUpdateService.DirectPreviewExecutable(preparedCustom); }
+                catch (InvalidDataException) { rejected = true; }
+                Require(rejected, "未标记的自定义缓存目录不能直接执行 EXE");
+                File.WriteAllText(Path.Combine(chosenStage, ".blockcraft-stage"),
+                    "BlockCraftLauncher update staging v1", Encoding.ASCII);
+                Require(LauncherAutoUpdateService.DirectPreviewExecutable(preparedCustom) == customExe,
+                    "已校验的自定义下载缓存应支持临时预览");
+                preparedCustom.UpdatesRoot = Path.Combine(folder, "not-my-updates");
+                rejected = false;
+                try { LauncherAutoUpdateService.DirectPreviewExecutable(preparedCustom); }
+                catch (InvalidDataException) { rejected = true; }
+                Require(rejected, "不得借用无关目录作为更新执行来源");
+                preparedCustom.UpdatesRoot = chosenUpdates;
+                File.AppendAllText(customExe, "tamper");
+                rejected = false;
+                try { LauncherAutoUpdateService.DirectPreviewExecutable(preparedCustom); }
+                catch (InvalidDataException) { rejected = true; }
+                Require(rejected, "自定义目录中的 EXE 被修改后必须拒绝临时运行");
+
                 // Strictly within a disposable LocalAppData staged folder:
                 // direct-open must refuse tampered downloads or arbitrary EXEs.
                 string localStage = Path.Combine(
