@@ -78,6 +78,7 @@ namespace BlockCraftLauncher.Wpf.Services
         {
             var data = new Dictionary<string, object>(c.Raw);
             data["root"] = c.Root; data["java"] = c.JavaPath; data["proxy"] = c.Proxy;
+            data["download_directory"] = c.DownloadDirectory;
             data["mcim_enabled"] = c.McimEnabled;
             data["auto_check_updates"] = c.AutoCheckUpdates;
             data["auto_download_updates"] = c.AutoDownloadUpdates;
