@@ -662,6 +662,14 @@ namespace BlockCraftLauncher.Wpf
         }
 
         void Status(string message) { StatusText.Text = message; Log(message); }
+
+        // A search callback completing during navigation is recoverable. If
+        // a stale CTS exception still reaches the Dispatcher, report it in
+        // the existing status/log instead of closing the entire launcher.
+        internal void ReportRecoverableCancellation()
+        {
+            Status("一个已结束的搜索或下载任务被重复取消，已跳过。启动器可以继续使用；如有问题请重试该操作。");
+        }
         internal void ShowPostUpdateSuccess()
         {
             Title = "BlockCraft Launcher · " + LauncherAutoUpdateService.CurrentTag + " · 更新完成";
