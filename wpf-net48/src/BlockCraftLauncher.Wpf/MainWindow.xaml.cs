@@ -3448,7 +3448,10 @@ namespace BlockCraftLauncher.Wpf
             settings.McimEnabled = settingsMcim?.IsChecked == true;
             settings.AutoCheckUpdates = settingsAutoCheck?.IsChecked == true;
             settings.AutoDownloadUpdates = settingsAutoDownload?.IsChecked == true;
-            settings.AutoInstallUpdatesOnExit = settingsAutoInstallOnExit?.IsChecked == true;
+            // Do not reset an existing opt-in merely because this settings
+            // subpage has not been opened during the current window session.
+            if (settingsAutoInstallOnExit != null)
+                settings.AutoInstallUpdatesOnExit = settingsAutoInstallOnExit.IsChecked == true;
             if (settings.AutoInstallUpdatesOnExit)
             {
                 // Installing on exit is meaningful only if a verified file
