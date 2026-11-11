@@ -205,6 +205,43 @@ namespace BlockCraftLauncher.Wpf.Services
                     };
                     Require(LauncherAutoUpdateService.DirectPreviewExecutable(preparedOne) == onePath,
                         "已校验的新版可直接运行，旧安装位置保持不变");
+                    // Download-only must NEVER silently install. Only an
+                    // explicit opt-in and the exact currently selected
+                    // verified package may install when the window closes.
+                    var automatic = new LauncherConfig
+                    {
+                        AutoCheckUpdates = true, AutoDownloadUpdates = true,
+                        AutoInstallUpdatesOnExit = true
+                    };
+                    Require(LauncherAutoUpdateService.ShouldAutoInstallOnExit(
+                        automatic, preparedOne, rcOne, false, false),
+                        "用户授权的已准备包应允许退出时原位替换");
+                    automatic.AutoInstallUpdatesOnExit = false;
+                    Require(!LauncherAutoUpdateService.ShouldAutoInstallOnExit(
+                        automatic, preparedOne, rcOne, false, false),
+                        "默认禁止未经授权的后台安装");
+                    automatic.AutoInstallUpdatesOnExit = true;
+                    foreach (var block in new[] {
+                        new { busy = true, suppress = false },
+                        new { busy = false, suppress = true }
+                    })
+                        Require(!LauncherAutoUpdateService.ShouldAutoInstallOnExit(
+                            automatic, preparedOne, rcOne, block.busy, block.suppress),
+                            "下载中、窗口自检和临时试用不应触发自动替换");
+                    Require(!LauncherAutoUpdateService.ShouldAutoInstallOnExit(
+                        automatic, preparedOne, stable, false, false),
+                        "候选版本变更后不得自动安装旧暂存包");
+                    automatic.AutoDownloadUpdates = false;
+                    Require(!LauncherAutoUpdateService.ShouldAutoInstallOnExit(
+                        automatic, preparedOne, rcOne, false, false),
+                        "未自动下载时禁止自动安装");
+                    automatic.AutoDownloadUpdates = true;
+                    automatic.AutoCheckUpdates = false;
+                    Require(!LauncherAutoUpdateService.ShouldAutoInstallOnExit(
+                        automatic, preparedOne, rcOne, false, false),
+                        "未启用检查时禁止自动安装");
+
+
                     File.AppendAllText(onePath, "tamper");
                     rejected = false;
                     try { LauncherAutoUpdateService.DirectPreviewExecutable(preparedOne); }
@@ -262,13 +299,14 @@ namespace BlockCraftLauncher.Wpf.Services
                 var store = new SettingsStore(configPath);
                 var settings = new LauncherConfig {
                     AutoCheckUpdates = true, AutoDownloadUpdates = true,
+                    AutoInstallUpdatesOnExit = true,
                     UpdateChannel = "preview",
                     LastUpdateCheckUtc = new DateTime(2026, 11, 10, 0, 0, 0, DateTimeKind.Utc)
                 };
                 store.Save(settings);
                 var restored = store.Load();
                 Require(restored.AutoCheckUpdates && restored.AutoDownloadUpdates &&
-                    restored.UpdateChannel == "preview" &&
+                    restored.AutoInstallUpdatesOnExit && restored.UpdateChannel == "preview" &&
                     restored.LastUpdateCheckUtc.Year == 2026,
                     "自动检查、通道与时间持久化");
             }
