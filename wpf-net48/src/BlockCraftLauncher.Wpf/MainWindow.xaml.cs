@@ -36,11 +36,14 @@ namespace BlockCraftLauncher.Wpf
         bool updateChecking;
         bool updatePreparing;
         bool updateCheckFailed;
+        // Normal window close can install a fully verified prepared update,
+        // but never when manual installation/direct-preview already handled it.
+        bool suppressAutomaticInstallOnClose;
         TextBlock updateStatusText, updateNotesText, homeUpdateText;
         Border homeUpdateCard;
         ProgressBar updateProgressBar;
         Button updateInstallButton, updateCheckButton, updateDirectOpenButton;
-        CheckBox settingsAutoCheck, settingsAutoDownload;
+        CheckBox settingsAutoCheck, settingsAutoDownload, settingsAutoInstallOnExit;
         ComboBox settingsUpdateChannel;
         readonly MinecraftBackend minecraft;
         MicrosoftAccountService microsoft;
@@ -159,6 +162,32 @@ namespace BlockCraftLauncher.Wpf
                 gameProcessTimer.Start();
                 if (!SuppressAutomaticUpdateCheck)
                     await CheckLauncherUpdatesAsync(false);
+            };
+            Closing += (sender, args) =>
+            {
+                if (!LauncherAutoUpdateService.ShouldAutoInstallOnExit(settings,
+                    preparedUpdate, offeredUpdate, updateChecking || updatePreparing ||
+                    updateCancellation.IsCancellationRequested,
+                    suppressAutomaticInstallOnClose || SuppressAutomaticUpdateCheck))
+                    return;
+                // A verified update is installed only after the user closes
+                // the launcher. The separate helper waits for this process
+                // to exit, replaces its original EXE, tests, then relaunches.
+                try
+                {
+                    autoUpdater.StartExternalInstaller(preparedUpdate);
+                    suppressAutomaticInstallOnClose = true;
+                    Log("自动安装已准备的更新：" + preparedUpdate.Offer.Tag +
+                        "；正在关闭旧版并原位替换 EXE。");
+                }
+                catch (Exception ex)
+                {
+                    // Do not trap the user in a window that refuses to close.
+                    // The original EXE stays intact and the prepared package
+                    // remains available to retry on the next launch.
+                    Log("退出时自动安装失败，保留旧版：" + ex.GetType().Name);
+                    ShowError("自动替换旧版失败（原启动器仍保留）", ex);
+                }
             };
             Closed += (sender, args) =>
             {
@@ -1292,7 +1321,8 @@ namespace BlockCraftLauncher.Wpf
             if (settingsTheme == null || settingsZoom == null)
                 throw new InvalidOperationException("个性化设置缺少字段");
             Navigate("更新设置");
-            if (settingsUpdateChannel == null || settingsAutoCheck == null || settingsAutoDownload == null)
+            if (settingsUpdateChannel == null || settingsAutoCheck == null ||
+                settingsAutoDownload == null || settingsAutoInstallOnExit == null)
                 throw new InvalidOperationException("更新设置缺少字段");
             Navigate("设置");
             if (settingsRoot.Text != "layout-probe")
@@ -2963,8 +2993,11 @@ namespace BlockCraftLauncher.Wpf
                 updateStatusText.Text = updatePreparing ?
                     "正在下载并校验更新..." :
                     updateChecking ? "正在连接 GitHub 检查更新..." :
-                    preparedUpdate != null ? "更新已下载并通过启动校验，准备安装：" +
-                        preparedUpdate.Offer.Tag :
+                    preparedUpdate != null ?
+                        (settings.AutoInstallUpdatesOnExit ?
+                            "已校验 " + preparedUpdate.Offer.Tag +
+                            "，下次正常关闭启动器时将自动替换旧 EXE。" :
+                            "更新已下载并通过启动校验，准备安装：" + preparedUpdate.Offer.Tag) :
                     available ? "发现可用更新：" + offeredUpdate.Tag :
                         updateCheckFailed ? "暂时无法连接 GitHub。可检测线路后重试。" :
                         "当前通道没有已确认的更高版本。";
@@ -3132,6 +3165,7 @@ namespace BlockCraftLauncher.Wpf
                 bool shown = await autoUpdater.OpenPreparedDirectlyAsync(candidate,
                     updateCancellation.Token);
                 if (!shown || updateCancellation.IsCancellationRequested) return;
+                suppressAutomaticInstallOnClose = true;
                 Application.Current.Shutdown();
             }
             catch (OperationCanceledException) when (updateCancellation.IsCancellationRequested) { }
@@ -3162,6 +3196,7 @@ namespace BlockCraftLauncher.Wpf
             try
             {
                 autoUpdater.StartExternalInstaller(preparedUpdate);
+                suppressAutomaticInstallOnClose = true;
                 Status("正在原位替换已校验的 " + preparedUpdate.Offer.Tag +
                     "；原 EXE 路径保持不变，完成后自动打开新版并清理临时文件。");
                 Application.Current.Shutdown();
@@ -3369,7 +3404,15 @@ namespace BlockCraftLauncher.Wpf
                 Content = "自动下载可用更新"
             };
             SettingRow(updates, "自动下载", settingsAutoDownload,
-                "下载并校验新版，待你手动安装。");
+                "下载并完整校验新版；默认不会自行替换当前程序。");
+            settingsAutoInstallOnExit = new CheckBox
+            {
+                IsChecked = settings.AutoInstallUpdatesOnExit,
+                Content = "正常关闭启动器时自动替换原 EXE"
+            };
+            SettingRow(updates, "自动安装", settingsAutoInstallOnExit,
+                "可选：同时启用自动检查与自动下载。仅在更新已校验完成后，" +
+                "当你正常关闭启动器才安装并重新打开新版；不会中断正在使用的窗口。");
             AddPage("更新设置", "更新设置", "选择接收的版本和自动更新行为。", updates,
                 Btn("查看更新", () => Navigate("启动器更新")));
             return settingsPages[page];
@@ -3395,6 +3438,17 @@ namespace BlockCraftLauncher.Wpf
             settings.McimEnabled = settingsMcim?.IsChecked == true;
             settings.AutoCheckUpdates = settingsAutoCheck?.IsChecked == true;
             settings.AutoDownloadUpdates = settingsAutoDownload?.IsChecked == true;
+            settings.AutoInstallUpdatesOnExit = settingsAutoInstallOnExit?.IsChecked == true;
+            if (settings.AutoInstallUpdatesOnExit)
+            {
+                // Installing on exit is meaningful only if a verified file
+                // was automatically downloaded. Make both prerequisites
+                // explicit rather than silently closing a running launcher.
+                settings.AutoCheckUpdates = true;
+                settings.AutoDownloadUpdates = true;
+                if (settingsAutoCheck != null) settingsAutoCheck.IsChecked = true;
+                if (settingsAutoDownload != null) settingsAutoDownload.IsChecked = true;
+            }
             if (settingsUpdateChannel?.SelectedItem is KeyValuePair<string, string> selectedUpdateChannel &&
                 settings.UpdateChannel != selectedUpdateChannel.Key)
             {
