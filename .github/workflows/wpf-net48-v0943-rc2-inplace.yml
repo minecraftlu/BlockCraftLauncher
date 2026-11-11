@@ -1,0 +1,92 @@
+name: Verify RC2 in-place OneFile update
+
+on:
+  push:
+    branches:
+      - verify/v0943-rc2-inplace
+
+jobs:
+  onefile:
+    if: github.repository == 'minecraftlu/BlockCraftLauncher' && github.ref == 'refs/heads/verify/v0943-rc2-inplace'
+    runs-on: windows-2022
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: BlockCraftLauncher-v0.9.43-RC2-Windows
+          run-id: 43047695233
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: packages
+      - name: Replace the published RC1 executable, reopen and clean old files
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exeName = 'BlockCraftLauncher-v0.9.43-WPF-OneFile-Windows-x64.exe'
+          $zipName = 'BlockCraftLauncher-v0.9.43-WPF-net48-Alpha-Windows-x64.zip'
+          $newExe = (Resolve-Path (Join-Path 'packages' $exeName)).Path
+          $newZip = (Resolve-Path (Join-Path 'packages' $zipName)).Path
+          $digest = (Get-FileHash -LiteralPath $newExe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $zipDigest = (Get-FileHash -LiteralPath $newZip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifest = @(Get-Content -LiteralPath 'packages/RELEASE-SHA256SUMS.txt')
+          if ($manifest -cnotcontains "$digest  $exeName" -or $manifest -cnotcontains "$zipDigest  $zipName") {
+            throw 'Candidate files do not match the CI manifest'
+          }
+          $scratch = Join-Path $env:RUNNER_TEMP "blockcraft-rc2-$env:GITHUB_RUN_ID"
+          $installed = Join-Path $scratch '测试 启动器'
+          $cache = Join-Path $installed 'Downloads\updates'
+          $stage = Join-Path $cache ('staged-' + [Guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+          $target = Join-Path $installed 'BlockCraft Launcher.exe'
+          Invoke-WebRequest -Uri 'https://github.com/minecraftlu/BlockCraftLauncher/releases/download/v0.9.43-wpf-rc.1/BlockCraftLauncher-v0.9.43-WPF-OneFile-Windows-x64.exe' -OutFile $target -TimeoutSec 45
+          if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne '29e98f136083f1e925dda3bd72813c1100d22827be1527618a01c3c04377330c') {
+            throw 'Published RC1 fixture checksum mismatch'
+          }
+          $settings = Join-Path $env:APPDATA 'BlockCraftLauncher\settings.wpf-preview.json'
+          New-Item -ItemType Directory -Path (Split-Path $settings) -Force | Out-Null
+          '{"auto_check_updates":false,"account_mode":"offline"}' | Set-Content -LiteralPath $settings -Encoding utf8
+          $old = Start-Process -FilePath $target -ArgumentList '--smoke-test' -PassThru -WindowStyle Hidden
+          if (-not $old.WaitForExit(70000)) { $old.Kill(); throw 'Published RC1 startup timed out' }
+          if ($old.ExitCode -ne 0) { throw "Published RC1 failed its startup check: $($old.ExitCode)" }
+          $cacheHome = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher\onefile'
+          $oldPayload = @(Get-ChildItem -LiteralPath $cacheHome -Directory -Filter 'v0.9.43-*')
+          if ($oldPayload.Count -ne 1) { throw 'Expected only the RC1 extraction cache before update' }
+          $oldPayloadPath = $oldPayload[0].FullName
+
+          $staged = Join-Path $stage $exeName
+          Copy-Item -LiteralPath $newExe -Destination $staged
+          'BlockCraftLauncher update staging v1' | Set-Content -LiteralPath (Join-Path $stage '.blockcraft-stage') -NoNewline -Encoding ascii
+          $keep = Join-Path $installed 'separate-copy.exe'
+          'unmanaged' | Set-Content -LiteralPath $keep -NoNewline
+          $unpacked = Join-Path $scratch 'unpacked'
+          Expand-Archive -LiteralPath $newZip -DestinationPath $unpacked
+          $helper = @(Get-ChildItem -LiteralPath $unpacked -Recurse -File -Filter 'BlockCraftLauncher.Updater.exe')
+          if ($helper.Count -ne 1) { throw 'Expected one updater from the RC2 ZIP' }
+          $info = [Diagnostics.ProcessStartInfo]::new($helper[0].FullName)
+          $info.UseShellExecute = $false
+          $info.WorkingDirectory = $helper[0].DirectoryName
+          foreach ($arg in @('--apply','--mode','onefile','--pid',"$($old.Id)",'--target',$target,'--staged',$staged,'--sha256',$digest,'--updates-root',$cache)) {
+            $info.ArgumentList.Add($arg)
+          }
+          $installer = [Diagnostics.Process]::Start($info)
+          if (-not $installer.WaitForExit(125000)) { $installer.Kill(); throw 'RC2 in-place installer timed out' }
+          if ($installer.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher\updates\update-error.log'
+            if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 35 }
+            throw "RC2 in-place installer failed: $($installer.ExitCode)"
+          }
+          if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $digest) { throw 'Original EXE path still holds the wrong bytes' }
+          if (Test-Path -LiteralPath $stage) { throw 'Confirmed update kept its download staging folder' }
+          if (Test-Path -LiteralPath $oldPayloadPath) { throw 'Confirmed update kept the unused RC1 OneFile payload' }
+          if (@(Get-ChildItem -LiteralPath $installed -Filter '*.blockcraft-previous-*.exe' -File).Count -ne 0) { throw 'Confirmed update kept an old EXE backup' }
+          if ((Get-Content -LiteralPath $keep -Raw) -ne 'unmanaged') { throw 'Update touched a separately saved file' }
+          $newPayload = @(Get-ChildItem -LiteralPath $cacheHome -Directory -Filter 'v0.9.43-*')
+          if ($newPayload.Count -ne 1) { throw 'Expected exactly the RC2 cache after cleanup' }
+          $expectedProcess = Join-Path $newPayload[0].FullName 'BlockCraftLauncher.Wpf.exe'
+          $windows = @(Get-Process -Name 'BlockCraftLauncher.Wpf' -ErrorAction SilentlyContinue |
+            Where-Object { $_.Path -eq $expectedProcess -and $_.MainWindowHandle -ne [IntPtr]::Zero })
+          if ($windows.Count -ne 1) { throw 'Updated RC2 main window did not reopen' }
+          $windows | Stop-Process
+          Write-Host 'PASS: RC1 was replaced at the original path; RC2 reopened and cleaned the old EXE backup, old payload and staging.'
