@@ -334,6 +334,19 @@ namespace BlockCraftLauncher.Wpf.Services
                     Require(!LauncherAutoUpdateService.ShouldAutoInstallOnExit(
                         automatic, preparedOne, refreshed, false, false),
                         "已替换的发布包须重新下载验证");
+                    Require(!LauncherAutoUpdateService.ShouldAutoRestartWhenIdle(
+                        automatic, preparedOne, rcOne, false, false),
+                        "旧版关闭时安装设置不得自动开启空闲重启");
+                    automatic.AutoRestartAfterUpdateDownload = true;
+                    Require(LauncherAutoUpdateService.ShouldAutoRestartWhenIdle(
+                        automatic, preparedOne, rcOne, false, false) &&
+                        !LauncherAutoUpdateService.ShouldAutoRestartWhenIdle(
+                            automatic, preparedOne, rcOne, true, false) &&
+                        !LauncherAutoUpdateService.ShouldAutoRestartWhenIdle(
+                            automatic, preparedOne, rcOne, false, true) &&
+                        !LauncherAutoUpdateService.ShouldAutoRestartWhenIdle(
+                            automatic, preparedOne, refreshed, false, false),
+                        "仅允许已校验的当前包在空闲且未推迟时自动重启");
                     automatic.AutoInstallUpdatesOnExit = false;
                     Require(!LauncherAutoUpdateService.ShouldAutoInstallOnExit(
                         automatic, preparedOne, rcOne, false, false),
@@ -417,7 +430,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 var store = new SettingsStore(configPath);
                 var settings = new LauncherConfig {
                     AutoCheckUpdates = true, AutoDownloadUpdates = true,
-                    AutoInstallUpdatesOnExit = true,
+                    AutoInstallUpdatesOnExit = true, AutoRestartAfterUpdateDownload = true,
                     Root = Path.Combine(folder, "portable", "Minecraft"),
                     DownloadDirectory = Path.Combine(folder, "portable", "Downloads"),
                     UpdateChannel = "preview",
@@ -426,7 +439,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 store.Save(settings);
                 var restored = store.Load();
                 Require(restored.AutoCheckUpdates && restored.AutoDownloadUpdates &&
-                    restored.AutoInstallUpdatesOnExit &&
+                    restored.AutoInstallUpdatesOnExit && restored.AutoRestartAfterUpdateDownload &&
                     restored.Root == settings.Root &&
                     restored.DownloadDirectory == settings.DownloadDirectory &&
                     restored.UpdateChannel == "preview" &&

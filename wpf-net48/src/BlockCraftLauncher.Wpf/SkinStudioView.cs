@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -29,12 +30,16 @@ namespace BlockCraftLauncher.Wpf
         readonly Func<string> accountName;
         readonly Action openEditor;
         readonly Action openDownloads;
-        readonly Action<OnlineSkinEntry> queueSkinDownload;
+        readonly Func<OnlineSkinEntry, DownloadJob> queueSkinDownload;
+        readonly Action openDownloadTasks;
         UIElement editorPage;
         UIElement downloadPage;
         bool downloadMode;
         internal bool DownloadMode => downloadMode;
-        bool uploading;
+        bool uploading, savingOnline, importingOnline;
+        internal bool HasUnsavedEdits => document.Dirty;
+        internal bool HasActiveOperation => uploading || savingOnline || importingOnline ||
+            searchingOnline || onlinePreviewCancellation != null;
         readonly Image texture = new Image();
         readonly Image front = new Image();
         readonly Image back = new Image();
@@ -42,6 +47,9 @@ namespace BlockCraftLauncher.Wpf
         readonly Skin3DPreview online3D = new Skin3DPreview();
         readonly CheckBox onlineOuter = new CheckBox();
         System.Windows.Media.Imaging.BitmapSource selectedOnlineTexture;
+        SkinEditorDocument selectedOnlineDocument;
+        bool showFlatPreview;
+        readonly Image onlinePreviewBack = new Image();
         readonly Grid paintingSurface = new Grid();
         readonly Canvas guideCanvas = new Canvas { IsHitTestVisible = false };
         readonly ComboBox tool = new ComboBox();
@@ -69,7 +77,21 @@ namespace BlockCraftLauncher.Wpf
         readonly Image onlinePreview = new Image();
         readonly TextBlock onlineStatus = new TextBlock();
         readonly TextBlock onlinePageStatus = new TextBlock();
-        readonly TextBlock onlineAttribution = new TextBlock();
+        readonly TextBlock onlineAttribution = Label("");
+        readonly TextBlock onlineSkinTitle = Label("选择一个皮肤", 19, true);
+        readonly TextBlock onlineSkinModel = Label("", 10.5, true);
+        readonly TextBlock onlineSkinSource = Label("", 10.5, true);
+        readonly TextBlock onlinePreviewMessage = Label("从结果中选择皮肤查看预览");
+        readonly TextBlock onlineDownloadStatus = Label("");
+        readonly ProgressBar onlineDownloadProgress = new ProgressBar
+        {
+            Height = 5, Maximum = 100, Margin = new Thickness(0, 0, 0, 8)
+        };
+        readonly Dictionary<string, DownloadJob> onlineJobs =
+            new Dictionary<string, DownloadJob>(StringComparer.OrdinalIgnoreCase);
+        DownloadJob watchedOnlineJob;
+        UIElement onlineModelInfo, onlineFlatPanel, onlineOrbitControls, onlineDownloadFeedback, onlineDetailPanel;
+        Button onlinePreviewMode, onlineExpandPreview, onlineRetryPreview, onlineCancelSearch;
         Button onlineSearchButton;
         Button onlinePrevButton;
         Button onlineNextButton;
@@ -79,9 +101,9 @@ namespace BlockCraftLauncher.Wpf
         OnlineSkinEntry selectedOnlineSkin;
         OnlineSkinEntry editorSource;
         byte[] selectedOnlinePng;
+        CancellationTokenSource onlineSearchCancellation;
         CancellationTokenSource onlinePreviewCancellation;
         CancellationTokenSource onlineThumbnailCancellation;
-        int onlineRequestNumber;
         int onlinePage = 1;
         int onlinePages = 1;
         bool searchingOnline;
@@ -189,14 +211,15 @@ namespace BlockCraftLauncher.Wpf
             Func<byte[], bool, System.Threading.Tasks.Task> uploadToMicrosoft = null,
             Func<string> accountName = null,
             Action openEditor = null,
-            Action<OnlineSkinEntry> queueSkinDownload = null,
-            Action openDownloads = null, bool enableDraftRecovery = true)
+            Func<OnlineSkinEntry, DownloadJob> queueSkinDownload = null,
+            Action openDownloads = null, bool enableDraftRecovery = true, Action openDownloadTasks = null)
         {
             this.uploadToMicrosoft = uploadToMicrosoft;
             this.accountName = accountName;
             this.openEditor = openEditor;
             this.openDownloads = openDownloads;
             this.queueSkinDownload = queueSkinDownload;
+            this.openDownloadTasks = openDownloadTasks;
             this.enableDraftRecovery = enableDraftRecovery;
             document.Changed += () =>
             {
@@ -226,8 +249,8 @@ namespace BlockCraftLauncher.Wpf
             };
             Unloaded += (sender, args) =>
             {
-                onlinePreviewCancellation?.Cancel();
-                onlineThumbnailCancellation?.Cancel();
+                CancelOnlineRequests();
+                WatchOnlineDownload(null);
                 draftTimer.Stop();
                 SaveRecoveryDraft();
             };
@@ -403,9 +426,15 @@ namespace BlockCraftLauncher.Wpf
                 // while a search TextBox or download result is focused.
                 draftTimer.Stop();
                 SaveRecoveryDraft();
+                var item = onlineResults.SelectedItem as OnlineSkinEntry;
+                WatchOnlineDownload(item);
+                if (item != null && selectedOnlineTexture == null && onlinePreviewCancellation == null)
+                    _ = PreviewOnlineSelectionAsync();
             }
             else
             {
+                CancelOnlineRequests();
+                WatchOnlineDownload(null);
                 RefreshLibrary();
                 OfferRecoveryOnce();
             }
@@ -416,12 +445,11 @@ namespace BlockCraftLauncher.Wpf
         // selected preview/detail -> download/apply, similar to mod search.
         UIElement BuildOnlineSearch()
         {
-            var root = Column(Label("皮肤下载中心", 20, true),
-                Label("浏览开放许可皮肤图库、筛选作者与分类、下载 PNG 或进入 DIY 编辑器。" +
-                    "公开可下载不代表开源，许可证信息以作者实际声明为准。"),
-                Row(ActionButton("前往皮肤 DIY", () => openEditor?.Invoke()),
-                    ActionButton("查看下载任务", () =>
-                        onlineStatus.Text = "可在左侧「下载 → 下载任务」中取消、重试或查看皮肤任务进度。")));
+            var root = Column(Label("皮肤下载", 23, true),
+                Row(ActionButton("打开皮肤库", OpenSkinLibrary),
+                    ActionButton("皮肤 DIY", () => openEditor?.Invoke())));
+            if (openDownloadTasks != null)
+                ((WrapPanel)root.Children[1]).Children.Add(ActionButton("下载任务", openDownloadTasks));
 
             onlineSource.ItemsSource = new[] {
                 "自由授权图库（Mosaicary）", "全部图库（多来源）",
@@ -431,7 +459,7 @@ namespace BlockCraftLauncher.Wpf
             onlineSource.Width = 186;
             StyleSearch(onlineSource);
             onlineQuery.MaxLength = 60;
-            onlineQuery.Width = 242;
+            onlineQuery.Width = 226;
             onlineQuery.Text = "";
             onlineQuery.ToolTip = "输入皮肤名称、作者或关键词；留空可以浏览皮肤图库";
             StyleSearch(onlineQuery);
@@ -448,7 +476,7 @@ namespace BlockCraftLauncher.Wpf
             onlineSort.SelectedIndex = 0;
             onlineSort.Width = 122;
             StyleSearch(onlineSort);
-            onlineOpenOnly.Content = "仅显示开放许可（CC0 / CC BY / CC BY-SA 等）";
+            onlineOpenOnly.Content = Label("仅显示开放许可");
             onlineOpenOnly.IsChecked = true;
             onlineOpenOnly.ToolTip = "勾选后只显示明确自由许可的作品；取消勾选可以查看其他公开皮肤，下载时会提示版权与使用限制";
             onlineSource.SelectionChanged += (sender, args) => UpdateOnlineFilters();
@@ -478,7 +506,7 @@ namespace BlockCraftLauncher.Wpf
             onlineSearchButton.MinWidth = 120;
             var reset = ActionButton("重置筛选", async () =>
             {
-                onlineSource.SelectedIndex = 0;
+                onlineSource.SelectedIndex = 1;
                 onlineCategory.SelectedIndex = 0;
                 onlineArms.SelectedIndex = 0;
                 onlineSort.SelectedIndex = 0;
@@ -486,21 +514,23 @@ namespace BlockCraftLauncher.Wpf
                 onlineOpenOnly.IsChecked = true;
                 await SearchOnlineAsync(1);
             });
-            var search = Column(Label("搜索皮肤", 16, true), filters, onlineOpenOnly,
-                Row(onlineSearchButton, reset),
-                Label("开放许可图库可逐页浏览；社区和玩家来源需遵守原作者的授权范围。"));
+            onlineCancelSearch = ActionButton("取消搜索", () => onlineSearchCancellation?.Cancel());
+            onlineCancelSearch.Visibility = Visibility.Collapsed;
+            var search = Column(filters, onlineOpenOnly, Row(onlineSearchButton, reset, onlineCancelSearch));
             root.Children.Add(Card(search, true));
 
-            onlineResults.MinHeight = 300;
-            onlineResults.Height = 430;
+            onlineResults.MinHeight = 280;
+            onlineResults.Height = 398;
             onlineResults.ItemTemplate =
                 (DataTemplate)Application.Current.FindResource("OnlineSkinResultTemplate");
             onlineResults.SelectionChanged += async (sender, args) =>
                 await PreviewOnlineSelectionAsync();
-            onlineResults.MouseDoubleClick += async (sender, args) =>
-                await PreviewOnlineSelectionAsync();
+            onlineResults.MouseDoubleClick += (sender, args) =>
+            {
+                if (onlineResults.SelectedItem != null) (onlineDetailPanel as FrameworkElement)?.BringIntoView();
+            };
 
-            onlinePageStatus.Text = "点击“搜索 / 刷新”浏览皮肤图库；不会在打开页面时自动联网。";
+            onlinePageStatus.Text = "输入关键词搜索，或直接浏览图库。";
             onlinePageStatus.TextWrapping = TextWrapping.Wrap;
             onlinePageStatus.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
             onlinePrevButton = ActionButton("上一页", async () =>
@@ -511,43 +541,105 @@ namespace BlockCraftLauncher.Wpf
             var results = Column(Label("搜索结果", 16, true), onlinePageStatus,
                 onlineResults, Row(onlinePrevButton, onlineNextButton));
 
-            onlinePreview.Width = 106;
-            onlinePreview.Height = 205;
-            onlinePreview.Stretch = Stretch.Uniform;
-            onlinePreview.HorizontalAlignment = HorizontalAlignment.Center;
-            RenderOptions.SetBitmapScalingMode(onlinePreview, BitmapScalingMode.NearestNeighbor);
-            onlineAttribution.Text = "选择一个皮肤，可以在这里查看授权、作者和模型。";
-            onlineAttribution.TextWrapping = TextWrapping.Wrap;
-            onlineAttribution.Margin = new Thickness(0, 10, 0, 10);
-            onlineAttribution.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
-            onlineSaveButton = ActionButton("下载到皮肤库", async () =>
-                await SaveOnlineSkinAsync(), true);
-            onlineEditButton = ActionButton("使用并编辑", async () =>
-                await UseOnlineSkinAsync());
-            onlineSaveButton.IsEnabled = onlineEditButton.IsEnabled = false;
-            onlineDetailButton = ActionButton("查看原作者与许可证", OpenOnlineSource);
+            foreach (var image in new[] { onlinePreview, onlinePreviewBack })
+            {
+                image.Width = 81;
+                image.Height = 171;
+                image.Stretch = Stretch.Uniform;
+                image.HorizontalAlignment = HorizontalAlignment.Center;
+                RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.NearestNeighbor);
+            }
+
+            onlineSaveButton = ActionButton("下载到皮肤库", async () => await SaveOnlineSkinAsync(), true);
+            onlineEditButton = ActionButton("导入 DIY", async () => await UseOnlineSkinAsync());
+            onlineDetailButton = ActionButton("作者与许可证", OpenOnlineSource);
             onlineDetailButton.IsEnabled = false;
-            online3D.Height = 314;
-            onlineOuter.Content = "显示外层皮肤";
+            onlinePreviewMode = ActionButton("2D 正反面", () =>
+            {
+                showFlatPreview = !showFlatPreview;
+                RefreshPreviewMode();
+            });
+            onlineExpandPreview = ActionButton("放大预览", OpenExpandedPreview);
+            onlineRetryPreview = ActionButton("重试预览", async () => await PreviewOnlineSelectionAsync());
+            onlineRetryPreview.Visibility = Visibility.Collapsed;
+            online3D.Height = double.NaN;
+            onlineOuter.Content = Label("外层");
             onlineOuter.IsChecked = true;
             onlineOuter.Checked += (sender, args) => UpdateOnline3DOuter();
             onlineOuter.Unchecked += (sender, args) => UpdateOnline3DOuter();
-            var selected = Column(Label("皮肤详情 · 360° 预览", 16, true),
-                online3D, PreviewControls(online3D), onlineOuter,
-                Label("左键拖动旋转 · 滚轮缩放 · 双击复位"),
-                Label("正面 2D 参考"), onlinePreview,
-                onlineAttribution, onlineSaveButton,
-                onlineEditButton, onlineDetailButton);
-            root.Children.Add(AdaptivePanels(Card(results), Card(selected), 295, 14));
+            onlineOrbitControls = PreviewControls(online3D);
 
-            onlineStatus.Text = "图片缩略图按需获取，不会自动批量下载皮肤；联网失败不影响本地 DIY。";
+            var flat = new System.Windows.Controls.Primitives.UniformGrid
+            {
+                Columns = 2, Margin = new Thickness(4), VerticalAlignment = VerticalAlignment.Center
+            };
+            foreach (var panel in new[] {
+                Column(Label("正面", 11, true), PreviewFrame(onlinePreview)),
+                Column(Label("背面", 11, true), PreviewFrame(onlinePreviewBack)) })
+            {
+                panel.Margin = new Thickness(4);
+                flat.Children.Add(panel);
+            }
+            onlineFlatPanel = flat;
+
+            onlinePreviewMessage.HorizontalAlignment = HorizontalAlignment.Center;
+            onlinePreviewMessage.VerticalAlignment = VerticalAlignment.Center;
+            onlinePreviewMessage.TextAlignment = TextAlignment.Center;
+            onlinePreviewMessage.Margin = new Thickness(12);
+            var previewStage = new Grid { Height = 272 };
+            previewStage.Children.Add(online3D);
+            previewStage.Children.Add(onlineFlatPanel);
+            previewStage.Children.Add(onlinePreviewMessage);
+            var stageFrame = new Border
+            {
+                Child = previewStage, CornerRadius = new CornerRadius(9),
+                Margin = new Thickness(0, 3, 0, 9)
+            };
+            stageFrame.SetResourceReference(Border.BackgroundProperty, "PanelAltBrush");
+            onlineModelInfo = Row(PreviewBadge(onlineSkinSource), PreviewBadge(onlineSkinModel));
+            onlineDownloadProgress.SetResourceReference(ProgressBar.ForegroundProperty, "AccentBrush");
+            onlineDownloadFeedback = Column(onlineDownloadStatus, onlineDownloadProgress);
+            var selected = Column(onlineSkinTitle, onlineModelInfo, stageFrame,
+                Row(onlinePreviewMode, onlineExpandPreview, onlineOuter, onlineRetryPreview),
+                onlineOrbitControls, onlineAttribution,
+                Row(onlineSaveButton, onlineEditButton, onlineDetailButton), onlineDownloadFeedback);
+            onlineDetailPanel = Card(selected);
+            ((Border)onlineDetailPanel).SetResourceReference(StyleProperty, "FeaturePanel");
+            root.Children.Add(AdaptivePanels(Card(results), onlineDetailPanel, 329, 14));
+
             onlineStatus.TextWrapping = TextWrapping.Wrap;
             onlineStatus.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
-            root.Children.Add(onlineStatus);
-            root.Children.Add(Label("图库来源：Mosaicary（mosaicary.com）、DP-Plugins。二者独立运营；" +
-                "部分皮肤可能带有署名或相同方式共享要求。"));
+            search.Children.Add(onlineStatus);
             UpdateOnlineFilters();
+            RefreshPreviewMode();
+            RefreshOnlineActions();
             return root;
+        }
+
+        static Border PreviewBadge(TextBlock label)
+        {
+            label.Margin = new Thickness(0);
+            label.SetResourceReference(TextBlock.ForegroundProperty, "AccentInkBrush");
+            var badge = new Border { Child = label };
+            badge.SetResourceReference(StyleProperty, "SkinMetaBadge");
+            return badge;
+        }
+
+        void OpenSkinLibrary()
+        {
+            try
+            {
+                Directory.CreateDirectory(SkinEditorDocument.LocalLibrary);
+                Process.Start(new ProcessStartInfo(SkinEditorDocument.LocalLibrary) { UseShellExecute = true });
+            }
+            catch (Exception error) { onlineStatus.Text = "无法打开皮肤库：" + error.GetBaseException().Message; }
+        }
+
+        void CancelOnlineRequests()
+        {
+            onlineSearchCancellation?.Cancel();
+            onlinePreviewCancellation?.Cancel();
+            onlineThumbnailCancellation?.Cancel();
         }
 
         void UpdateOnlineFilters()
@@ -590,130 +682,129 @@ namespace BlockCraftLauncher.Wpf
             string query = (onlineQuery.Text ?? "").Trim();
             int source = onlineSource.SelectedIndex;
             bool onlyFree = onlineOpenOnly.IsChecked == true;
-            ++onlineRequestNumber;
             onlinePreviewCancellation?.Cancel();
             onlineThumbnailCancellation?.Cancel();
-            onlineThumbnailCancellation?.Dispose();
-            onlineThumbnailCancellation = new CancellationTokenSource();
-            selectedOnlineSkin = null;
-            selectedOnlinePng = null;
-            onlineSaveButton.IsEnabled = onlineEditButton.IsEnabled = false;
-            onlineDetailButton.IsEnabled = false;
-            onlinePreview.Source = null;
             onlineResults.ItemsSource = null;
-            onlineAttribution.Text = "";
-            searchingOnline = true;
-            onlineSearchButton.IsEnabled = false;
-            onlineSource.IsEnabled = false;
-            onlineQuery.IsEnabled = false;
-            onlinePrevButton.IsEnabled = onlineNextButton.IsEnabled = false;
-            onlineStatus.Text = "正在搜索在线皮肤（会保留原作者许可信息）...";
-            try
+            ClearOnlinePreview();
+
+            using (var cancellation = new CancellationTokenSource())
             {
-                if (source == 4 && query.Length == 0)
-                    throw new ArgumentException("玩家搜索需要输入 Minecraft Java 玩家名或 UUID");
-                var entries = new List<OnlineSkinEntry>();
-                int maxPage = 1;
-                int total = 0;
-                var errors = new List<string>();
-                if (source == 0 || source == 1 || source == 3)
+                onlineSearchCancellation = cancellation;
+                var token = cancellation.Token;
+                searchingOnline = true;
+                onlineSearchButton.IsEnabled = onlineSource.IsEnabled = onlineQuery.IsEnabled = false;
+                onlinePrevButton.IsEnabled = onlineNextButton.IsEnabled = false;
+                onlineCancelSearch.Visibility = Visibility.Visible;
+                onlinePageStatus.Text = "正在搜索皮肤…";
+                onlineStatus.Text = "";
+                try
                 {
-                    try
+                    if (source == 4 && query.Length == 0)
+                        throw new ArgumentException("请输入 Minecraft Java 玩家名或 UUID。");
+                    var entries = new List<OnlineSkinEntry>();
+                    var errors = new List<string>();
+                    int maxPage = 1, total = 0;
+                    bool includesGallery = source == 0 || source == 1 || source == 3;
+                    bool includesCommunity = source == 2 || (source == 1 && page == 1);
+
+                    async Task<T> SearchProvider<T>(Task<T> search, string provider) where T : class
                     {
-                        var gallery = await OnlineSkinSearchService.BrowseMosaicaryAsync(
-                            query, page, MosaicaryCategory(), MosaicaryModel(),
-                            MosaicarySort(), onlyFree, CancellationToken.None,
-                            source == 3);
+                        try { return await search; }
+                        catch (Exception error) when (source == 1 && !token.IsCancellationRequested)
+                        {
+                            errors.Add(provider + "：" + error.GetBaseException().Message);
+                            return null;
+                        }
+                    }
+
+                    // The two public galleries can answer independently.
+                    var galleryTask = includesGallery ? SearchProvider(
+                        OnlineSkinSearchService.BrowseMosaicaryAsync(query, page, MosaicaryCategory(),
+                            MosaicaryModel(), MosaicarySort(), onlyFree, token, source == 3), "Mosaicary") :
+                        Task.FromResult<OnlineSkinPage>(null);
+                    var communityTask = includesCommunity ? SearchProvider(
+                        OnlineSkinSearchService.SearchCommunityAsync(query, token), "DP-Plugins") :
+                        Task.FromResult<IReadOnlyList<OnlineSkinEntry>>(null);
+                    await Task.WhenAll(galleryTask, communityTask);
+                    var gallery = await galleryTask;
+                    var community = await communityTask;
+                    if (gallery != null)
+                    {
                         entries.AddRange(gallery.Entries);
                         maxPage = gallery.TotalPages;
                         total = gallery.Total;
                     }
-                    catch (Exception ex)
-                    {
-                        if (source == 0 || source == 3) throw;
-                        errors.Add("Mosaicary：" + ex.GetBaseException().Message);
-                    }
-                }
-                if (source == 2 || (source == 1 && page == 1))
-                {
-                    try
-                    {
-                        var community = await OnlineSkinSearchService.SearchCommunityAsync(
-                            query, CancellationToken.None);
-                        entries.AddRange(community.Where(x => !onlyFree || x.OpenLicense));
-                    }
-                    catch (Exception ex)
-                    {
-                        if (source == 2) throw;
-                        errors.Add("DP-Plugins：" + ex.GetBaseException().Message);
-                    }
-                }
-                if (source == 4)
-                    entries.AddRange(await OnlineSkinSearchService.FindPlayerAsync(
-                        query, CancellationToken.None));
+                    if (community != null) entries.AddRange(community.Where(x => !onlyFree || x.OpenLicense));
+                    if (source == 4)
+                        entries.AddRange(await OnlineSkinSearchService.FindPlayerAsync(query, token));
 
-                // No duplicate PNGs within a mixed-source results page.
-                entries = entries.GroupBy(x => x.TextureUrl, StringComparer.OrdinalIgnoreCase)
-                    .Select(x => x.First()).ToList();
-                if (entries.Count == 0 && errors.Count > 0 && total == 0)
-                    throw new InvalidOperationException(string.Join("；", errors));
-                onlinePage = page;
-                onlinePages = maxPage;
-                onlineResults.ItemsSource = entries;
-                onlinePrevButton.IsEnabled = page > 1 &&
-                    (source == 0 || source == 1 || source == 3);
-                onlineNextButton.IsEnabled = page < maxPage &&
-                    (source == 0 || source == 1 || source == 3);
-                onlinePageStatus.Text = "第 " + page + " / " + maxPage +
-                    " 页 · 本页展示 " + entries.Count + " 项" +
-                    (total > 0 ? " · 图库共有 " + total + " 项（筛选前）" : "") +
-                    (errors.Count > 0 ? " · 部分来源失败：" + string.Join("；", errors) : "");
-                onlineStatus.Text = entries.Count == 0 ?
-                    "当前页没有符合授权条件的皮肤。可切换来源或搜索词，或翻到其他页。" :
-                    "选择皮肤查看人物预览与作者许可证；开放授权作品可下载到本地皮肤库。";
-                if (entries.Count > 0)
-                {
-                    onlineResults.SelectedIndex = 0;
-                    _ = LoadOnlineThumbnailsAsync(entries, onlineThumbnailCancellation.Token);
+                    token.ThrowIfCancellationRequested();
+                    entries = entries.GroupBy(x => x.TextureUrl, StringComparer.OrdinalIgnoreCase)
+                        .Select(x => x.First()).ToList();
+                    if (entries.Count == 0 && errors.Count > 0 && total == 0)
+                        throw new InvalidOperationException(string.Join("。", errors));
+                    onlinePage = page;
+                    onlinePages = maxPage;
+                    onlineResults.ItemsSource = entries;
+                    onlinePrevButton.IsEnabled = page > 1 && includesGallery;
+                    onlineNextButton.IsEnabled = page < onlinePages && includesGallery;
+                    onlinePageStatus.Text = entries.Count == 0 ? "没有符合筛选条件的皮肤" :
+                        "第 " + page + " / " + maxPage + " 页 · " + entries.Count + " 个结果";
+                    if (errors.Count > 0) onlineStatus.Text = "部分图库暂不可用。" + string.Join("。", errors);
+                    if (entries.Count > 0)
+                    {
+                        onlineResults.SelectedIndex = 0;
+                        onlineThumbnailCancellation = new CancellationTokenSource();
+                        _ = LoadOnlineThumbnailsAsync(entries, onlineThumbnailCancellation);
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                onlinePageStatus.Text = "搜索失败";
-                onlineStatus.Text = "在线搜索失败：" + ex.GetBaseException().Message +
-                    "。可稍后重试，或继续使用离线 DIY。";
-            }
-            finally
-            {
-                searchingOnline = false;
-                onlineSearchButton.IsEnabled = true;
-                onlineSource.IsEnabled = true;
-                onlineQuery.IsEnabled = true;
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                { onlinePageStatus.Text = "已取消搜索"; }
+                catch (Exception error)
+                {
+                    onlinePageStatus.Text = "搜索失败";
+                    onlineStatus.Text = error.GetBaseException().Message;
+                }
+                finally
+                {
+                    onlineSearchCancellation = null;
+                    searchingOnline = false;
+                    onlineSearchButton.IsEnabled = onlineSource.IsEnabled = onlineQuery.IsEnabled = true;
+                    onlineCancelSearch.Visibility = Visibility.Collapsed;
+                }
             }
         }
 
-        async Task LoadOnlineThumbnailsAsync(IEnumerable<OnlineSkinEntry> results,
-            CancellationToken token)
+        async Task LoadOnlineThumbnailsAsync(IEnumerable<OnlineSkinEntry> results, CancellationTokenSource cancellation)
         {
+            using (cancellation)
             using (var limit = new SemaphoreSlim(3))
             {
-                var tasks = results.Where(x => x.Source == "Mosaicary")
-                    .Take(24).Select(async entry =>
+                var token = cancellation.Token;
+                try
                 {
-                    bool acquired = false;
-                    try
+                    var tasks = results.Where(x => x.Source == "Mosaicary").Take(24).Select(async entry =>
                     {
-                        await limit.WaitAsync(token);
-                        acquired = true;
-                        var bytes = await OnlineSkinSearchService.DownloadThumbnailAsync(entry, token);
-                        if (!token.IsCancellationRequested)
-                            entry.Thumbnail = OnlineSkinSearchService.DecodeThumbnail(bytes);
-                    }
-                    catch (OperationCanceledException) { }
-                    catch (Exception) { /* A broken thumbnail must not break results. */ }
-                    finally { if (acquired) limit.Release(); }
-                });
-                await Task.WhenAll(tasks);
+                        bool acquired = false;
+                        try
+                        {
+                            await limit.WaitAsync(token);
+                            acquired = true;
+                            var bytes = await OnlineSkinSearchService.DownloadThumbnailAsync(entry, token);
+                            if (!token.IsCancellationRequested)
+                                entry.Thumbnail = OnlineSkinSearchService.DecodeThumbnail(bytes);
+                        }
+                        catch (OperationCanceledException) { }
+                        catch (Exception) { /* Individual thumbnails may be unavailable. */ }
+                        finally { if (acquired) limit.Release(); }
+                    });
+                    await Task.WhenAll(tasks);
+                }
+                finally
+                {
+                    if (ReferenceEquals(onlineThumbnailCancellation, cancellation))
+                        onlineThumbnailCancellation = null;
+                }
             }
         }
 
@@ -758,52 +849,152 @@ namespace BlockCraftLauncher.Wpf
             }
         }
 
-        async Task PreviewOnlineSelectionAsync()
+        void ClearOnlinePreview()
         {
-            int request = ++onlineRequestNumber;
-            onlinePreviewCancellation?.Cancel();
-            onlinePreviewCancellation?.Dispose();
-            onlinePreviewCancellation = new CancellationTokenSource();
-            var token = onlinePreviewCancellation.Token;
-            var item = onlineResults.SelectedItem as OnlineSkinEntry;
             selectedOnlineSkin = null;
             selectedOnlinePng = null;
-            onlineSaveButton.IsEnabled = onlineEditButton.IsEnabled = false;
-            onlineDetailButton.IsEnabled = item != null &&
-                !string.IsNullOrWhiteSpace(item.DetailUrl);
-            onlinePreview.Source = null;
+            selectedOnlineDocument = null;
             selectedOnlineTexture = null;
+            onlinePreview.Source = onlinePreviewBack.Source = null;
             online3D.SetSkin(null, false, true);
+            online3D.StopAutoRotate();
+            onlineSkinTitle.Text = "选择一个皮肤";
+            onlineModelInfo.Visibility = Visibility.Collapsed;
+            onlineAttribution.Text = "";
+            onlineDetailButton.IsEnabled = false;
+            onlineRetryPreview.Visibility = Visibility.Collapsed;
+            onlinePreviewMessage.Text = "从结果中选择皮肤查看预览";
+            WatchOnlineDownload(null);
+            RefreshPreviewMode();
+        }
+
+        async Task PreviewOnlineSelectionAsync()
+        {
+            var item = onlineResults.SelectedItem as OnlineSkinEntry;
+            if (item != null && ReferenceEquals(item, selectedOnlineSkin) && selectedOnlineTexture != null) return;
+            onlinePreviewCancellation?.Cancel();
+            ClearOnlinePreview();
             if (item == null) return;
-            onlineAttribution.Text = item.Name + "\n" + item.Attribution +
-                "\n" + item.ModelLabel + "\n" + item.LicenseLabel;
-            onlineStatus.Text = "正在准备选中皮肤的 PNG 预览...";
-            try
+            PresentOnlineSkinDetails(item);
+            onlinePreviewMessage.Text = "正在加载皮肤…";
+            WatchOnlineDownload(item);
+
+            using (var cancellation = new CancellationTokenSource())
             {
-                byte[] png = await OnlineSkinSearchService.PreviewPngAsync(item, token);
-                if (request != onlineRequestNumber ||
-                    !ReferenceEquals(onlineResults.SelectedItem, item)) return;
-                var preview = DecodeOnlineSkin(png, item.SlimArms);
-                onlinePreview.Source = preview.AvatarImage(false, true);
-                selectedOnlineTexture = preview.TextureImage();
-                online3D.SetSkin(selectedOnlineTexture, item.SlimArms,
-                    onlineOuter.IsChecked != false);
-                selectedOnlineSkin = item;
-                selectedOnlinePng = png;
-                onlineSaveButton.IsEnabled = onlineEditButton.IsEnabled = item.CanDownload;
-                onlineStatus.Text = item.RequiresLicenseNotice ?
-                    "预览成功。该作品不属于已确认的自由许可；可单张手动下载，但需确认使用限制，不得擅自再分发或商用。" :
-                    item.CanDownload ?
-                    "预览成功。可保存到皮肤库或导入 DIY，并保留作者来源与许可证。" :
-                    "该来源没有公开的 PNG 下载地址，请查看原始页面。";
+                onlinePreviewCancellation = cancellation;
+                var token = cancellation.Token;
+                try
+                {
+                    byte[] png = await OnlineSkinSearchService.PreviewPngAsync(item, token);
+                    if (token.IsCancellationRequested || !ReferenceEquals(onlineResults.SelectedItem, item)) return;
+                    ShowOnlinePreview(item, DecodeOnlineSkin(png, item.SlimArms), png);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+                catch (Exception error)
+                {
+                    if (!token.IsCancellationRequested && ReferenceEquals(onlineResults.SelectedItem, item))
+                    {
+                        onlinePreviewMessage.Text = "预览加载失败。" + error.GetBaseException().Message;
+                        onlineRetryPreview.Visibility = Visibility.Visible;
+                    }
+                }
+                finally
+                {
+                    if (ReferenceEquals(onlinePreviewCancellation, cancellation))
+                        onlinePreviewCancellation = null;
+                }
             }
-            catch (OperationCanceledException) { }
-            catch (Exception ex)
+        }
+
+        void PresentOnlineSkinDetails(OnlineSkinEntry item)
+        {
+            onlineSkinTitle.Text = item.Name;
+            onlineSkinSource.Text = item.Source;
+            onlineSkinModel.Text = item.ModelLabel;
+            onlineModelInfo.Visibility = Visibility.Visible;
+            onlineAttribution.Text = item.AuthorLabel + "  ·  " + item.LicenseLabel;
+            onlineDetailButton.IsEnabled = !string.IsNullOrWhiteSpace(item.DetailUrl);
+        }
+
+        void ShowOnlinePreview(OnlineSkinEntry item, SkinEditorDocument preview, byte[] png)
+        {
+            selectedOnlineSkin = item;
+            selectedOnlinePng = png;
+            selectedOnlineDocument = preview;
+            selectedOnlineTexture = preview.TextureImage();
+            UpdateOnline3DOuter();
+            RefreshPreviewMode();
+            RefreshOnlineActions();
+        }
+
+        void RefreshPreviewMode()
+        {
+            bool ready = selectedOnlineTexture != null;
+            onlinePreviewMessage.Visibility = ready ? Visibility.Collapsed : Visibility.Visible;
+            onlineFlatPanel.Visibility = ready && showFlatPreview ? Visibility.Visible : Visibility.Collapsed;
+            online3D.Visibility = ready && !showFlatPreview ? Visibility.Visible : Visibility.Collapsed;
+            onlineOrbitControls.Visibility = online3D.Visibility;
+            if (online3D.Visibility != Visibility.Visible) online3D.StopAutoRotate();
+            ((TextBlock)onlinePreviewMode.Content).Text = showFlatPreview ? "切回 3D" : "2D 正反面";
+            System.Windows.Automation.AutomationProperties.SetName(onlinePreviewMode,
+                ((TextBlock)onlinePreviewMode.Content).Text);
+            onlinePreviewMode.IsEnabled = onlineExpandPreview.IsEnabled = onlineOuter.IsEnabled = ready;
+        }
+
+        void OpenExpandedPreview()
+        {
+            if (selectedOnlineTexture == null || selectedOnlineSkin == null) return;
+            var viewer = new Skin3DPreview { Height = double.NaN, Margin = new Thickness(14, 0, 14, 10) };
+            viewer.SetSkin(selectedOnlineTexture, selectedOnlineSkin.SlimArms, onlineOuter.IsChecked != false);
+            var area = SystemParameters.WorkArea;
+            var dialog = new Window
             {
-                if (request == onlineRequestNumber)
-                    onlineStatus.Text = "无法预览该皮肤：" +
-                        ex.GetBaseException().Message + "。请选择其他皮肤。";
-            }
+                Owner = Window.GetWindow(this), Title = selectedOnlineSkin.Name + " · 皮肤预览",
+                Width = Math.Min(650, area.Width - 24), Height = Math.Min(580, area.Height - 24),
+                WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false
+            };
+            var content = new DockPanel();
+            var heading = Label(selectedOnlineSkin.Name, 18, true);
+            heading.Margin = new Thickness(14, 12, 14, 8);
+            DockPanel.SetDock(heading, Dock.Top);
+            content.Children.Add(heading);
+            var controls = Column(PreviewControls(viewer),
+                Label("拖动旋转，聚焦后滚轮缩放。双击复位。"));
+            controls.Margin = new Thickness(14, 0, 14, 6);
+            DockPanel.SetDock(controls, Dock.Bottom);
+            content.Children.Add(controls);
+            content.Children.Add(viewer);
+            dialog.Content = content;
+            dialog.ShowDialog();
+        }
+
+        void WatchOnlineDownload(OnlineSkinEntry item)
+        {
+            if (watchedOnlineJob != null) watchedOnlineJob.PropertyChanged -= OnlineJobChanged;
+            watchedOnlineJob = item != null && !string.IsNullOrEmpty(item.TextureUrl) &&
+                onlineJobs.TryGetValue(item.TextureUrl, out var job) ? job : null;
+            if (watchedOnlineJob != null) watchedOnlineJob.PropertyChanged += OnlineJobChanged;
+            RefreshOnlineActions();
+        }
+
+        void OnlineJobChanged(object sender, PropertyChangedEventArgs args) => RefreshOnlineActions();
+
+        void RefreshOnlineActions()
+        {
+            bool canDownload = selectedOnlineSkin?.CanDownload == true && selectedOnlinePng != null;
+            bool running = watchedOnlineJob?.IsRunning == true;
+            onlineSaveButton.IsEnabled = canDownload && !running && !savingOnline;
+            onlineEditButton.IsEnabled = canDownload && !importingOnline;
+            onlineDownloadFeedback.Visibility = watchedOnlineJob == null ? Visibility.Collapsed : Visibility.Visible;
+            if (watchedOnlineJob == null) return;
+            onlineDownloadProgress.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
+            onlineDownloadProgress.IsIndeterminate = running && watchedOnlineJob.IsIndeterminate;
+            onlineDownloadProgress.Value = watchedOnlineJob.Percent;
+            string detail = !string.IsNullOrWhiteSpace(watchedOnlineJob.Error) ?
+                watchedOnlineJob.Error : watchedOnlineJob.Detail;
+            onlineDownloadStatus.Text = watchedOnlineJob.Status +
+                (running ? " · " + watchedOnlineJob.PercentLabel : "") +
+                (string.IsNullOrWhiteSpace(detail) ? "" : " · " + detail);
         }
 
         string SafeOnlineName(OnlineSkinEntry item)
@@ -838,45 +1029,38 @@ namespace BlockCraftLauncher.Wpf
         async Task SaveOnlineSkinAsync()
         {
             var item = selectedOnlineSkin;
-            var png = selectedOnlinePng;
-            if (item == null || png == null || !item.CanDownload ||
+            if (item == null || selectedOnlinePng == null || !item.CanDownload ||
+                watchedOnlineJob?.IsRunning == true || savingOnline ||
                 !ConfirmUnlicensedSkin(item, "下载")) return;
             if (queueSkinDownload != null)
             {
-                queueSkinDownload(item);
-                onlineStatus.Text = "已加入下载队列：「下载 → 下载任务」可查看进度、取消或重试。" +
-                    " 皮肤完成后会保存到本地皮肤库。";
+                var job = queueSkinDownload(item);
+                if (job != null)
+                {
+                    if (onlineJobs.Count >= 64)
+                        foreach (string old in onlineJobs.Where(pair => !pair.Value.IsRunning)
+                            .Select(pair => pair.Key).Take(16).ToArray())
+                            onlineJobs.Remove(old);
+                    onlineJobs[item.TextureUrl] = job;
+                    WatchOnlineDownload(item);
+                }
                 return;
             }
-            onlineSaveButton.IsEnabled = false;
+            savingOnline = true;
+            RefreshOnlineActions();
             try
             {
-                byte[] downloaded = await OnlineSkinSearchService.DownloadPngAsync(
-                    item, CancellationToken.None);
-                var preview = DecodeOnlineSkin(downloaded, item.SlimArms);
-                Directory.CreateDirectory(SkinEditorDocument.LocalLibrary);
-                string name = SafeOnlineName(item);
-                string path = SkinEditorDocument.SafeLibraryPath(name);
-                if (File.Exists(path))
-                {
-                    name = name.Substring(0, Math.Min(name.Length, 38)) + "-" +
-                        Guid.NewGuid().ToString("N").Substring(0, 6);
-                    path = SkinEditorDocument.SafeLibraryPath(name);
-                }
-                preview.SavePng(path); // strips remote metadata; produces normalized PNG
-                File.WriteAllText(path + ".source.txt",
-                    OnlineSkinSearchService.SkinSourceNote(item),
-                    System.Text.Encoding.UTF8);
+                string path = await OnlineSkinSearchService.DownloadToLibraryAsync(item, CancellationToken.None);
                 RefreshLibrary();
-                onlineStatus.Text = "皮肤已下载到本地：" + path +
-                    "\n来源：" + item.Attribution;
+                onlineStatus.Text = "已下载到皮肤库：" + path;
             }
-            catch (Exception ex)
+            catch (Exception error)
+            { onlineStatus.Text = "无法保存皮肤：" + error.GetBaseException().Message; }
+            finally
             {
-                onlineStatus.Text = "无法保存皮肤：" + ex.GetBaseException().Message;
+                savingOnline = false;
+                RefreshOnlineActions();
             }
-            finally { onlineSaveButton.IsEnabled = selectedOnlinePng != null; }
-            await Task.CompletedTask;
         }
 
         async Task UseOnlineSkinAsync()
@@ -884,8 +1068,9 @@ namespace BlockCraftLauncher.Wpf
             var item = selectedOnlineSkin;
             var png = selectedOnlinePng;
             if (item == null || png == null || !item.CanDownload ||
-                !ConfirmUnlicensedSkin(item, "下载并编辑") || !ConfirmDiscard()) return;
-            onlineEditButton.IsEnabled = false;
+                importingOnline || !ConfirmUnlicensedSkin(item, "下载并编辑") || !ConfirmDiscard()) return;
+            importingOnline = true;
+            RefreshOnlineActions();
             string temporary = null;
             try
             {
@@ -917,16 +1102,18 @@ namespace BlockCraftLauncher.Wpf
                     try { File.Delete(temporary); }
                     catch (IOException) { }
                 }
-                onlineEditButton.IsEnabled = selectedOnlinePng != null;
+                importingOnline = false;
+                RefreshOnlineActions();
             }
-            await Task.CompletedTask;
         }
 
         void UpdateOnline3DOuter()
         {
-            if (selectedOnlineTexture != null && selectedOnlineSkin != null)
-                online3D.SetSkin(selectedOnlineTexture, selectedOnlineSkin.SlimArms,
-                    onlineOuter.IsChecked != false);
+            if (selectedOnlineTexture == null || selectedOnlineSkin == null || selectedOnlineDocument == null) return;
+            bool outer = onlineOuter.IsChecked != false;
+            online3D.SetSkin(selectedOnlineTexture, selectedOnlineSkin.SlimArms, outer);
+            onlinePreview.Source = selectedOnlineDocument.AvatarImage(false, outer);
+            onlinePreviewBack.Source = selectedOnlineDocument.AvatarImage(true, outer);
         }
 
         UIElement PreviewControls(Skin3DPreview viewer)
@@ -934,7 +1121,8 @@ namespace BlockCraftLauncher.Wpf
             var spinButton = ActionButton("自动旋转", () => viewer.ToggleAutoRotate());
             viewer.AutoRotationChanged += running =>
                 ((TextBlock)spinButton.Content).Text = running ? "暂停旋转" : "自动旋转";
-            return Row(ActionButton("重置视角", viewer.ResetView), spinButton);
+            return Row(ActionButton("正面", viewer.ShowFront), ActionButton("背面", viewer.ShowBack),
+                ActionButton("重置视角", viewer.ResetView), spinButton);
         }
 
         UIElement BuildPreview()
@@ -960,7 +1148,7 @@ namespace BlockCraftLauncher.Wpf
             return Column(
                 Label("360° 立体预览 · 实时同步", 12, true),
                 editor3D, PreviewControls(editor3D),
-                Label("左键拖动旋转 · 滚轮缩放 · 双击复位"),
+                Label("拖动旋转，聚焦后滚轮缩放。双击复位。"),
                 Row(leftPanel, rightPanel));
 
         }
@@ -1545,6 +1733,43 @@ namespace BlockCraftLauncher.Wpf
                 throw new InvalidOperationException(
                     "3D 皮肤模型未正确显示（胸前衣服颜色像素过少：" + teal +
                     "）。请检查 WPF 材质与 UV，而非仅检查三角面数量。");
+        }
+
+        internal void VerifyOnlinePreviewLayout(Action capture)
+        {
+            var fixture = new OnlineSkinEntry
+            {
+                Name = "经典探险家", Source = "Mosaicary", Author = "测试画师", License = "CC0-1.0",
+                TextureUrl = "https://mosaicary.com/api/skins/test"
+            };
+            var preview = new SkinEditorDocument();
+            PresentOnlineSkinDetails(fixture);
+            try
+            {
+                ShowOnlinePreview(fixture, preview, preview.ExportPngBytes());
+                if (online3D.Visibility != Visibility.Visible || online3D.PartCount != 12 ||
+                    !onlineSaveButton.IsEnabled || !onlineExpandPreview.IsEnabled)
+                    throw new InvalidOperationException("皮肤下载预览与操作没有就绪");
+                online3D.ShowBack();
+                if (online3D.Yaw != 180 || online3D.Pitch != 0)
+                    throw new InvalidOperationException("背面视角预设未生效");
+                online3D.ShowFront();
+                if (online3D.Yaw != 0)
+                    throw new InvalidOperationException("正面视角预设未生效");
+                onlinePreviewMode.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (onlineFlatPanel.Visibility != Visibility.Visible ||
+                    online3D.Visibility != Visibility.Collapsed ||
+                    onlinePreview.Source == null || onlinePreviewBack.Source == null)
+                    throw new InvalidOperationException("皮肤正反面预览未显示");
+                onlineOuter.IsChecked = false;
+                if (online3D.PartCount != 6)
+                    throw new InvalidOperationException("预览的外层开关未更新 3D 模型");
+                onlineOuter.IsChecked = true;
+                onlinePreviewMode.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                online3D.ResetView();
+                capture();
+            }
+            finally { ClearOnlinePreview(); }
         }
 
         internal void VerifyOfflineLayout()

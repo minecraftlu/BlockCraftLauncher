@@ -10,6 +10,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -37,6 +38,9 @@ namespace BlockCraftLauncher.Wpf
         bool updatePreparing;
         bool updateCheckFailed;
         string updatePreparationError;
+        DateTime? updateRestartAtUtc;
+        bool postponeAutomaticRestart;
+        bool changingAccount;
         // Normal window close can install a fully verified prepared update,
         // but never when manual installation/direct-preview already handled it.
         bool suppressAutomaticInstallOnClose;
@@ -44,7 +48,7 @@ namespace BlockCraftLauncher.Wpf
         Border homeUpdateCard;
         ProgressBar updateProgressBar;
         Button updateInstallButton, updateCheckButton, updateDirectOpenButton;
-        CheckBox settingsAutoCheck, settingsAutoDownload, settingsAutoInstallOnExit;
+        CheckBox settingsAutoCheck, settingsAutoDownload, settingsAutoInstallOnExit, settingsAutoRestartAfterDownload;
         ComboBox settingsUpdateChannel;
         readonly MinecraftBackend minecraft;
         MicrosoftAccountService microsoft;
@@ -141,6 +145,12 @@ namespace BlockCraftLauncher.Wpf
             TopSettingsButton.Click += (sender, args) => Navigate("设置");
             TopMoreButton.Click += (sender, args) => Navigate("关于");
             TaskShortcut.Click += (sender, args) => Navigate("下载管理");
+            PostponeUpdateButton.Click += (sender, args) =>
+            {
+                postponeAutomaticRestart = true;
+                ClearUpdateCountdown();
+                Status("已推迟这次自动重启，可在启动器更新页继续安装。");
+            };
             BuildVersionText.Text = LauncherAutoUpdateService.CurrentTag.Split('-')[0] +
                 "  ·  " + LauncherAutoUpdateService.BuildChannelLabel;
             ApplyTheme();
@@ -155,6 +165,7 @@ namespace BlockCraftLauncher.Wpf
             {
                 gameProcesses.Refresh();
                 RefreshGameProcessStatus();
+                AdvanceAutomaticRestart();
             };
             // A smoke-test MainWindow is never shown; avoid starting a timer
             // before WPF has actually opened the user-facing window.
@@ -169,36 +180,10 @@ namespace BlockCraftLauncher.Wpf
                     suppressAutomaticInstallOnClose = true;
             Closing += (sender, args) =>
             {
-                // Do not reopen the launcher in the middle of a Minecraft
-                // session, a game download, a mod installation or logoff.
-                bool activeDownload = downloads.Jobs.Any(job => job.IsRunning);
-                bool activeGame = settings.Profiles.Any(profile =>
-                    gameProcesses.GetState(profile).Status == GameProcessStatus.Running);
-                bool workInProgress = currentOperation != null ||
-                    activeDownload || activeGame;
-                if (!LauncherAutoUpdateService.ShouldAutoInstallOnExit(settings,
-                    preparedUpdate, offeredUpdate, updateChecking || updatePreparing ||
-                    workInProgress || updateCancellation.IsCancellationRequested,
+                if (LauncherAutoUpdateService.ShouldAutoInstallOnExit(settings,
+                    preparedUpdate, offeredUpdate, UpdateIsBusy,
                     suppressAutomaticInstallOnClose || SuppressAutomaticUpdateCheck))
-                    return;
-                // A verified update is installed only after the user closes
-                // the launcher. The separate helper waits for this process
-                // to exit, replaces its original EXE, tests, then relaunches.
-                try
-                {
-                    autoUpdater.StartExternalInstaller(preparedUpdate);
-                    suppressAutomaticInstallOnClose = true;
-                    Log("自动安装已准备的更新：" + preparedUpdate.Offer.Tag +
-                        "；正在关闭旧版并原位替换 EXE。");
-                }
-                catch (Exception ex)
-                {
-                    // Do not trap the user in a window that refuses to close.
-                    // The original EXE stays intact and the prepared package
-                    // remains available to retry on the next launch.
-                    Log("退出时自动安装失败，保留旧版：" + ex.GetType().Name);
-                    ShowError("自动替换旧版失败（原启动器仍保留）", ex);
-                }
+                    TryStartPreparedInstallation();
             };
             Closed += (sender, args) =>
             {
@@ -546,15 +531,16 @@ namespace BlockCraftLauncher.Wpf
                 skinStudio = new SkinStudioView(UploadSkinToMicrosoftAsync,
                     () => settings.AccountMode == "microsoft" ? settings.AccountName : null,
                     () => Navigate("皮肤 DIY"), QueueSkinDownload,
-                    () => Navigate("皮肤下载"), enableDraftRecovery);
+                    () => Navigate("皮肤下载"), enableDraftRecovery,
+                    () => Navigate("下载管理"));
             return skinStudio;
         }
 
-        void QueueSkinDownload(OnlineSkinEntry item)
+        DownloadJob QueueSkinDownload(OnlineSkinEntry item)
         {
             if (item == null || !item.CanDownload)
-                return;
-            downloads.Enqueue("皮肤", item.Name, async (token, stage, bytes) =>
+                return null;
+            var job = downloads.Enqueue("皮肤", item.Name, async (token, stage, bytes) =>
             {
                 stage.Report("正在下载皮肤：" + item.Name + " · " + item.Source);
                 string saved = await OnlineSkinSearchService.DownloadToLibraryAsync(
@@ -562,6 +548,7 @@ namespace BlockCraftLauncher.Wpf
                 stage.Report("已保存到皮肤库：" + saved + "（附带作者及许可证信息）");
             });
             Status("皮肤下载已加入任务队列：" + item.Name);
+            return job;
         }
 
         // Navigation can race a finished async request that already disposed
@@ -705,6 +692,10 @@ namespace BlockCraftLauncher.Wpf
             Set("SecondaryAccentBrush", light ? "#4E9BDD" : "#6FB5F8");
             Set("SoftDividerBrush", light ? "#E5EDF7" : "#354E69");
             Set("SearchSurfaceBrush", light ? "#FFFFFF" : "#203147");
+            Set("PreviewFloorBrush", light ? "#DCEBFA" : "#253C56");
+            Application.Current.Resources["FeaturePanelBrush"] = new LinearGradientBrush(
+                (Color)ColorConverter.ConvertFromString(light ? "#FFFFFF" : "#253B55"),
+                (Color)ColorConverter.ConvertFromString(light ? "#EDF6FF" : "#203147"), 24);
             Set("SuccessBrush", light ? "#1D765A" : "#70DBB1");
             Set("AccentInkBrush", light ? "#125CA4" : "#94C9FF");
             Set("AccentBrush", IsHexColor(settings.Accent) ? settings.Accent : "#1875CE");
@@ -789,29 +780,59 @@ namespace BlockCraftLauncher.Wpf
 
         UIElement BuildHome()
         {
-            homeProfileName = Txt("", 20, true);
-            homeProfileInfo = Txt("", 12, false, true);
-            var overview = Card(Col(Txt("当前版本", 12, true, true),
-                homeProfileName, homeProfileInfo,
-                Row(Btn("打开游戏目录", OpenGameFolder),
-                    Btn("查看运行日志", () => Navigate("运行日志")))));
+            homeProfileName = Txt("", 27, true);
+            homeProfileInfo = Txt("", 13, false, true);
+            var emblem = new Border
+            {
+                Width = 46, Height = 46, CornerRadius = new CornerRadius(10),
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 0, 13, 0),
+                Child = new Image { Source = new BitmapImage(new Uri(
+                    "pack://application:,,,/Assets/blockcraft_icon.png")), Margin = new Thickness(8) }
+            };
+            emblem.SetResourceReference(Border.BackgroundProperty, "BadgeBrush");
+            var heading = new DockPanel { Margin = new Thickness(0, 0, 0, 9) };
+            DockPanel.SetDock(emblem, Dock.Left);
+            heading.Children.Add(emblem);
+            var caption = Txt("当前实例", 11, true);
+            caption.SetResourceReference(TextBlock.ForegroundProperty, "AccentInkBrush");
+            heading.Children.Add(Col(caption, homeProfileName, homeProfileInfo));
+            var overview = Card(Col(heading,
+                Row(Btn("版本设置", () => OpenVersionSettings("首页")),
+                    Btn("打开游戏目录", OpenGameFolder),
+                    Btn("运行日志", () => Navigate("运行日志")))));
+            overview.SetResourceReference(StyleProperty, "FeaturePanel");
 
             homeUpdateText = Txt("", 12, false, true);
-            homeUpdateCard = Card(Col(Txt("启动器有新版本", 16, true), homeUpdateText,
+            homeUpdateCard = Card(Col(Txt("启动器更新", 16, true), homeUpdateText,
                 Row(Btn("查看更新", () => Navigate("启动器更新"), true),
                     Btn("更新设置", () => Navigate("更新设置")))));
 
-            var shortcuts = Card(Col(Txt("常用功能", 16, true),
-                Row(Btn("安装游戏", () => Navigate("游戏版本")),
-                    Btn("搜索模组", () => Navigate("资源中心")),
-                    Btn("皮肤下载", () => Navigate("皮肤下载")),
-                    Btn("皮肤 DIY", () => Navigate("皮肤 DIY")),
-                    Btn("多人游戏", () => Navigate("多人联机")))));
+            Button Shortcut(string title, string target)
+            {
+                var button = Btn(title, () => Navigate(target));
+                button.SetResourceReference(StyleProperty, "HomeAction");
+                var icon = Txt(NavGlyph(target), 18);
+                icon.FontFamily = new FontFamily("Segoe MDL2 Assets");
+                icon.SetResourceReference(TextBlock.ForegroundProperty, "AccentInkBrush");
+                var label = Txt(title, 13, true);
+                label.Margin = new Thickness(0);
+                button.Content = Col(icon, label);
+                return button;
+            }
+            var actions = Row(Shortcut("安装游戏", "游戏版本"),
+                Shortcut("搜索模组", "资源中心"), Shortcut("皮肤下载", "皮肤下载"),
+                Shortcut("皮肤 DIY", "皮肤 DIY"), Shortcut("多人游戏", "多人联机"));
+            actions.SizeChanged += (sender, args) =>
+            {
+                double width = args.NewSize.Width;
+                if (!args.WidthChanged || width <= 0) return;
+                int columns = width >= 670 ? 5 : width >= 450 ? 3 : 2;
+                actions.ItemWidth = Math.Floor(width / columns);
+            };
+            var shortcuts = Card(Col(Txt("常用功能", 17, true), actions));
             RefreshGameProcessStatus();
-            return Col(homeUpdateCard, overview, shortcuts,
-                Card(Col(Txt("版本动态", 16, true),
-                    Txt("新版启动器调整了页面布局。游戏、下载、联机和设置均可从顶部进入。", 12, false, true),
-                    Row(Btn("查看更新说明", () => Navigate("关于"))))));
+            return Col(homeUpdateCard, overview, shortcuts);
         }
 
         void OpenVersionSettings(string returnPage)
@@ -1154,6 +1175,7 @@ namespace BlockCraftLauncher.Wpf
                 FindResource("FilterChip") == null)
                 throw new InvalidOperationException("资源、游戏版本或下载任务缺少卡片布局模板");
 
+            VerifyAutomaticRestartControls();
             var originalProfile = activeProfile;
             var sampleProfile = new GameProfile
             {
@@ -1305,6 +1327,7 @@ namespace BlockCraftLauncher.Wpf
                 sidebarButtons.ContainsKey("皮肤 DIY"))
                 throw new InvalidOperationException("皮肤下载未在下载分类中单独打开");
             skinStudio.VerifyOfflineLayout();
+            skinStudio.VerifyOnlinePreviewLayout(() => ArrangeLayoutProbe(1080, 680, "10-skin-gallery"));
             Navigate("皮肤 DIY");
             if (skinStudio == null || PageHost.Content != skinStudio ||
                 skinStudio.DownloadMode || !sidebarButtons.ContainsKey("皮肤 DIY") ||
@@ -1350,8 +1373,9 @@ namespace BlockCraftLauncher.Wpf
             finally { settings.McimEnabled = previousMcim; }
 
             Navigate("启动器更新");
-            if (PageHost.Content == null)
-                throw new InvalidOperationException("启动器更新页无法打开");
+            if (PageHost.Content == null || PostponeUpdateButton.Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("启动器更新页或重启控件初始化错误");
+            ArrangeLayoutProbe(1080, 680, "09-launcher-updates");
 
             Navigate("运行日志");
             if (PageHost.Content == null)
@@ -1375,7 +1399,8 @@ namespace BlockCraftLauncher.Wpf
                 throw new InvalidOperationException("个性化设置缺少字段");
             Navigate("更新设置");
             if (settingsUpdateChannel == null || settingsAutoCheck == null ||
-                settingsAutoDownload == null || settingsAutoInstallOnExit == null)
+                settingsAutoDownload == null || settingsAutoInstallOnExit == null ||
+                settingsAutoRestartAfterDownload == null)
                 throw new InvalidOperationException("更新设置缺少字段");
             Navigate("设置");
             if (settingsRoot.Text != "layout-probe")
@@ -1420,6 +1445,50 @@ namespace BlockCraftLauncher.Wpf
             Navigate("首页");
             if (currentPage != "首页" || PageHost.Content == null)
                 throw new InvalidOperationException("导航返回首页失败");
+        }
+
+        void VerifyAutomaticRestartControls()
+        {
+            bool oldCheck = settings.AutoCheckUpdates;
+            bool oldDownload = settings.AutoDownloadUpdates;
+            bool oldRestart = settings.AutoRestartAfterUpdateDownload;
+            try
+            {
+                settings.AutoCheckUpdates = settings.AutoDownloadUpdates =
+                    settings.AutoRestartAfterUpdateDownload = true;
+                offeredUpdate = new LauncherUpdateOffer { Tag = "v99.0.0" };
+                preparedUpdate = new PreparedLauncherUpdate
+                {
+                    Offer = offeredUpdate, TargetPath = "probe.exe",
+                    StagedPath = "staged-probe.exe", Sha256 = new string('a', 64)
+                };
+                using (currentOperation = new CancellationTokenSource())
+                {
+                    AdvanceAutomaticRestart();
+                    if (updateRestartAtUtc.HasValue)
+                        throw new InvalidOperationException("有安装任务时不得安排自动重启");
+                }
+                currentOperation = null;
+                AdvanceAutomaticRestart();
+                if (!updateRestartAtUtc.HasValue || PostponeUpdateButton.Visibility != Visibility.Visible)
+                    throw new InvalidOperationException("自动重启倒计时未显示");
+                PostponeUpdateButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                AdvanceAutomaticRestart();
+                if (updateRestartAtUtc.HasValue || PostponeUpdateButton.Visibility != Visibility.Collapsed)
+                    throw new InvalidOperationException("推迟自动重启没有生效");
+            }
+            finally
+            {
+                currentOperation = null;
+                preparedUpdate = null;
+                offeredUpdate = null;
+                postponeAutomaticRestart = false;
+                settings.AutoCheckUpdates = oldCheck;
+                settings.AutoDownloadUpdates = oldDownload;
+                settings.AutoRestartAfterUpdateDownload = oldRestart;
+                ClearUpdateCountdown();
+                Status("就绪");
+            }
         }
 
         async Task VerifyLocalModIconsAsync(GameProfile profile)
@@ -3023,9 +3092,12 @@ namespace BlockCraftLauncher.Wpf
         {
             var root = Col(PageHeading("启动器更新", "从 BlockCraft Launcher 的 GitHub 发布页获取新版。"));
             string package = LauncherAutoUpdateService.InstallMode == "onefile" ? "单文件 EXE" : "完整 ZIP";
-            root.Children.Add(Card(Col(Txt("当前版本", 16, true),
-                Txt(LauncherAutoUpdateService.CurrentTag + "  ·  " + package + "  ·  Windows x64",
-                    13, false, true))));
+            var versionCard = Card(Col(Txt("已安装版本", 12, true, true),
+                Txt(LauncherAutoUpdateService.CurrentTag, 24, true),
+                Txt(package + "  ·  " + LauncherAutoUpdateService.BuildChannelLabel + "  ·  Windows x64",
+                    12, false, true)));
+            versionCard.SetResourceReference(StyleProperty, "FeaturePanel");
+            root.Children.Add(versionCard);
 
             updateStatusText = Txt("", 14, true);
             updateProgressBar = new ProgressBar
@@ -3052,10 +3124,7 @@ namespace BlockCraftLauncher.Wpf
             root.Children.Add(Card(Col(Txt("更新状态", 16, true),
                 updateStatusText, updateProgressBar,
                 Row(updateCheckButton, updateInstallButton, updateDirectOpenButton),
-                notes,
-                Txt("安装会在原位置替换旧启动器 EXE，原路径、文件名及快捷方式保持不变；" +
-                    "成功后清理临时包和旧备份。“临时试用”不会替换旧 EXE。",
-                    12, false, true))));
+                notes)));
             root.Children.Add(Card(Col(Txt("更新选项", 16, true),
                 Row(Btn("更新设置", () => Navigate("更新设置")),
                     Btn("查看更新日志", OpenUpdateLog),
@@ -3077,6 +3146,65 @@ namespace BlockCraftLauncher.Wpf
             catch (Exception ex) { ShowError("无法打开更新日志", ex); }
         }
 
+        bool UpdateIsBusy => updateChecking || updatePreparing || updateCancellation.IsCancellationRequested ||
+            currentOperation != null || changingAccount || loadingVersions || launchingProfiles.Count > 0 ||
+            downloads.Jobs.Any(job => job.IsRunning) || skinStudio?.HasActiveOperation == true ||
+            settings.Profiles.Any(profile => gameProcesses.GetState(profile).Status == GameProcessStatus.Running);
+
+        bool CanRestartForUpdate =>
+            LauncherAutoUpdateService.ShouldAutoRestartWhenIdle(settings, preparedUpdate, offeredUpdate,
+                UpdateIsBusy || skinStudio?.HasUnsavedEdits == true || !IsEnabled ||
+                    OwnedWindows.OfType<Window>().Any(dialog => dialog.IsVisible) ||
+                    (IsActive && Keyboard.FocusedElement is TextBox),
+                suppressAutomaticInstallOnClose || SuppressAutomaticUpdateCheck || postponeAutomaticRestart);
+
+        string ReadyUpdateStatus()
+        {
+            string tag = preparedUpdate.Offer.Tag;
+            if (updateRestartAtUtc.HasValue)
+            {
+                int remaining = Math.Max(1, (int)Math.Ceiling((updateRestartAtUtc.Value - DateTime.UtcNow).TotalSeconds));
+                return "新版 " + tag + " 已校验，" + remaining + " 秒后重启更新。";
+            }
+            if (settings.AutoRestartAfterUpdateDownload && !postponeAutomaticRestart && !SuppressAutomaticUpdateCheck)
+                return "新版 " + tag + " 已校验，启动器空闲时自动重启。";
+            if (settings.AutoInstallUpdatesOnExit && !SuppressAutomaticUpdateCheck)
+                return "新版 " + tag + " 已校验，正常关闭时自动安装。";
+            return "新版 " + tag + " 已校验，可以安装。";
+        }
+
+        void ClearUpdateCountdown()
+        {
+            if (!updateRestartAtUtc.HasValue) return;
+            updateRestartAtUtc = null;
+            PostponeUpdateButton.Visibility = Visibility.Collapsed;
+            RefreshLauncherUpdatePanel();
+            if (preparedUpdate != null) StatusText.Text = ReadyUpdateStatus();
+        }
+
+        void AdvanceAutomaticRestart()
+        {
+            if (!CanRestartForUpdate)
+            {
+                ClearUpdateCountdown();
+                return;
+            }
+            if (!updateRestartAtUtc.HasValue)
+            {
+                updateRestartAtUtc = DateTime.UtcNow.AddSeconds(8);
+                PostponeUpdateButton.Visibility = Visibility.Visible;
+            }
+            if (DateTime.UtcNow < updateRestartAtUtc.Value)
+            {
+                StatusText.Text = ReadyUpdateStatus();
+                RefreshLauncherUpdatePanel();
+                return;
+            }
+            ClearUpdateCountdown();
+            if (TryStartPreparedInstallation())
+                Application.Current.Shutdown();
+        }
+
         void RefreshLauncherUpdatePanel()
         {
             bool available = offeredUpdate != null;
@@ -3084,7 +3212,8 @@ namespace BlockCraftLauncher.Wpf
             {
                 homeUpdateCard.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
                 if (homeUpdateText != null && available)
-                    homeUpdateText.Text = "可用：" + offeredUpdate.Tag +
+                    homeUpdateText.Text = preparedUpdate != null ? ReadyUpdateStatus() :
+                        "可用：" + offeredUpdate.Tag +
                         "  ·  " + (settings.UpdateChannel == "preview" ? "预览版" : "稳定版");
             }
             if (currentPage == "启动器更新" && updateStatusText != null)
@@ -3092,11 +3221,7 @@ namespace BlockCraftLauncher.Wpf
                 updateStatusText.Text = updatePreparing ?
                     "正在下载并校验更新..." :
                     updateChecking ? "正在连接 GitHub 检查更新..." :
-                    preparedUpdate != null ?
-                        (settings.AutoInstallUpdatesOnExit ?
-                            "已校验 " + preparedUpdate.Offer.Tag +
-                            "，下次正常关闭启动器时将自动替换旧 EXE。" :
-                            "更新已下载并通过启动校验，准备安装：" + preparedUpdate.Offer.Tag) :
+                    preparedUpdate != null ? ReadyUpdateStatus() :
                     !string.IsNullOrWhiteSpace(updatePreparationError) ?
                         "更新准备失败：" + updatePreparationError :
                     available ? "发现可用更新：" + offeredUpdate.Tag :
@@ -3134,21 +3259,24 @@ namespace BlockCraftLauncher.Wpf
                     DateTime.UtcNow - settings.LastUpdateCheckUtc < TimeSpan.FromHours(6))
                     return;
             }
+            ClearUpdateCountdown();
             updateChecking = true;
             updateCheckFailed = false;
             string channel = settings.UpdateChannel;
             RefreshLauncherUpdatePanel();
             try
             {
-                var candidate = await autoUpdater.CheckAsync(updateCancellation.Token);
+                var candidate = await autoUpdater.CheckAsync(updateCancellation.Token, refresh: manual);
                 if (updateCancellation.IsCancellationRequested || settings.UpdateChannel != channel) return;
                 if (!LauncherAutoUpdateService.SameOffer(offeredUpdate, candidate))
                 {
                     preparedUpdate = null;
+                    postponeAutomaticRestart = false;
                     updatePreparationError = null;
                 }
                 offeredUpdate = candidate;
-                settings.LastUpdateCheckUtc = DateTime.UtcNow;
+                // A pending update must remain discoverable on the next startup.
+                settings.LastUpdateCheckUtc = candidate == null ? DateTime.UtcNow : DateTime.MinValue;
                 try { store.Save(settings); }
                 catch (Exception saveError)
                 { Log("更新检查时间保存失败：" + saveError.GetType().Name); }
@@ -3220,9 +3348,7 @@ namespace BlockCraftLauncher.Wpf
                     !LauncherAutoUpdateService.SameOffer(offeredUpdate, selected))
                     return;
                 preparedUpdate = stage;
-                Status(settings.AutoInstallUpdatesOnExit ?
-                    "更新 " + selected.Tag + " 已校验，正常关闭启动器时安装。" :
-                    "更新 " + selected.Tag + " 已校验，可以安装。");
+                Status(ReadyUpdateStatus());
             }
             catch (OperationCanceledException) when (updateCancellation.IsCancellationRequested) { }
             catch (Exception ex)
@@ -3262,6 +3388,7 @@ namespace BlockCraftLauncher.Wpf
                 "直接打开新版（不安装）",
                 MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
                 return;
+            ClearUpdateCountdown();
             updatePreparing = true;
             RefreshLauncherUpdatePanel();
             try
@@ -3297,17 +3424,20 @@ namespace BlockCraftLauncher.Wpf
                 await PrepareLauncherUpdateAsync(true);
             if (preparedUpdate == null) return;
 
-            // The user explicitly requested installation by pressing the
-            // update button. Do not show the old "确认安装" modal on success:
-            // only genuine failures in the external updater need a dialog.
-            // Auto-download never calls this method without user interaction.
+            if (TryStartPreparedInstallation())
+                Application.Current.Shutdown();
+        }
+
+        bool TryStartPreparedInstallation()
+        {
+            if (preparedUpdate == null || suppressAutomaticInstallOnClose) return false;
+            ClearUpdateCountdown();
             try
             {
                 autoUpdater.StartExternalInstaller(preparedUpdate);
                 suppressAutomaticInstallOnClose = true;
-                Status("正在原位替换已校验的 " + preparedUpdate.Offer.Tag +
-                    "；原 EXE 路径保持不变，完成后自动打开新版并清理临时文件。");
-                Application.Current.Shutdown();
+                Status("正在替换 " + preparedUpdate.Offer.Tag + "，完成后将打开新版并清理旧备份。");
+                return true;
             }
             catch (Exception ex)
             {
@@ -3315,6 +3445,7 @@ namespace BlockCraftLauncher.Wpf
                 updatePreparationError = ex.GetBaseException().Message;
                 RefreshLauncherUpdatePanel();
                 ShowError("无法启动独立更新程序", ex);
+                return false;
             }
         }
 
@@ -3558,14 +3689,25 @@ namespace BlockCraftLauncher.Wpf
                 Content = "启动时检查更新"
             };
             SettingRow(updates, "自动检测", settingsAutoCheck,
-                "每 6 小时最多检查一次。");
+                "没有待安装版本时，每 6 小时最多检查一次。");
             settingsAutoDownload = new CheckBox
             {
                 IsChecked = settings.AutoDownloadUpdates,
                 Content = "自动下载可用更新"
             };
             SettingRow(updates, "自动下载", settingsAutoDownload,
-                "下载并完整校验新版；默认不会自行替换当前程序。");
+                "下载并校验可用版本。");
+            settingsAutoRestartAfterDownload = new CheckBox
+            {
+                IsChecked = settings.AutoRestartAfterUpdateDownload,
+                Content = new TextBlock
+                {
+                    Text = "校验完成后空闲时自动重启",
+                    TextWrapping = TextWrapping.Wrap
+                }
+            };
+            SettingRow(updates, "自动重启", settingsAutoRestartAfterDownload,
+                "空闲时倒计时 8 秒，可在底栏推迟安装。游戏和下载任务进行时会等待。");
             settingsAutoInstallOnExit = new CheckBox
             {
                 IsChecked = settings.AutoInstallUpdatesOnExit,
@@ -3576,8 +3718,7 @@ namespace BlockCraftLauncher.Wpf
                 }
             };
             SettingRow(updates, "自动安装", settingsAutoInstallOnExit,
-                "可选：同时启用自动检查与自动下载。仅在更新已校验完成后，" +
-                "当你正常关闭启动器才安装并重新打开新版；不会中断正在使用的窗口。");
+                "校验完成后，正常关闭时安装并打开新版。");
             AddPage("更新设置", "更新设置", "选择接收的版本和自动更新行为。", updates,
                 Btn("查看更新", () => Navigate("启动器更新")));
             return settingsPages[page];
@@ -3697,11 +3838,10 @@ namespace BlockCraftLauncher.Wpf
             // subpage has not been opened during the current window session.
             if (settingsAutoInstallOnExit != null)
                 settings.AutoInstallUpdatesOnExit = settingsAutoInstallOnExit.IsChecked == true;
-            if (settings.AutoInstallUpdatesOnExit)
+            if (settingsAutoRestartAfterDownload != null)
+                settings.AutoRestartAfterUpdateDownload = settingsAutoRestartAfterDownload.IsChecked == true;
+            if (settings.AutoInstallUpdatesOnExit || settings.AutoRestartAfterUpdateDownload)
             {
-                // Installing on exit is meaningful only if a verified file
-                // was automatically downloaded. Make both prerequisites
-                // explicit rather than silently closing a running launcher.
                 settings.AutoCheckUpdates = true;
                 settings.AutoDownloadUpdates = true;
                 if (settingsAutoCheck != null) settingsAutoCheck.IsChecked = true;
@@ -3715,6 +3855,8 @@ namespace BlockCraftLauncher.Wpf
                 updatePreparationError = null;
                 offeredUpdate = null;
                 preparedUpdate = null;
+                postponeAutomaticRestart = false;
+                ClearUpdateCountdown();
                 settings.LastUpdateCheckUtc = DateTime.MinValue;
                 RefreshLauncherUpdatePanel();
             }
@@ -3724,7 +3866,9 @@ namespace BlockCraftLauncher.Wpf
             try
             {
                 store.Save(settings);
-                Status("设置已保存；自动检查将按新通道在下次启动时运行。");
+                Status("设置已保存。");
+                if (settings.AutoDownloadUpdates && offeredUpdate != null && preparedUpdate == null)
+                    _ = PrepareLauncherUpdateAsync(false);
             }
             catch (Exception ex) { ShowError("保存失败", ex); }
         }
@@ -3787,6 +3931,7 @@ namespace BlockCraftLauncher.Wpf
         }
         async Task LoginMicrosoftAsync()
         {
+            if (changingAccount) return;
             // Check the installed Evergreen Runtime before invoking CmlLib's
             // embedded OAuth browser, rather than letting its native host fail.
             if (!WebView2RuntimeSupport.IsAvailable(out _))
@@ -3795,6 +3940,7 @@ namespace BlockCraftLauncher.Wpf
                 WebView2RuntimeSupport.OfferOfficialSetup(this);
                 return;
             }
+            changingAccount = true;
             try
             {
                 Status("正在启动 Microsoft 正版登录，请在安全登录窗口中完成授权...");
@@ -3811,9 +3957,12 @@ namespace BlockCraftLauncher.Wpf
                 WebView2RuntimeSupport.OfferOfficialSetup(this);
             }
             catch (Exception ex) { ShowError("微软正版登录失败", ex); }
+            finally { changingAccount = false; }
         }
         async Task SignOutAsync()
         {
+            if (changingAccount) return;
+            changingAccount = true;
             try
             {
                 if (settings.AccountMode == "microsoft")
@@ -3822,6 +3971,7 @@ namespace BlockCraftLauncher.Wpf
                 store.Save(settings); Navigate("首页");
             }
             catch (Exception ex) { ShowError("退出账户失败", ex); }
+            finally { changingAccount = false; }
         }
         static string ProfileVersion(GameProfile profile)
         {

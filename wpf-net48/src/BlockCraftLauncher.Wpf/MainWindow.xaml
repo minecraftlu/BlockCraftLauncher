@@ -144,6 +144,9 @@
             <TextBlock Text="下载任务"/>
           </StackPanel>
         </Button>
+        <Button x:Name="PostponeUpdateButton" DockPanel.Dock="Right"
+                Style="{StaticResource FooterButton}" Visibility="Collapsed"
+                Content="稍后安装" ToolTip="推迟本次自动重启"/>
         <TextBlock x:Name="BuildVersionText" DockPanel.Dock="Right" Margin="0,0,12,0"
                    FontSize="11" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
         <TextBlock x:Name="StatusText" Text="就绪" Margin="0,0,12,0"

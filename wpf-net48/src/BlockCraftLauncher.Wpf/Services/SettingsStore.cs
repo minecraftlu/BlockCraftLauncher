@@ -47,6 +47,7 @@ namespace BlockCraftLauncher.Wpf.Services
                     config.AutoCheckUpdates = S(data, "auto_check_updates", "True").Equals("True", StringComparison.OrdinalIgnoreCase);
                     config.AutoDownloadUpdates = S(data, "auto_download_updates", "False").Equals("True", StringComparison.OrdinalIgnoreCase);
                     config.AutoInstallUpdatesOnExit = S(data, "auto_install_updates_on_exit", "False").Equals("True", StringComparison.OrdinalIgnoreCase);
+                    config.AutoRestartAfterUpdateDownload = S(data, "auto_restart_after_update_download", "False").Equals("True", StringComparison.OrdinalIgnoreCase);
                     config.UpdateChannel = S(data, "update_channel", "stable") == "preview" ? "preview" : "stable";
                     if (DateTime.TryParse(S(data, "last_update_check_utc"), null,
                         System.Globalization.DateTimeStyles.AdjustToUniversal, out var checkedAt))
@@ -83,6 +84,7 @@ namespace BlockCraftLauncher.Wpf.Services
             data["auto_check_updates"] = c.AutoCheckUpdates;
             data["auto_download_updates"] = c.AutoDownloadUpdates;
             data["auto_install_updates_on_exit"] = c.AutoInstallUpdatesOnExit;
+            data["auto_restart_after_update_download"] = c.AutoRestartAfterUpdateDownload;
             data["update_channel"] = c.UpdateChannel == "preview" ? "preview" : "stable";
             data["last_update_check_utc"] = c.LastUpdateCheckUtc.ToUniversalTime().ToString("o");
             data["network_mode"] = c.NetworkMode; data["ui_mode"] = c.Theme; data["ui_accent"] = c.Accent;

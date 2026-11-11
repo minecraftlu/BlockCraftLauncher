@@ -246,8 +246,9 @@ namespace BlockCraftLauncher.Updater
         /// On success a new WPF main window must have rendered and acknowledged
         /// itself, including when an outer OneFile bootstrap has already exited.
         /// </summary>
-        static bool Restart(string executable)
+        static bool Restart(string executable, out string runningDirectory)
         {
+            runningDirectory = null;
             string token = Guid.NewGuid().ToString("N");
             string marker = RelaunchFile(token);
             Directory.CreateDirectory(Path.GetDirectoryName(marker));
@@ -264,7 +265,13 @@ namespace BlockCraftLauncher.Updater
             launched.Dispose();
             try
             {
-                if (!AwaitWindow(marker, 70000, IsVisibleWpfProcess))
+                int windowPid = 0;
+                if (!AwaitWindow(marker, 70000, pid =>
+                {
+                    if (!IsVisibleWpfProcess(pid)) return false;
+                    windowPid = pid;
+                    return true;
+                }))
                 {
                     // Do NOT roll back or overwrite a possibly still-running
                     // new WPF process. The ZIP and original EXE were verified,
@@ -278,6 +285,13 @@ namespace BlockCraftLauncher.Updater
                         MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return false;
                 }
+                try
+                {
+                    using (var window = Process.GetProcessById(windowPid))
+                        runningDirectory = Path.GetDirectoryName(window.MainModule.FileName);
+                }
+                catch (Exception error) when (error is Win32Exception ||
+                    error is ArgumentException || error is InvalidOperationException) { }
                 return true;
             }
             catch (Exception error)
@@ -340,8 +354,20 @@ namespace BlockCraftLauncher.Updater
             string directory = Path.GetDirectoryName(Path.GetFullPath(target));
             foreach (var candidate in Directory.GetFiles(directory,
                 Path.GetFileName(target) + ".blockcraft-previous-*.exe"))
-                if (IsOwnedBackupExe(target, candidate))
-                    TryDeleteOwnedFile(candidate);
+            {
+                if (!IsOwnedBackupExe(target, candidate)) continue;
+                try
+                {
+                    RetryWhileLocked(() =>
+                    {
+                        if (File.Exists(candidate) && !Reparse(candidate)) File.Delete(candidate);
+                    }, retries: 10);
+                }
+                catch (Exception error) when (error is IOException || error is UnauthorizedAccessException)
+                {
+                    WriteLog(new IOException("旧版备份暂时无法清理：" + candidate, error));
+                }
+            }
         }
 
         internal static string OwnedStageDirectory(string staged, string updatesRoot = null)
@@ -409,7 +435,7 @@ namespace BlockCraftLauncher.Updater
             return false;
         }
 
-        static void CleanupOldOneFileCaches(string staged)
+        static void CleanupOldOneFileCaches(string staged, string runningDirectory)
         {
             // Never walk Downloads, Desktop, game libraries or user-managed
             // directories: only launcher-created, manifest-bearing caches.
@@ -426,10 +452,12 @@ namespace BlockCraftLauncher.Updater
                 string name = Path.GetFileName(candidate);
                 var version = Regex.Match(name,
                     @"^(v\d+\.\d+\.\d+)-[a-f0-9]{16}$", RegexOptions.IgnoreCase);
-                if (!version.Success ||
-                    string.Equals(version.Groups[1].Value, keepVersion,
-                        StringComparison.OrdinalIgnoreCase) ||
-                    Reparse(candidate) ||
+                // RCs can share a numeric version but unpack different payloads.
+                // Keep the exact directory acknowledged by the visible WPF window.
+                bool keep = runningDirectory == null ?
+                    string.Equals(version.Groups[1].Value, keepVersion, StringComparison.OrdinalIgnoreCase) :
+                    string.Equals(candidate, runningDirectory, StringComparison.OrdinalIgnoreCase);
+                if (!version.Success || keep || Reparse(candidate) ||
                     !File.Exists(Path.Combine(candidate, ".blockcraft-ready")) ||
                     !File.Exists(Path.Combine(candidate, ManifestName)))
                     continue;
@@ -449,12 +477,12 @@ namespace BlockCraftLauncher.Updater
             return code == 5 || code == 32 || code == 33 || code == 1175 || code == 1224;
         }
 
-        static void RetryWhileLocked(Action operation)
+        static void RetryWhileLocked(Action operation, int retries = 20)
         {
             for (int attempt = 0; ; attempt++)
             {
                 try { operation(); return; }
-                catch (Exception error) when (attempt < 20 && IsTemporaryLock(error))
+                catch (Exception error) when (attempt < retries && IsTemporaryLock(error))
                 {
                     Thread.Sleep(200);
                 }
@@ -526,11 +554,11 @@ namespace BlockCraftLauncher.Updater
                 if (simulateLaunchFailure)
                     throw new IOException("CI 模拟新版启动自检失败");
                 SmokeTest(target);
-                if (Restart(target))
+                if (Restart(target, out var runningDirectory))
                     BestEffortCleanup(() =>
                     {
                         CleanupOwnedExeBackups(target);
-                        CleanupOldOneFileCaches(staged);
+                        CleanupOldOneFileCaches(staged, runningDirectory);
                         CleanupOwnedStage(staged, updatesRoot);
                     });
             }
@@ -756,7 +784,7 @@ namespace BlockCraftLauncher.Updater
                 if (simulateLaunchFailure)
                     throw new IOException("CI 模拟新版 WPF 启动自检失败");
                 SmokeTest(main);
-                bool confirmed = Restart(main);
+                bool confirmed = Restart(main, out _);
                 if (confirmed)
                     BestEffortCleanup(() =>
                     {
@@ -845,7 +873,15 @@ namespace BlockCraftLauncher.Updater
                     IsOwnedBackupExe(originalExe, notOurs) ||
                     OwnedStageDirectory(notOurs) != null)
                     throw new Exception("旧 EXE 清理目标范围不安全");
-                CleanupOwnedExeBackups(originalExe);
+                var backupLock = new FileStream(legacyBackup, FileMode.Open, FileAccess.Read, FileShare.Read);
+                var releaseBackup = new Thread(() =>
+                {
+                    Thread.Sleep(550);
+                    backupLock.Dispose();
+                });
+                releaseBackup.Start();
+                try { CleanupOwnedExeBackups(originalExe); }
+                finally { releaseBackup.Join(); }
                 if (File.Exists(legacyBackup) || !File.Exists(notOurs))
                     throw new Exception("清理旧版 EXE 时删除了非启动器文件");
 

@@ -1,7 +1,7 @@
 param([Parameter(Mandatory)][ValidateSet('Preflight', 'Live')][string]$Phase)
 
 $ErrorActionPreference = 'Stop'
-if ($env:RELEASE_TAG -ne 'v0.9.43-wpf-rc.1') { throw 'RC1 preview requires exactly v0.9.43-wpf-rc.1' }
+if ($env:RELEASE_TAG -notmatch '\Av0\.9\.43-wpf-rc\.[12]\z') { throw 'Expected a v0.9.43 preview tag' }
 $env:BCL_TAG = $env:RELEASE_TAG
 $env:BCL_ZIP = $env:RELEASE_ZIP
 $env:BCL_SINGLE = $env:RELEASE_EXE
@@ -92,7 +92,7 @@ public static class ReleaseProbe
         string stage = (string)type.GetMethod("ExtractCheckedZip", methods)
             .Invoke(null, new object[] { archive, output });
         type.GetMethod("VerifyZipManifest", methods).Invoke(null, new object[] { stage });
-        Console.WriteLine("PASS: v0.9.42 selects both RC1 preview assets and verifies the v0.9.43 ZIP");
+        Console.WriteLine("PASS: v0.9.42 selects both preview assets and verifies the v0.9.43 ZIP");
     }
 
     static void Upgrade(string mode, string tag, string sha256, string bootstrap, string signal)
@@ -265,4 +265,4 @@ Test-Upgrade 'onefile' $env:BCL_SINGLE_PROBE $env:BCL_SINGLE_SHA $env:BCL_OLD_BO
 # Test-Upgrade is implemented with PowerShell/.NET APIs. A stale or unset
 # native exit code is NOT the test result; all assertions throw on failure.
 $global:LASTEXITCODE = 0
-Write-Host 'PASS: v0.9.42 to v0.9.43 RC1 live upgrade (ZIP and OneFile), original path and cleanup verified'
+Write-Host 'PASS: v0.9.42 to v0.9.43 preview live upgrade (ZIP and OneFile), original path and cleanup verified'
