@@ -3407,7 +3407,7 @@ namespace BlockCraftLauncher.Wpf
                     if (DownloadPathService.TryValidate(settingsDownloadDirectory.Text,
                         settingsRoot?.Text ?? settings.Root,
                         out var path, out var reason) && Directory.Exists(path))
-                        Process.Start("explorer.exe", "\\"" + path + "\\"");
+                        Process.Start("explorer.exe", "\"" + path + "\"");
                     else
                         Status("下载目录尚未创建或路径无效，请先保存设置。");
                 }));
