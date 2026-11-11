@@ -1263,7 +1263,25 @@ namespace BlockCraftLauncher.Wpf
                 throw new InvalidOperationException("服务器查找搜索、筛选、分页或入口缺失");
             ArrangeLayoutProbe(1080, 680, "06-server-discovery");
             ArrangeLayoutProbe(850, 560, "06-server-discovery-narrow");
+            // Regression: an earlier completed search used to leave a
+            // disposed CTS in the server-search field. Navigating away
+            // then called Cancel() again, triggering the fatal dialog.
+            // Exercise the same failure for every navigation-owned source.
+            var finishedCancellation = new CancellationTokenSource();
+            finishedCancellation.Dispose();
+            localModIconLoad = finishedCancellation;
+            resourceSearchCancellation = finishedCancellation;
+            cfSearchCancellation = finishedCancellation;
+            packSearchCancellation = finishedCancellation;
+            serverFinderCancellation = finishedCancellation;
             Navigate("局域网");
+            if (localModIconLoad != null ||
+                resourceSearchCancellation != null ||
+                cfSearchCancellation != null ||
+                packSearchCancellation != null ||
+                serverFinderCancellation != null)
+                throw new InvalidOperationException(
+                    "切换页面后仍保留已释放的 CancellationTokenSource");
             if (lanWorldList?.ItemTemplate == null)
                 throw new InvalidOperationException("局域网列表缺少行布局模板");
 
