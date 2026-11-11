@@ -613,7 +613,6 @@ namespace BlockCraftLauncher.Wpf.Services
             {
                 File.WriteAllText(Path.Combine(folder, ".blockcraft-stage"),
                     "BlockCraftLauncher update staging v1", Encoding.ASCII);
-            {
                 progress?.Report(new LauncherUpdateProgress { Message = "正在获取校验信息..." });
                 string manifestPath = Path.Combine(folder, "RELEASE-SHA256SUMS.txt");
                 await DownloadOfficialAsync(offer.ManifestUrl, manifestPath, 32768, ct, null);
