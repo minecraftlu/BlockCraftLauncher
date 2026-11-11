@@ -2,7 +2,7 @@
 
 OWNER_RELEASE_AUTHORIZATION: true
 RELEASE_TAG: v0.9.40
-REVIEWED_SOURCE_SHA: 2e38163ec7fad70431456e033178195b0219f807
+REVIEWED_SOURCE_SHA: cd9515e903672f3ed41b838a9ff29db6bf9cd1de
 CI_TESTED_SOURCE_SHA: c706f8f2135d313f4a4fd5f10f28592076792c54
 WINDOWS_CI_SUCCESS: https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/43014373165
 MAIN_FIX_CI_SUCCESS: https://github.com/minecraftlu/BlockCraftLauncher/actions/runs/43013230146
@@ -20,3 +20,4 @@ The launcher owner explicitly requested a new official stable release that prese
 - Never overwrite the published v0.9.38 or the v0.9.40 RC1 prerelease. Do not delete Minecraft/user files.
 
 External provider availability and every custom drive cannot be proven by CI; avoid claiming universal compatibility. Sigstore is not a Windows Authenticode publisher signature.
+First stable gate run 43014815781 stopped before compilation due to CRLF line-ending matching in the receipt; the workflow now normalizes line endings. No stable release was published by that attempt.
