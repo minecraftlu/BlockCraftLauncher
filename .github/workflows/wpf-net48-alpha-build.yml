@@ -1,17 +1,17 @@
-name: BlockCraft Launcher v0.9.43 RC3 Windows build
+name: BlockCraft Launcher v0.9.44 stable candidate Windows validation
 
 on:
   push:
     branches:
-      - feature/v0943-rc3-window-handoff
+      - feature/v0944-auto-switch-pcl-layout
 
 concurrency:
-  group: blockcraft-v0943-rc3-windows
+  group: blockcraft-v0944-auto-switch-candidate
   cancel-in-progress: false
 
 jobs:
   build:
-    if: github.repository == 'minecraftlu/BlockCraftLauncher' && github.ref == 'refs/heads/feature/v0943-rc3-window-handoff'
+    if: github.repository == 'minecraftlu/BlockCraftLauncher' && github.ref == 'refs/heads/feature/v0944-auto-switch-pcl-layout'
     runs-on: windows-2022
     permissions:
       contents: read
@@ -23,7 +23,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: microsoft/setup-msbuild@v2
-      - name: Verify the exact preview version and unused tag
+      - name: Verify the compiled test payload version
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -32,8 +32,7 @@ jobs:
           if ($source -cnotmatch ('internal const string CurrentTag = "' + [regex]::Escape($tag) + '";')) {
             throw 'Compiled launcher must identify itself as this preview'
           }
-          $existing = & git ls-remote --tags origin "refs/tags/$tag"
-          if ($LASTEXITCODE -ne 0 -or $existing) { throw 'Unable to verify that the preview tag is unused' }
+          Write-Host 'Testing source changes without publishing or replacing an existing release.'
       - name: Static migration checks (not a substitute for WPF build)
         shell: pwsh
         working-directory: wpf-net48
@@ -588,7 +587,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: BlockCraftLauncher-v0.9.43-RC3-Windows
+          name: BlockCraftLauncher-v0.9.44-candidate-Windows
           path: |
             wpf-net48/dist/BlockCraftLauncher-v0.9.43-WPF-net48-Alpha-Windows-x64.zip
             wpf-net48/dist/BlockCraftLauncher-v0.9.43-WPF-OneFile-Windows-x64.exe
