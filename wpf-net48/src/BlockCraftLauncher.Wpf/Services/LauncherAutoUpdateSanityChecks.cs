@@ -51,6 +51,10 @@ namespace BlockCraftLauncher.Wpf.Services
         public static void Run()
         {
             LauncherRelaunchSignal.RunOfflineSelfTest();
+            var defaults = new LauncherConfig();
+            Require(defaults.AutoCheckUpdates && defaults.AutoDownloadUpdates &&
+                defaults.AutoRestartAfterUpdateDownload && !defaults.AutoInstallUpdatesOnExit,
+                "新安装自动下载并校验更新，空闲自动切换，同时保持退出安装选项独立");
             Require(LauncherAutoUpdateService.CompareTags("v0.9.29-wpf-rc.2",
                 "v0.9.29-wpf-rc.1") > 0, "同版本的新 RC 能升级");
             Require(LauncherAutoUpdateService.CompareTags("v0.9.29",
@@ -143,7 +147,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 resolvedPath == portableCache,
                 "同一磁盘不同文件夹的游戏和下载目录必须允许保存");
             string baseDirectory = Path.Combine(Path.GetTempPath(),
-                "Portable-BlockCraft-" + Guid.NewGuid().ToString("N"));
+                "我的启动器 " + Guid.NewGuid().ToString("N"));
             Require(DownloadPathService.TryPlanSameDiskFolders(baseDirectory,
                 out var selectedGame, out var selectedCache, out portableError) &&
                 selectedGame == Path.Combine(baseDirectory, "Minecraft") &&
@@ -311,17 +315,42 @@ namespace BlockCraftLauncher.Wpf.Services
                     };
                     Require(LauncherAutoUpdateService.DirectPreviewExecutable(preparedOne) == onePath,
                         "已校验的新版可直接运行，旧安装位置保持不变");
-                    // Download-only must NEVER silently install. Only an
-                    // explicit opt-in and the exact currently selected
-                    // verified package may install when the window closes.
+                    // An explicitly disabled auto-switch must be respected;
+                    // only the selected, verified package can ever be installed.
                     var automatic = new LauncherConfig
                     {
                         AutoCheckUpdates = true, AutoDownloadUpdates = true,
-                        AutoInstallUpdatesOnExit = true
+                        AutoInstallUpdatesOnExit = true,
+                        AutoRestartAfterUpdateDownload = false
                     };
                     Require(LauncherAutoUpdateService.ShouldAutoInstallOnExit(
                         automatic, preparedOne, rcOne, false, false),
                         "用户授权的已准备包应允许退出时原位替换");
+                    var refreshed = new LauncherUpdateOffer
+                    {
+                        Tag = rcOne.Tag, Mode = rcOne.Mode, AssetName = rcOne.AssetName,
+                        AssetUrl = rcOne.AssetUrl, ManifestUrl = rcOne.ManifestUrl, AssetSize = rcOne.AssetSize
+                    };
+                    Require(LauncherAutoUpdateService.ShouldAutoInstallOnExit(
+                        automatic, preparedOne, refreshed, false, false),
+                        "重复检查同一个发布包后应继续安装已校验的更新");
+                    refreshed.AssetSize++;
+                    Require(!LauncherAutoUpdateService.ShouldAutoInstallOnExit(
+                        automatic, preparedOne, refreshed, false, false),
+                        "已替换的发布包须重新下载验证");
+                    Require(!LauncherAutoUpdateService.ShouldAutoRestartWhenIdle(
+                        automatic, preparedOne, rcOne, false, false),
+                        "旧版关闭时安装设置不得自动开启空闲重启");
+                    automatic.AutoRestartAfterUpdateDownload = true;
+                    Require(LauncherAutoUpdateService.ShouldAutoRestartWhenIdle(
+                        automatic, preparedOne, rcOne, false, false) &&
+                        !LauncherAutoUpdateService.ShouldAutoRestartWhenIdle(
+                            automatic, preparedOne, rcOne, true, false) &&
+                        !LauncherAutoUpdateService.ShouldAutoRestartWhenIdle(
+                            automatic, preparedOne, rcOne, false, true) &&
+                        !LauncherAutoUpdateService.ShouldAutoRestartWhenIdle(
+                            automatic, preparedOne, refreshed, false, false),
+                        "仅允许已校验的当前包在空闲且未推迟时自动重启");
                     automatic.AutoInstallUpdatesOnExit = false;
                     Require(!LauncherAutoUpdateService.ShouldAutoInstallOnExit(
                         automatic, preparedOne, rcOne, false, false),
@@ -405,7 +434,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 var store = new SettingsStore(configPath);
                 var settings = new LauncherConfig {
                     AutoCheckUpdates = true, AutoDownloadUpdates = true,
-                    AutoInstallUpdatesOnExit = true,
+                    AutoInstallUpdatesOnExit = true, AutoRestartAfterUpdateDownload = true,
                     Root = Path.Combine(folder, "portable", "Minecraft"),
                     DownloadDirectory = Path.Combine(folder, "portable", "Downloads"),
                     UpdateChannel = "preview",
@@ -414,7 +443,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 store.Save(settings);
                 var restored = store.Load();
                 Require(restored.AutoCheckUpdates && restored.AutoDownloadUpdates &&
-                    restored.AutoInstallUpdatesOnExit &&
+                    restored.AutoInstallUpdatesOnExit && restored.AutoRestartAfterUpdateDownload &&
                     restored.Root == settings.Root &&
                     restored.DownloadDirectory == settings.DownloadDirectory &&
                     restored.UpdateChannel == "preview" &&

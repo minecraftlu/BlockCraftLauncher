@@ -50,7 +50,8 @@ namespace BlockCraftLauncher.Wpf
             Height = 296;
             Focusable = true;
             Cursor = Cursors.SizeAll;
-            ToolTip = "左键拖动：360° 旋转；滚轮：缩放；双击：重置视角";
+            ToolTip = "拖动旋转，聚焦后滚轮缩放。方向键旋转，＋／－缩放，Home 复位。";
+            System.Windows.Automation.AutomationProperties.SetName(this, "皮肤 360° 预览");
             var surface = new Border {
                 Child = interaction,
                 CornerRadius = new CornerRadius(7),
@@ -67,6 +68,15 @@ namespace BlockCraftLauncher.Wpf
                     Color.FromArgb(6, 74, 109, 158), 90),
                 IsHitTestVisible = false
             });
+            var floor = new System.Windows.Shapes.Ellipse
+            {
+                Width = 136, Height = 23,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(0, 0, 0, 22), IsHitTestVisible = false
+            };
+            floor.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "PreviewFloorBrush");
+            interaction.Children.Add(floor);
             interaction.Children.Add(viewport);
             var lights = new Model3DGroup();
             lights.Children.Add(new AmbientLight(Color.FromRgb(168, 168, 168)));
@@ -124,13 +134,47 @@ namespace BlockCraftLauncher.Wpf
             };
             interaction.LostMouseCapture += (sender, e) => dragging = false;
             interaction.MouseWheel += (sender, e) => {
+                if (!IsKeyboardFocusWithin && (Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
                 ZoomByWheelDelta(e.Delta);
+                e.Handled = true;
+            };
+            KeyDown += (sender, e) =>
+            {
+                switch (e.Key)
+                {
+                    case Key.Left: RotateWithKeyboard(-16, 0); break;
+                    case Key.Right: RotateWithKeyboard(16, 0); break;
+                    case Key.Up: RotateWithKeyboard(0, -16); break;
+                    case Key.Down: RotateWithKeyboard(0, 16); break;
+                    case Key.Add:
+                    case Key.OemPlus: ZoomByWheelDelta(120); break;
+                    case Key.Subtract:
+                    case Key.OemMinus: ZoomByWheelDelta(-120); break;
+                    case Key.Home: ResetView(); break;
+                    default: return;
+                }
                 e.Handled = true;
             };
             Unloaded += (sender, e) => {
                 StopDrag();
                 StopAutoRotate();
             };
+        }
+
+        void RotateWithKeyboard(double x, double y)
+        {
+            StopAutoRotate();
+            RotateBy(x, y);
+        }
+
+        public void ShowFront() => AlignView(0);
+        public void ShowBack() => AlignView(180);
+
+        void AlignView(double angle)
+        {
+            StopAutoRotate();
+            yaw.Angle = angle;
+            pitch.Angle = 0;
         }
 
         internal void RotateBy(double deltaX, double deltaY)

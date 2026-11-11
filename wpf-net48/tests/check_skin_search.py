@@ -30,7 +30,7 @@ assert "SearchCommunityAsync" in studio and "FindPlayerAsync" in studio
 assert "PreviewOnlineSelectionAsync" in studio
 assert "Get-AuthenticodeSignature" not in studio  # independent from release signing
 assert "SkinEditorDocument.SafeLibraryPath" in studio
-assert "preview.SavePng(path)" in studio
+assert "OnlineSkinSearchService.DownloadToLibraryAsync(item" in studio
 assert "document.LoadPng(temporary, item.SlimArms)" in studio
 assert "ConfirmDiscard()" in studio
 # Open-license, paginated catalog and thumbnail/metadata download layout.
@@ -48,8 +48,8 @@ for keyword in (
 for keyword in (
     "onlineCategory", "onlineArms", "onlineSort", "onlineOpenOnly",
     "onlinePrevButton", "onlineNextButton", "LoadOnlineThumbnailsAsync",
-    "BrowseMosaicaryAsync", "IsEnabled = item.CanDownload",
-    "source.txt", "onlineDetailButton"
+    "BrowseMosaicaryAsync", "selectedOnlineSkin?.CanDownload == true",
+    "WatchOnlineDownload", "onlineDetailButton", "OpenExpandedPreview"
 ):
     assert keyword in studio, keyword
 assert "onlineAutoLoaded" not in studio, "online catalogs must not auto-connect on UI open"

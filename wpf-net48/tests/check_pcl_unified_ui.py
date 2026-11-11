@@ -72,9 +72,18 @@ assert 'settingsAutoCheck' in main and 'settingsAutoDownload' in main
 install_body = main.split('async Task InstallLauncherUpdateAsync()', 1)[1].split(
     '// Shared two-column settings rows', 1)[0]
 assert 'MessageBox.Show' not in install_body
-assert 'StartExternalInstaller(preparedUpdate)' in install_body
-assert 'Application.Current.Shutdown()' in install_body
-assert 'ShowError("无法启动独立更新程序"' in install_body
+assert 'await StartPreparedInstallationAsync()' in install_body
+# The updater now takes over AFTER the previous window has closed;
+# it verifies the staged package, replaces the original and reopens the new UI.
+assert install_body.index('await Task.Run(() => autoUpdater.StartExternalInstaller(preparedUpdate)') < install_body.index(
+    'Application.Current.Shutdown()')
+assert 'ShowError("未能切换到新版启动器"' in install_body
+closing = main.split('Closing +=', 1)[1].split('Closed +=', 1)[0]
+assert 'args.Cancel = true' in closing and 'StartPreparedInstallationAsync()' in closing
+automatic = main.split('void AdvanceAutomaticRestart()', 1)[1].split('void RefreshLauncherUpdatePanel()', 1)[0]
+assert 'StartPreparedInstallationAsync()' in automatic
+assert 'DateTime.UtcNow.AddSeconds(2)' in automatic
+assert 'if (preparedUpdate != null && settings.AutoRestartAfterUpdateDownload)' in main
 
 for search in (
     'PageHeading(', 'SearchCard(', 'ResultsCard(', 'ApplySearchInputStyle(',

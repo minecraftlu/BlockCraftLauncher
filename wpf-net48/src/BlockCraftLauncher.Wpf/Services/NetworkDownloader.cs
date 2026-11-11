@@ -259,12 +259,12 @@ namespace BlockCraftLauncher.Wpf.Services
         }
 
         internal async Task<T> GetMetadataWithFallbackAsync<T>(string officialUrl, string networkMode,
-            Func<string, T> parse, CancellationToken ct)
+            Func<string, T> parse, CancellationToken ct, bool refresh = false)
         {
             ct.ThrowIfCancellationRequested();
             string cacheKey = PublicSearchCache.CacheKey(
                 officialUrl, NormalizeMode(networkMode), proxy, mcimEnabled);
-            if (PublicSearchCache.TryGet(cacheKey, out var cached))
+            if (!refresh && PublicSearchCache.TryGet(cacheKey, out var cached))
             {
                 try { return parse(cached); }
                 catch (Exception error) when (error is InvalidDataException ||
@@ -293,20 +293,23 @@ namespace BlockCraftLauncher.Wpf.Services
                         // give the body a separate inactivity timeout, rather
                         // than cancelling healthy downloads at the header deadline.
                         using (var request = new HttpRequestMessage(HttpMethod.Get, url))
-                        using (var response = await SendWithHeaderTimeoutAsync(http, request,
-                            FirstRouteHeaderTimeout(requestTimeout,
-                                routes.Count > 1 && string.Equals(url, routes[0],
-                                    StringComparison.Ordinal)), ct).ConfigureAwait(false))
-                        using (var memory = new MemoryStream())
                         {
-                            CheckStatus(response);
-                            await CopyBodyAsync(response, memory, MaxMetadataBytes, 0, null,
-                                null, idleTimeout, ct).ConfigureAwait(false);
-                            string body = Encoding.UTF8.GetString(memory.ToArray()).TrimStart('\uFEFF');
-                            var result = parse(body);
-                            RecordRoute(officialUrl, url, networkMode, routes.Count);
-                            PublicSearchCache.Store(cacheKey, body);
-                            return result;
+                            if (refresh) request.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true };
+                            using (var response = await SendWithHeaderTimeoutAsync(http, request,
+                                FirstRouteHeaderTimeout(requestTimeout,
+                                    routes.Count > 1 && string.Equals(url, routes[0],
+                                        StringComparison.Ordinal)), ct).ConfigureAwait(false))
+                            using (var memory = new MemoryStream())
+                            {
+                                CheckStatus(response);
+                                await CopyBodyAsync(response, memory, MaxMetadataBytes, 0, null,
+                                    null, idleTimeout, ct).ConfigureAwait(false);
+                                string body = Encoding.UTF8.GetString(memory.ToArray()).TrimStart('\uFEFF');
+                                var result = parse(body);
+                                RecordRoute(officialUrl, url, networkMode, routes.Count);
+                                PublicSearchCache.Store(cacheKey, body);
+                                return result;
+                            }
                         }
                     }
                     catch (Exception ex) when (ex is IOException || ex is InvalidDataException ||

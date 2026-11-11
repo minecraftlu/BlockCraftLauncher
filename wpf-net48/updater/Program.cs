@@ -1,13 +1,16 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
+using BlockCraftLauncher.Wpf.Services;
 
 namespace BlockCraftLauncher.Updater
 {
@@ -20,6 +23,13 @@ namespace BlockCraftLauncher.Updater
         const string WpfExe = "BlockCraftLauncher.Wpf.exe";
         const string ManifestName = "SHA256SUMS.txt";
         const int WaitSeconds = 150;
+        const uint MoveReplaceExisting = 1;
+        const uint MoveWriteThrough = 8;
+
+        [DllImport("kernel32.dll", EntryPoint = "MoveFileExW", CharSet = CharSet.Unicode,
+            ExactSpelling = true, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        static extern bool MoveFileEx(string source, string destination, uint flags);
 
         sealed class Changed
         {
@@ -32,9 +42,19 @@ namespace BlockCraftLauncher.Updater
         {
             if (args.Length == 1 && args[0] == "--selftest")
                 return SelfTest();
+            string handoff = null;
+            string completedZipStage = null;
+            Process previous = null, visible = null;
+            bool previousClosed = false, installed = false;
+            string fallbackExe = null, fallbackSha256 = null;
             try
             {
                 var opt = ParseArguments(args);
+                if (opt.TryGetValue("handoff", out var token))
+                {
+                    LauncherRelaunchSignal.FilePath(token);
+                    handoff = token;
+                }
                 string mode = Require(opt, "mode");
                 if (mode != "onefile" && mode != "zip")
                     throw new InvalidDataException("不支持的更新包格式");
@@ -48,32 +68,117 @@ namespace BlockCraftLauncher.Updater
                     out var selectedRoot) ? Path.GetFullPath(selectedRoot) : null;
                 if (digest.Length != 64 || digest.Any(c => !Uri.IsHexDigit(c)))
                     throw new InvalidDataException("更新包 SHA-256 无效");
-                if (!WaitForPreviousProcess(pid, WaitSeconds))
-                    throw new IOException("原启动器仍在运行；没有覆盖任何文件。请关闭后重试。");
-                if (mode == "onefile")
-                    ApplySingleExe(target, staged, digest, updatesRoot: updatesRoot);
-                else
-                    ApplyDirectory(target, staged, digest, updatesRoot: updatesRoot);
+                string entryPoint = mode == "onefile" ? target : Path.Combine(target, WpfExe);
+                // Record the original executable hash before the old window
+                // closes; only reopen it if rollback restored these same bytes.
+                CheckLauncherExe(entryPoint);
+                fallbackExe = entryPoint;
+                fallbackSha256 = Hash(entryPoint);
+                using (var sha = SHA256.Create())
+                {
+                    string key = BitConverter.ToString(sha.ComputeHash(
+                        Encoding.UTF8.GetBytes(entryPoint.ToUpperInvariant()))).Replace("-", "");
+                    using (var updateLock = new Mutex(false, @"Local\BlockCraftLauncher.Update." + key))
+                    {
+                        bool acquired;
+                        try { acquired = updateLock.WaitOne(0); }
+                        catch (AbandonedMutexException) { acquired = true; }
+                        if (!acquired) throw new IOException("同一个启动器正在更新，请等待更新结束。");
+                        try
+                        {
+                            if (handoff != null)
+                            {
+                                previous = Process.GetProcessById(pid);
+                                visible = OpenBeforeReplacement(previous, mode, target, staged,
+                                    digest, updatesRoot, handoff);
+                                LauncherRelaunchSignal.WriteHandoffResult(handoff,
+                                    LauncherRelaunchSignal.Ready, visible.Id.ToString());
+                                previousClosed = WaitForHandoffExit(previous, visible);
+                            }
+                            else previousClosed = WaitForPreviousProcess(pid, WaitSeconds);
+                            if (!previousClosed)
+                                throw new IOException("原启动器仍在运行，请关闭后重试。");
+                            if (visible?.HasExited == true)
+                                throw new IOException("新版主窗口已退出，无法完成交接。");
+
+                            if (mode == "onefile")
+                                ApplySingleExe(target, staged, digest, updatesRoot: updatesRoot,
+                                    visible: visible);
+                            else
+                                ApplyDirectory(target, staged, digest, updatesRoot: updatesRoot,
+                                    visible: visible);
+                            if (handoff != null)
+                            {
+                                installed = true;
+                                if (mode == "zip") completedZipStage = OwnedStageDirectory(staged, updatesRoot);
+                                LauncherRelaunchSignal.WriteHandoffResult(handoff, mode == "onefile"
+                                    ? LauncherRelaunchSignal.InstalledOneFile
+                                    : LauncherRelaunchSignal.InstalledZip, target);
+                            }
+                        }
+                        finally { updateLock.ReleaseMutex(); }
+                    }
+                }
                 return 0;
             }
             catch (Exception error)
             {
                 string log = WriteLog(error);
+                if (handoff != null)
+                {
+                    if (!installed)
+                        BestEffortCleanup(() => LauncherRelaunchSignal.WriteHandoffResult(handoff,
+                            previousClosed ? LauncherRelaunchSignal.Failed : LauncherRelaunchSignal.Rejected,
+                            error.GetBaseException().Message));
+                    return 1;
+                }
+                if (handoff == null && previousClosed &&
+                    !string.IsNullOrEmpty(fallbackExe) && File.Exists(fallbackExe))
+                {
+                    // A failed upgrade must not leave the user with no launcher.
+                    // Do not start a partially applied or unverified replacement.
+                    BestEffortCleanup(() =>
+                    {
+                        if (!string.Equals(Hash(fallbackExe), fallbackSha256,
+                            StringComparison.OrdinalIgnoreCase)) return;
+                        using (var recovered = Process.Start(new ProcessStartInfo(fallbackExe)
+                        {
+                            UseShellExecute = true,
+                            WorkingDirectory = Path.GetDirectoryName(fallbackExe)
+                        })) { }
+                    });
+                }
                 try
                 {
-                    MessageBox.Show("BlockCraft Launcher 更新失败，原有程序已尽可能恢复：\n" +
-                        error.GetBaseException().Message + "\n\n诊断记录：\n" + log +
-                        "\n\n不影响 Minecraft 游戏和存档。",
+                    MessageBox.Show("BlockCraft Launcher 更新失败。\n\n" +
+                        error.Message + "\n\n诊断记录：\n" + log,
                         "BlockCraft Launcher 更新失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
                 catch { /* no UI in headless sessions */ }
                 return 1;
             }
+            finally
+            {
+                if (handoff != null) LauncherRelaunchSignal.RemoveReadySignal(handoff);
+                previous?.Dispose();
+                if (visible != null)
+                    using (visible)
+                    {
+                        // The displayed ZIP uses DLLs in this staging folder.
+                        // Release the update mutex before waiting for it to close.
+                        if (completedZipStage != null)
+                            BestEffortCleanup(() =>
+                            {
+                                visible.WaitForExit();
+                                TryDeleteOwnedDirectory(completedZipStage);
+                            });
+                    }
+            }
         }
 
         static Dictionary<string, string> ParseArguments(string[] args)
         {
-            if ((args.Length != 11 && args.Length != 13) || args[0] != "--apply")
+            if ((args.Length != 11 && args.Length != 13 && args.Length != 15) || args[0] != "--apply")
                 throw new ArgumentException("缺少安全更新参数");
             var result = new Dictionary<string, string>(StringComparer.Ordinal);
             for (int i = 1; i < args.Length; i += 2)
@@ -81,7 +186,11 @@ namespace BlockCraftLauncher.Updater
                 if (!args[i].StartsWith("--", StringComparison.Ordinal) ||
                     result.ContainsKey(args[i].Substring(2)))
                     throw new ArgumentException("重复或无效的更新参数");
-                result.Add(args[i].Substring(2), args[i + 1]);
+                string key = args[i].Substring(2);
+                if (key != "mode" && key != "pid" && key != "target" && key != "staged" &&
+                    key != "sha256" && key != "updates-root" && key != "handoff")
+                    throw new ArgumentException("未知更新参数：" + key);
+                result.Add(key, args[i + 1]);
             }
             return result;
         }
@@ -102,6 +211,65 @@ namespace BlockCraftLauncher.Updater
                     return old.WaitForExit(seconds * 1000);
             }
             catch (ArgumentException) { return true; } // Already exited.
+        }
+
+        static Process OpenBeforeReplacement(Process previous, string mode, string target,
+            string staged, string digest, string updatesRoot, string token)
+        {
+            string owned = OwnedStageDirectory(staged, updatesRoot);
+            if (owned == null || AtOrBelow(target, owned))
+                throw new IOException("更新暂存目录不可用或与安装目录冲突。");
+            bool oneFile = mode == "onefile";
+            CheckLauncherExe(oneFile ? target : Path.Combine(target, WpfExe));
+            string executable = oneFile ? staged : Path.Combine(staged, WpfExe);
+            CheckLauncherExe(executable);
+            if (oneFile)
+                ExpectHash(staged, digest);
+            else
+            {
+                var files = StageFiles(staged);
+                CheckZipLocations(target, staged, updatesRoot, files);
+                VerifyStageManifest(staged, files);
+            }
+
+            if (previous.HasExited) throw new IOException("旧启动器已在交接前退出。");
+            string marker = LauncherRelaunchSignal.FilePath(token);
+            using (var launched = Process.Start(new ProcessStartInfo(executable,
+                "--after-update " + token + " " + LauncherRelaunchSignal.HandoffFlag)
+            {
+                UseShellExecute = false,
+                WorkingDirectory = Path.GetDirectoryName(executable)
+            }) ?? throw new IOException("无法打开新版启动器。"))
+            {
+                var watch = Stopwatch.StartNew();
+                while (watch.Elapsed < TimeSpan.FromSeconds(70) && !previous.HasExited)
+                {
+                    if (LauncherRelaunchSignal.TryReadReadyProcess(marker, handoff: false, out int pid) &&
+                        pid != previous.Id && (oneFile || pid == launched.Id) &&
+                        IsVisibleWpfProcess(pid))
+                    {
+                        var candidate = Process.GetProcessById(pid);
+                        if (LauncherRelaunchSignal.TryReadReadyProcess(marker, handoff: true, out _))
+                            return candidate;
+                        using (candidate) candidate.CloseMainWindow();
+                        throw new IOException("此更新包不支持新版窗口交接。");
+                    }
+                    if (launched.HasExited && (!oneFile || launched.ExitCode != 0)) break;
+                    Thread.Sleep(100);
+                }
+            }
+            throw new IOException("未能确认新版主窗口显示。请查看更新日志后重试。");
+        }
+
+        static bool WaitForHandoffExit(Process previous, Process visible)
+        {
+            var watch = Stopwatch.StartNew();
+            while (watch.Elapsed < TimeSpan.FromSeconds(WaitSeconds))
+            {
+                if (previous.WaitForExit(100)) return true;
+                if (visible.HasExited) throw new IOException("新版主窗口在交接前已退出。");
+            }
+            return false;
         }
 
         static string Hash(string path)
@@ -127,12 +295,11 @@ namespace BlockCraftLauncher.Updater
         {
             var current = File.Exists(fullPath)
                 ? Path.GetDirectoryName(fullPath) : fullPath;
-            while (!string.IsNullOrEmpty(current) && Directory.Exists(current))
+            while (!string.IsNullOrEmpty(current))
             {
-                if (Reparse(current)) throw new IOException("拒绝在符号链接或联接目录执行更新");
-                var parent = Path.GetDirectoryName(current.TrimEnd('\\'));
-                if (parent == current) break;
-                current = parent;
+                if (Directory.Exists(current) && Reparse(current))
+                    throw new IOException("拒绝在符号链接或联接目录执行更新");
+                current = Path.GetDirectoryName(current);
             }
         }
 
@@ -173,24 +340,9 @@ namespace BlockCraftLauncher.Updater
                 token.ToLowerInvariant() + ".ok");
         }
 
-        static bool TryReadWindowReady(string path, Func<int, bool> liveWpfProcess)
-        {
-            try
-            {
-                if (!File.Exists(path)) return false;
-                string[] lines = File.ReadAllLines(path);
-                if (lines.Length < 2 ||
-                    !int.TryParse(lines[0], out var pid) || pid <= 0 ||
-                    !DateTime.TryParse(lines[1], out _))
-                    return false;
-                return liveWpfProcess(pid);
-            }
-            catch (Exception error) when (error is IOException ||
-                error is UnauthorizedAccessException)
-            {
-                return false; // The WPF process may still be writing the marker.
-            }
-        }
+        static bool TryReadWindowReady(string path, Func<int, bool> liveWpfProcess) =>
+            LauncherRelaunchSignal.TryReadReadyProcess(path, handoff: false, out int pid) &&
+            liveWpfProcess(pid);
 
         static bool IsVisibleWpfProcess(int pid)
         {
@@ -222,8 +374,9 @@ namespace BlockCraftLauncher.Updater
         /// On success a new WPF main window must have rendered and acknowledged
         /// itself, including when an outer OneFile bootstrap has already exited.
         /// </summary>
-        static bool Restart(string executable)
+        static bool Restart(string executable, out string runningDirectory)
         {
+            runningDirectory = null;
             string token = Guid.NewGuid().ToString("N");
             string marker = RelaunchFile(token);
             Directory.CreateDirectory(Path.GetDirectoryName(marker));
@@ -240,7 +393,13 @@ namespace BlockCraftLauncher.Updater
             launched.Dispose();
             try
             {
-                if (!AwaitWindow(marker, 70000, IsVisibleWpfProcess))
+                int windowPid = 0;
+                if (!AwaitWindow(marker, 70000, pid =>
+                {
+                    if (!IsVisibleWpfProcess(pid)) return false;
+                    windowPid = pid;
+                    return true;
+                }))
                 {
                     // Do NOT roll back or overwrite a possibly still-running
                     // new WPF process. The ZIP and original EXE were verified,
@@ -254,13 +413,25 @@ namespace BlockCraftLauncher.Updater
                         MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return false;
                 }
+                using (var window = Process.GetProcessById(windowPid))
+                    runningDirectory = WindowDirectory(window);
                 return true;
             }
-            finally
+            catch (Exception error)
             {
-                try { if (File.Exists(marker)) File.Delete(marker); }
-                catch (IOException) { }
+                // After starting the new executable, leave it and its rollback
+                // copy alone if the window acknowledgement cannot be read.
+                WriteLog(error);
+                return false;
             }
+            finally { TryDeleteOwnedFile(marker); }
+        }
+
+        static string WindowDirectory(Process process)
+        {
+            try { return Path.GetDirectoryName(process.MainModule.FileName); }
+            catch (Win32Exception) { return null; }
+            catch (InvalidOperationException) { return null; }
         }
 
         // Best-effort housekeeping happens ONLY after the new window has
@@ -313,8 +484,20 @@ namespace BlockCraftLauncher.Updater
             string directory = Path.GetDirectoryName(Path.GetFullPath(target));
             foreach (var candidate in Directory.GetFiles(directory,
                 Path.GetFileName(target) + ".blockcraft-previous-*.exe"))
-                if (IsOwnedBackupExe(target, candidate))
-                    TryDeleteOwnedFile(candidate);
+            {
+                if (!IsOwnedBackupExe(target, candidate)) continue;
+                try
+                {
+                    RetryWhileLocked(() =>
+                    {
+                        if (File.Exists(candidate) && !Reparse(candidate)) File.Delete(candidate);
+                    }, retries: 10);
+                }
+                catch (Exception error) when (error is IOException || error is UnauthorizedAccessException)
+                {
+                    WriteLog(new IOException("旧版备份暂时无法清理：" + candidate, error));
+                }
+            }
         }
 
         internal static string OwnedStageDirectory(string staged, string updatesRoot = null)
@@ -344,7 +527,10 @@ namespace BlockCraftLauncher.Updater
                     Regex.IsMatch(Path.GetFileName(current),
                         @"^staged-[a-f0-9]{32}$", RegexOptions.IgnoreCase))
                 {
-                    if (custom && !File.Exists(Path.Combine(current, ".blockcraft-stage")))
+                    string marker = Path.Combine(current, ".blockcraft-stage");
+                    if (custom && (!File.Exists(marker) || Reparse(marker) ||
+                        new FileInfo(marker).Length > 64 ||
+                        File.ReadAllText(marker, Encoding.ASCII) != "BlockCraftLauncher update staging v1"))
                         return null;
                     return current;
                 }
@@ -379,7 +565,7 @@ namespace BlockCraftLauncher.Updater
             return false;
         }
 
-        static void CleanupOldOneFileCaches(string staged)
+        static void CleanupOldOneFileCaches(string staged, string runningDirectory)
         {
             // Never walk Downloads, Desktop, game libraries or user-managed
             // directories: only launcher-created, manifest-bearing caches.
@@ -396,10 +582,12 @@ namespace BlockCraftLauncher.Updater
                 string name = Path.GetFileName(candidate);
                 var version = Regex.Match(name,
                     @"^(v\d+\.\d+\.\d+)-[a-f0-9]{16}$", RegexOptions.IgnoreCase);
-                if (!version.Success ||
-                    string.Equals(version.Groups[1].Value, keepVersion,
-                        StringComparison.OrdinalIgnoreCase) ||
-                    Reparse(candidate) ||
+                // RCs can share a numeric version but unpack different payloads.
+                // Keep the exact directory acknowledged by the visible WPF window.
+                bool keep = runningDirectory == null ?
+                    string.Equals(version.Groups[1].Value, keepVersion, StringComparison.OrdinalIgnoreCase) :
+                    string.Equals(candidate, runningDirectory, StringComparison.OrdinalIgnoreCase);
+                if (!version.Success || keep || Reparse(candidate) ||
                     !File.Exists(Path.Combine(candidate, ".blockcraft-ready")) ||
                     !File.Exists(Path.Combine(candidate, ManifestName)))
                     continue;
@@ -407,8 +595,70 @@ namespace BlockCraftLauncher.Updater
             }
         }
 
+        static int WindowsError(Exception error) =>
+            error is Win32Exception native ? native.NativeErrorCode : error.HResult & 0xffff;
+
+        static bool IsTemporaryLock(Exception error)
+        {
+            if (!(error is IOException || error is UnauthorizedAccessException ||
+                error is Win32Exception)) return false;
+            int code = WindowsError(error);
+            // A loaded image or a scanner may briefly deny access or deletion.
+            return code == 5 || code == 32 || code == 33 || code == 1175 || code == 1224;
+        }
+
+        static void RetryWhileLocked(Action operation, int retries = 20)
+        {
+            for (int attempt = 0; ; attempt++)
+            {
+                try { operation(); return; }
+                catch (Exception error) when (attempt < retries && IsTemporaryLock(error))
+                {
+                    Thread.Sleep(200);
+                }
+            }
+        }
+
+        static bool CanUseRename(IOException error)
+        {
+            int code = WindowsError(error);
+            return code == 1 || code == 50 || code == 87 ||
+                code == 1175 || code == 1176 || code == 1177;
+        }
+
+        static void RenamePreparedFile(string pending, string destination, bool overwrite)
+        {
+            RetryWhileLocked(() =>
+            {
+                uint flags = MoveWriteThrough | (overwrite ? MoveReplaceExisting : 0u);
+                if (!MoveFileEx(pending, destination, flags))
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+            });
+        }
+
+        static void InstallPreparedFile(string pending, string destination, bool overwrite)
+        {
+            if (overwrite && File.Exists(destination))
+            {
+                try
+                {
+                    RetryWhileLocked(() => File.Replace(pending, destination, null, true));
+                    return;
+                }
+                catch (IOException error) when (CanUseRename(error) && File.Exists(pending))
+                {
+                    // The independently saved backup remains available even if
+                    // ReplaceFile left the destination name temporarily absent.
+                }
+            }
+            RenamePreparedFile(pending, destination, overwrite);
+        }
+
+        static string PendingBeside(string target) => Path.Combine(
+            Path.GetDirectoryName(target), ".blockcraft-" + Guid.NewGuid().ToString("N") + ".tmp");
+
         static void ApplySingleExe(string target, string staged, string digest,
-            bool simulateLaunchFailure = false, string updatesRoot = null)
+            bool simulateLaunchFailure = false, string updatesRoot = null, Process visible = null)
         {
             if (!target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
                 !staged.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
@@ -420,44 +670,42 @@ namespace BlockCraftLauncher.Updater
             if (string.Equals(target, staged, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("不能使用同一个文件同时作为新旧版本");
 
-            string nonce = Guid.NewGuid().ToString("N");
-            string next = target + ".blockcraft-update-" + nonce + ".tmp";
-            string backup = target + ".blockcraft-previous-" + nonce + ".exe";
-            bool replaced = false;
+            string next = PendingBeside(target);
+            string backup = target + ".blockcraft-previous-" + Guid.NewGuid().ToString("N") + ".exe";
+            bool backupReady = false;
             try
             {
                 File.Copy(staged, next);
                 ExpectHash(next, digest);
-                File.Replace(next, target, backup);
-                replaced = true;
+                RetryWhileLocked(() => File.Copy(target, backup));
+                backupReady = true;
+                InstallPreparedFile(next, target, overwrite: true);
                 ExpectHash(target, digest);
-                // Offline selftest never executes dummy EXE bytes or triggers
-                // Windows Error Reporting dialogs on headless CI machines.
                 if (simulateLaunchFailure)
                     throw new IOException("CI 模拟新版启动自检失败");
                 SmokeTest(target);
-                // The EXE is replaced IN PLACE: desktop shortcuts and the
-                // original filename still point to the newly installed code.
-                // Keep rollback until the new GUI has actually appeared.
-                bool confirmed = Restart(target);
-                if (confirmed)
+                string runningDirectory = visible != null ? WindowDirectory(visible) : null;
+                if (visible != null || Restart(target, out runningDirectory))
                     BestEffortCleanup(() =>
                     {
                         CleanupOwnedExeBackups(target);
-                        CleanupOldOneFileCaches(staged);
+                        CleanupOldOneFileCaches(staged, runningDirectory);
                         CleanupOwnedStage(staged, updatesRoot);
                     });
             }
-            catch
+            catch (Exception installError)
             {
-                if (replaced && File.Exists(backup))
-                    File.Copy(backup, target, true);
+                if (backupReady)
+                {
+                    var change = new Changed { Destination = target, Backup = backup, Existed = true };
+                    if (!Rollback(new[] { change }))
+                        throw new IOException("未能恢复原 EXE，旧版备份保留在 " + backup +
+                            "。安装失败：" + installError.Message, installError);
+                }
+                TryDeleteOwnedFile(backup);
                 throw;
             }
-            finally
-            {
-                try { if (File.Exists(next)) File.Delete(next); } catch { }
-            }
+            finally { TryDeleteOwnedFile(next); }
         }
 
         static string SafeRelative(string relative)
@@ -543,75 +791,112 @@ namespace BlockCraftLauncher.Updater
             }
         }
 
-        static List<Changed> CopyIntoTarget(string stage, string target,
-            List<string> files, string backupDir)
+        static bool AtOrBelow(string path, string folder)
         {
-            var changed = new List<Changed>();
-            try
+            string parent = Path.GetFullPath(folder).TrimEnd('\\', '/');
+            string full = Path.GetFullPath(path).TrimEnd('\\', '/');
+            return string.Equals(full, parent, StringComparison.OrdinalIgnoreCase) ||
+                full.StartsWith(parent + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
+
+        static void CheckZipLocations(string target, string stage, string updatesRoot,
+            IEnumerable<string> files)
+        {
+            if (AtOrBelow(target, stage))
+                throw new InvalidOperationException("安装目录与解压目录重叠。");
+            if (!AtOrBelow(stage, target)) return;
+
+            // A custom downloads folder can sit beside the EXE. Only permit
+            // that layout for our own staged payload and keep its cache intact.
+            string owned = OwnedStageDirectory(stage, updatesRoot);
+            if (owned == null || !string.Equals(Path.GetDirectoryName(stage.TrimEnd('\\', '/')),
+                    Path.Combine(owned, "unpacked"), StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("安装目录内的更新包须位于启动器下载缓存中。");
+            string cache = Path.GetDirectoryName(owned);
+            foreach (string file in files)
             {
-                foreach (var file in files.OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
-                {
-                    string relative = SafeRelative(file.Substring(stage.TrimEnd('\\').Length + 1));
-                    string dest = Path.Combine(target, relative);
-                    if (File.Exists(dest) && Reparse(dest))
-                        throw new IOException("目标包含重解析文件，拒绝覆盖");
-                    Directory.CreateDirectory(Path.GetDirectoryName(dest));
-                    EnsureNoReparseParents(dest);
-                    var record = new Changed
-                    {
-                        Destination = dest,
-                        Existed = File.Exists(dest),
-                        Backup = Path.Combine(backupDir, relative)
-                    };
-                    if (record.Existed)
-                    {
-                        Directory.CreateDirectory(Path.GetDirectoryName(record.Backup));
-                        File.Copy(dest, record.Backup, false);
-                    }
-                    changed.Add(record);
-                    string temp = dest + ".blockcraft-pending";
-                    if (File.Exists(temp)) throw new IOException("目标存在未完成的旧更新，拒绝继续");
-                    try
-                    {
-                        File.Copy(file, temp, false);
-                        if (record.Existed) File.Replace(temp, dest, null);
-                        else File.Move(temp, dest);
-                    }
-                    finally { if (File.Exists(temp)) File.Delete(temp); }
-                }
-                return changed;
-            }
-            catch
-            {
-                Rollback(changed);
-                throw;
+                string relative = SafeRelative(file.Substring(stage.TrimEnd('\\', '/').Length + 1));
+                string dest = Path.Combine(target, relative);
+                if (AtOrBelow(dest, cache) || AtOrBelow(cache, dest))
+                    throw new InvalidDataException("更新包与现有下载缓存目录冲突。");
             }
         }
 
-        static void Rollback(IEnumerable<Changed> changes)
+        static void CopyIntoTarget(string stage, string target, List<string> files,
+            string backupDir, List<Changed> changed)
         {
+            foreach (var file in files.OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
+            {
+                string relative = SafeRelative(file.Substring(stage.TrimEnd('\\', '/').Length + 1));
+                string dest = Path.Combine(target, relative);
+                if (File.Exists(dest) && Reparse(dest))
+                    throw new IOException("目标包含重解析文件，拒绝覆盖");
+                EnsureNoReparseParents(dest);
+                Directory.CreateDirectory(Path.GetDirectoryName(dest));
+                var record = new Changed
+                {
+                    Destination = dest,
+                    Existed = File.Exists(dest),
+                    Backup = Path.Combine(backupDir, relative)
+                };
+                if (record.Existed)
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(record.Backup));
+                    RetryWhileLocked(() => File.Copy(dest, record.Backup, false));
+                }
+
+                string pending = PendingBeside(dest);
+                try
+                {
+                    File.Copy(file, pending, false);
+                    if (record.Existed) changed.Add(record);
+                    InstallPreparedFile(pending, dest, record.Existed);
+                    if (!record.Existed) changed.Add(record);
+                }
+                finally { TryDeleteOwnedFile(pending); }
+            }
+        }
+
+        static bool Rollback(IEnumerable<Changed> changes)
+        {
+            bool restored = true;
             foreach (var change in changes.Reverse())
             {
                 try
                 {
-                    if (change.Existed && File.Exists(change.Backup))
-                        File.Copy(change.Backup, change.Destination, true);
-                    else if (!change.Existed && File.Exists(change.Destination))
-                        File.Delete(change.Destination);
+                    if (!change.Existed)
+                    {
+                        RetryWhileLocked(() => File.Delete(change.Destination));
+                        continue;
+                    }
+                    if (File.Exists(change.Destination) &&
+                        string.Equals(Hash(change.Destination), Hash(change.Backup), StringComparison.Ordinal))
+                        continue;
+                    string pending = PendingBeside(change.Destination);
+                    try
+                    {
+                        File.Copy(change.Backup, pending);
+                        InstallPreparedFile(pending, change.Destination, overwrite: true);
+                    }
+                    finally { TryDeleteOwnedFile(pending); }
                 }
-                catch (Exception error) { WriteLog(error); }
+                catch (Exception error)
+                {
+                    restored = false;
+                    WriteLog(new IOException("恢复失败：" + change.Destination +
+                        "，备份：" + change.Backup, error));
+                }
             }
+            return restored;
         }
 
         static void ApplyDirectory(string target, string stage, string digest,
-            bool simulateLaunchFailure = false, string updatesRoot = null)
+            bool simulateLaunchFailure = false, string updatesRoot = null, Process visible = null)
         {
             string main = Path.Combine(target, WpfExe);
             CheckLauncherExe(main);
-            if (string.Equals(target, stage, StringComparison.OrdinalIgnoreCase) ||
-                stage.StartsWith(target.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("更新包不得放在当前启动器目录内部");
             List<string> files = StageFiles(stage);
+            CheckZipLocations(target, stage, updatesRoot, files);
             VerifyStageManifest(stage, files);
             // The full ZIP SHA-256 is also verified before extraction in WPF.
             // Here we recheck the staged executable manifest at commit time.
@@ -623,26 +908,28 @@ namespace BlockCraftLauncher.Updater
             Directory.CreateDirectory(home);
             string backup = Path.Combine(home, "rollback-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(backup);
-            List<Changed> changed = null;
+            var changed = new List<Changed>();
             try
             {
-                changed = CopyIntoTarget(stage, target, files, backup);
+                CopyIntoTarget(stage, target, files, backup, changed);
                 if (simulateLaunchFailure)
                     throw new IOException("CI 模拟新版 WPF 启动自检失败");
                 SmokeTest(main);
-                bool confirmed = Restart(main);
-                if (confirmed)
+                if (visible != null || Restart(main, out _))
                     BestEffortCleanup(() =>
                     {
                         // Only signed ZIP files are backed up; Minecraft
                         // worlds, mods and personal files are not touched.
                         TryDeleteOwnedDirectory(backup);
-                        CleanupOwnedStage(stage, updatesRoot);
+                        if (visible == null) CleanupOwnedStage(stage, updatesRoot);
                     });
             }
-            catch
+            catch (Exception installError)
             {
-                if (changed != null) Rollback(changed);
+                if (!Rollback(changed))
+                    throw new IOException("ZIP 回滚未完成，旧版备份保留在 " + backup +
+                        "。安装失败：" + installError.Message, installError);
+                TryDeleteOwnedDirectory(backup);
                 throw;
             }
         }
@@ -663,12 +950,13 @@ namespace BlockCraftLauncher.Updater
                 File.WriteAllText(Path.Combine(source, "lib.dll"), "new-lib", Encoding.UTF8);
                 File.WriteAllText(Path.Combine(target, WpfExe), "old", Encoding.UTF8);
                 File.WriteAllText(Path.Combine(target, "world.txt"), "my world", Encoding.UTF8);
-                var changed = CopyIntoTarget(source, target, StageFilesForSelfTest(source), backup);
+                var changed = new List<Changed>();
+                CopyIntoTarget(source, target, StageFilesForSelfTest(source), backup, changed);
                 if (File.ReadAllText(Path.Combine(target, WpfExe)) != "new" ||
                     File.ReadAllText(Path.Combine(target, "lib.dll")) != "new-lib")
                     throw new Exception("更新替换失败");
-                Rollback(changed);
-                if (File.ReadAllText(Path.Combine(target, WpfExe)) != "old" ||
+                if (!Rollback(changed) ||
+                    File.ReadAllText(Path.Combine(target, WpfExe)) != "old" ||
                     File.Exists(Path.Combine(target, "lib.dll")) ||
                     File.ReadAllText(Path.Combine(target, "world.txt")) != "my world")
                     throw new Exception("文件级回滚未恢复原样");
@@ -685,11 +973,27 @@ namespace BlockCraftLauncher.Updater
                 string incomingExe = Path.Combine(source, "incoming.exe");
                 File.WriteAllText(originalExe, "old-single-exe", Encoding.ASCII);
                 File.WriteAllText(incomingExe, "new-single-exe", Encoding.ASCII);
+                int attempts = 0;
+                RetryWhileLocked(() =>
+                {
+                    if (++attempts == 1) throw new Win32Exception(32);
+                });
+                if (attempts != 2) throw new Exception("文件锁释放后未重试");
+
+                string pending = PendingBeside(originalExe);
+                File.Copy(incomingExe, pending);
+                RenamePreparedFile(pending, originalExe, overwrite: true);
+                if (File.Exists(pending) || File.ReadAllText(originalExe) != "new-single-exe")
+                    throw new Exception("同目录重命名未能原位替换文件");
+                File.WriteAllText(originalExe, "old-single-exe", Encoding.ASCII);
+
                 bool onefileRollback = false;
                 try { ApplySingleExe(originalExe, incomingExe, Hash(incomingExe), true); }
-                catch { onefileRollback = true; }
-                if (!onefileRollback || File.ReadAllText(originalExe) != "old-single-exe")
-                    throw new Exception("单文件启动失败后未自动回滚");
+                catch (IOException error) when (error.Message == "CI 模拟新版启动自检失败")
+                { onefileRollback = true; }
+                if (!onefileRollback || File.ReadAllText(originalExe) != "old-single-exe" ||
+                    Directory.GetFiles(target, "*.blockcraft-previous-*.exe").Length != 0)
+                    throw new Exception("单文件启动失败后未还原旧版并清理备份");
                 string legacyBackup = originalExe + ".blockcraft-previous-" +
                     Guid.NewGuid().ToString("N") + ".exe";
                 string notOurs = Path.Combine(target, "my-other-launcher.exe");
@@ -699,7 +1003,15 @@ namespace BlockCraftLauncher.Updater
                     IsOwnedBackupExe(originalExe, notOurs) ||
                     OwnedStageDirectory(notOurs) != null)
                     throw new Exception("旧 EXE 清理目标范围不安全");
-                CleanupOwnedExeBackups(originalExe);
+                var backupLock = new FileStream(legacyBackup, FileMode.Open, FileAccess.Read, FileShare.Read);
+                var releaseBackup = new Thread(() =>
+                {
+                    Thread.Sleep(550);
+                    backupLock.Dispose();
+                });
+                releaseBackup.Start();
+                try { CleanupOwnedExeBackups(originalExe); }
+                finally { releaseBackup.Join(); }
                 if (File.Exists(legacyBackup) || !File.Exists(notOurs))
                     throw new Exception("清理旧版 EXE 时删除了非启动器文件");
 
@@ -727,10 +1039,13 @@ namespace BlockCraftLauncher.Updater
 
                 // The directory updater must also restore DLLs and the main
                 // WPF executable when its post-install smoke test fails.
-                string fullStage = Path.Combine(root, "full-package");
                 string install = Path.Combine(root, "full-install");
+                string nestedCache = Path.Combine(install, "下载 缓存", "updates");
+                string nestedStage = Path.Combine(nestedCache, stageName);
+                string fullStage = Path.Combine(nestedStage, "unpacked", "payload");
                 Directory.CreateDirectory(fullStage);
-                Directory.CreateDirectory(install);
+                File.WriteAllText(Path.Combine(nestedStage, ".blockcraft-stage"),
+                    "BlockCraftLauncher update staging v1", Encoding.ASCII);
                 var parts = new[] { WpfExe, "BlockCraftLauncher.Updater.exe",
                     "one.dll", "two.dll", "three.dll", "four.dll", "five.dll" };
                 foreach (string part in parts)
@@ -740,9 +1055,16 @@ namespace BlockCraftLauncher.Updater
                 using (var writer = new StreamWriter(Path.Combine(fullStage, ManifestName), false, Encoding.ASCII))
                     foreach (string part in parts)
                         writer.WriteLine(Hash(Path.Combine(fullStage, part)) + "  " + part);
+                string overlap = Path.Combine(fullStage, "下载 缓存", "updates", "other.txt");
+                bool cacheProtected = false;
+                try { CheckZipLocations(install, fullStage, nestedCache, new[] { overlap }); }
+                catch (InvalidDataException) { cacheProtected = true; }
+                if (!cacheProtected) throw new Exception("ZIP 更新不能覆盖自己的下载缓存");
+
                 bool zipRollback = false;
-                try { ApplyDirectory(install, fullStage, new string('a', 64), true); }
-                catch { zipRollback = true; }
+                try { ApplyDirectory(install, fullStage, new string('a', 64), true, nestedCache); }
+                catch (IOException error) when (error.Message == "CI 模拟新版 WPF 启动自检失败")
+                { zipRollback = true; }
                 if (!zipRollback ||
                     File.ReadAllText(Path.Combine(install, WpfExe)) != "old-wpf" ||
                     File.Exists(Path.Combine(install, "one.dll")) ||
@@ -789,7 +1111,7 @@ namespace BlockCraftLauncher.Updater
             {
                 Directory.CreateDirectory(folder);
                 File.AppendAllText(file, DateTime.UtcNow.ToString("u") + "\n" +
-                    error.GetType().Name + ": " + error.Message + "\n", Encoding.UTF8);
+                    error + "\n", Encoding.UTF8);
             }
             catch { }
             return file;

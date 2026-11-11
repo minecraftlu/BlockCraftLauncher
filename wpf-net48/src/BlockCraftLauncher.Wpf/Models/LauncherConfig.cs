@@ -25,12 +25,13 @@ namespace BlockCraftLauncher.Wpf.Models
         public string JavaPath { get; set; } = "";
         public string Proxy { get; set; } = "";
         public bool McimEnabled { get; set; } = false;
-        // Update metadata checks are enabled; downloads need explicit opt-in.
+        // For new installs, verified stable updates are downloaded and installed automatically.
+        // Previously saved user preferences continue to take precedence.
+        // Installation must wait while Minecraft, downloads or unsaved edits are active.
         public bool AutoCheckUpdates { get; set; } = true;
-        public bool AutoDownloadUpdates { get; set; } = false;
-        // Opt-in only. An already verified download is installed when the
-        // user normally closes the launcher, never mid-game or mid-task.
+        public bool AutoDownloadUpdates { get; set; } = true;
         public bool AutoInstallUpdatesOnExit { get; set; } = false;
+        public bool AutoRestartAfterUpdateDownload { get; set; } = true;
         public string UpdateChannel { get; set; } = "stable";
         public DateTime LastUpdateCheckUtc { get; set; } = DateTime.MinValue;
         public string NetworkMode { get; set; } = "auto";

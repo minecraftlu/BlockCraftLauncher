@@ -7,10 +7,11 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>BlockCraftLauncher.Updater</AssemblyName>
     <RootNamespace>BlockCraftLauncher.Updater</RootNamespace>
-    <Version>0.9.37.0</Version>
-    <FileVersion>0.9.37.0</FileVersion>
+    <Version>0.9.43.0</Version>
+    <FileVersion>0.9.43.0</FileVersion>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System.Windows.Forms" />
+    <Compile Include="..\src\BlockCraftLauncher.Wpf\Services\LauncherRelaunchSignal.cs" Link="LauncherRelaunchSignal.cs" />
   </ItemGroup>
 </Project>

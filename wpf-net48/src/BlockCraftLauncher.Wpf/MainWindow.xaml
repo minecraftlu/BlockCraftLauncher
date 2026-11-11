@@ -4,7 +4,7 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Style="{StaticResource {x:Type Window}}"
         Title="BlockCraft Launcher · Minecraft Java 启动器"
-        Width="1080" Height="680" MinWidth="850" MinHeight="560"
+        Width="1080" Height="680" MinWidth="760" MinHeight="480"
         WindowStyle="None" WindowStartupLocation="CenterScreen"
         Icon="Assets/blockcraft_icon.ico"
         UseLayoutRounding="True" SnapsToDevicePixels="True">
@@ -101,15 +101,14 @@
       </Grid>
     </Border>
 
-    <ScrollViewer x:Name="WindowViewport" Grid.Row="1"
-                  HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
-                  Background="{DynamicResource PageBrush}" SizeChanged="WindowViewport_SizeChanged">
-      <Grid x:Name="Shell" MinWidth="820" MinHeight="320">
+    <Border x:Name="WindowViewport" Grid.Row="1" ClipToBounds="True"
+            Background="{DynamicResource PageBrush}" SizeChanged="WindowViewport_SizeChanged">
+      <Grid x:Name="Shell">
         <Grid.LayoutTransform>
           <ScaleTransform x:Name="UiScale" ScaleX="1" ScaleY="1"/>
         </Grid.LayoutTransform>
         <Grid.ColumnDefinitions>
-          <ColumnDefinition x:Name="SideColumn" Width="164"/>
+          <ColumnDefinition x:Name="SideColumn" Width="184"/>
           <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
         <Border x:Name="SideBar" Background="{DynamicResource SidebarBrush}"
@@ -133,7 +132,7 @@
           </Grid>
         </ScrollViewer>
       </Grid>
-    </ScrollViewer>
+    </Border>
 
     <Border Grid.Row="2" Background="{DynamicResource WindowBrush}" Padding="14,0,9,0"
             BorderBrush="{DynamicResource BorderBrushTheme}" BorderThickness="0,1,0,0">
@@ -145,6 +144,9 @@
             <TextBlock Text="下载任务"/>
           </StackPanel>
         </Button>
+        <Button x:Name="PostponeUpdateButton" DockPanel.Dock="Right"
+                Style="{StaticResource FooterButton}" Visibility="Collapsed"
+                Content="稍后更新" ToolTip="暂缓自动关闭旧版并打开新版"/>
         <TextBlock x:Name="BuildVersionText" DockPanel.Dock="Right" Margin="0,0,12,0"
                    FontSize="11" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
         <TextBlock x:Name="StatusText" Text="就绪" Margin="0,0,12,0"

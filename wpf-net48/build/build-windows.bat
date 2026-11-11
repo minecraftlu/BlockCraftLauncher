@@ -2,8 +2,8 @@
 setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0.."
 echo ==============================================
-echo BlockCraftLauncher WPF v0.9.42 Stable Release Candidate - net48
-echo Stable release candidate - full CI verification required
+echo BlockCraftLauncher WPF v0.9.44 Stable - net48
+echo Stable release - Windows CI and real upgrade verification required
 echo ==============================================
 
 set "MSBUILD_EXE="

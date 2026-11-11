@@ -49,8 +49,8 @@ namespace BlockCraftLauncher.Wpf.Services
                     string game = Path.GetFullPath(minecraftRoot);
                     if (ContainsOrEquals(game, full) || ContainsOrEquals(full, game))
                         throw new ArgumentException(
-                            "同一块移动硬盘可以使用两个独立的文件夹，例如 E:\\BlockCraftLauncher\\Minecraft 和 E:\\BlockCraftLauncher\\Downloads；" +
-                            "不能设成同一个目录，也不能互相包含，以免影响游戏和存档。");
+                            "可在同一个本地磁盘、U 盘或移动硬盘上使用两个独立的子文件夹，" +
+                            "例如 E:\\我的启动器\\Minecraft 和 E:\\我的启动器\\Downloads。");
                 }
                 // Do not traverse junctions/symlinks for updater downloads.
                 for (string check = full;
@@ -84,10 +84,8 @@ namespace BlockCraftLauncher.Wpf.Services
         }
 
         /// <summary>
-        /// Prepare two sibling folders on the SAME local drive. A USB HDD
-        /// often reports DriveType.Fixed, so deliberately do not require the
-        /// OS to identify a drive as removable. Nothing is created or moved
-        /// until the user explicitly saves their settings.
+        /// Plan two sibling folders in the user's chosen directory on any
+        /// local volume. Windows reports some USB drives as fixed disks.
         /// </summary>
         public static bool TryPlanSameDiskFolders(string selectedParent,
             out string minecraftDirectory, out string downloadDirectory,
@@ -99,7 +97,7 @@ namespace BlockCraftLauncher.Wpf.Services
             try
             {
                 if (string.IsNullOrWhiteSpace(selectedParent))
-                    throw new ArgumentException("请选择移动硬盘盘符或其下的父文件夹。");
+                    throw new ArgumentException("请选择本地磁盘、U 盘或移动硬盘上的自定义文件夹。");
                 string raw = selectedParent.Trim().Trim('"');
                 if (!IsLocalAbsolutePath(raw))
                     throw new ArgumentException("请选择本机磁盘的绝对路径，例如 E:\\。");
@@ -114,7 +112,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 if (!TryValidate(cache, game, out var validCache,
                     out var reason))
                     throw new ArgumentException(reason ??
-                        "移动硬盘上的目录不符合安全要求。");
+                        "所选文件夹不可用。");
                 minecraftDirectory = Path.GetFullPath(game);
                 downloadDirectory = validCache;
                 return true;

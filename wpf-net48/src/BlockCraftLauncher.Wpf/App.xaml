@@ -26,6 +26,11 @@
     <SolidColorBrush x:Key="SoftDividerBrush" Color="#E5EDF7"/>
     <SolidColorBrush x:Key="SearchSurfaceBrush" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="SuccessBrush" Color="#1D765A"/>
+    <SolidColorBrush x:Key="PreviewFloorBrush" Color="#DCEBFA"/>
+    <LinearGradientBrush x:Key="FeaturePanelBrush" StartPoint="0,0" EndPoint="1,0.5">
+      <GradientStop Color="#FFFFFF" Offset="0"/>
+      <GradientStop Color="#EDF6FF" Offset="1"/>
+    </LinearGradientBrush>
 
     <Style x:Key="KeyboardFocusOutline">
       <Setter Property="Control.Template">
@@ -68,7 +73,7 @@
             <Border x:Name="Chrome" Background="{TemplateBinding Background}"
                     BorderBrush="{TemplateBinding BorderBrush}"
                     BorderThickness="{TemplateBinding BorderThickness}"
-                    CornerRadius="5" Padding="{TemplateBinding Padding}">
+                    CornerRadius="7" Padding="{TemplateBinding Padding}">
               <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                 VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                                 RecognizesAccessKey="True"/>
@@ -162,12 +167,12 @@
       <Setter Property="FontSize" Value="11"/>
     </Style>
     <Style x:Key="SidebarItem" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-      <Setter Property="Height" Value="35"/>
-      <Setter Property="MinHeight" Value="35"/>
+      <Setter Property="Height" Value="38"/>
+      <Setter Property="MinHeight" Value="38"/>
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="BorderThickness" Value="0"/>
       <Setter Property="HorizontalContentAlignment" Value="Left"/>
-      <Setter Property="Padding" Value="12,6"/>
+      <Setter Property="Padding" Value="14,7"/>
       <Setter Property="Margin" Value="0,2,0,2"/>
       <Setter Property="FontSize" Value="12.5"/>
     </Style>
@@ -182,9 +187,25 @@
       <Setter Property="Background" Value="{DynamicResource PanelBrush}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushTheme}"/>
       <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="CornerRadius" Value="8"/>
-      <Setter Property="Padding" Value="16,13"/>
-      <Setter Property="Margin" Value="0,0,0,12"/>
+      <Setter Property="CornerRadius" Value="9"/>
+      <Setter Property="Padding" Value="18,15"/>
+      <Setter Property="Margin" Value="0,0,0,13"/>
+    </Style>
+    <Style x:Key="FeaturePanel" TargetType="Border" BasedOn="{StaticResource Panel}">
+      <Setter Property="Background" Value="{DynamicResource FeaturePanelBrush}"/>
+      <Setter Property="Padding" Value="19,18"/>
+    </Style>
+    <Style x:Key="HomeAction" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="MinHeight" Value="69"/>
+      <Setter Property="Padding" Value="12,10"/>
+    </Style>
+    <Style x:Key="SkinMetaBadge" TargetType="Border">
+      <Setter Property="Background" Value="{DynamicResource BadgeBrush}"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="Margin" Value="0,0,6,5"/>
+      <Setter Property="Padding" Value="7,3"/>
     </Style>
     <!-- Shared PCL-style search and download layouts. Distinct original
          visual assets, same familiar label/filter/results information flow. -->
@@ -203,7 +224,7 @@
       <Setter Property="Margin" Value="0,0,0,7"/>
     </Style>
     <Style x:Key="FilterChip" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-      <Setter Property="MinHeight" Value="30"/>
+      <Setter Property="MinHeight" Value="32"/>
       <Setter Property="Padding" Value="11,4"/>
       <Setter Property="Background" Value="{DynamicResource BadgeBrush}"/>
       <Setter Property="Foreground" Value="{DynamicResource AccentInkBrush}"/>
@@ -215,7 +236,7 @@
       <Setter Property="BorderBrush" Value="{DynamicResource SoftDividerBrush}"/>
     </Style>
     <Style x:Key="Heading" TargetType="TextBlock">
-      <Setter Property="FontSize" Value="22"/>
+      <Setter Property="FontSize" Value="21"/>
       <Setter Property="FontWeight" Value="Bold"/>
       <Setter Property="Margin" Value="0,0,0,7"/>
     </Style>
@@ -566,24 +587,24 @@
          Thumbnails are decoded with strict limits by OnlineSkinSearchService,
          not fetched automatically from an arbitrary Binding URL. -->
     <DataTemplate x:Key="OnlineSkinResultTemplate">
-      <Border Padding="9,9" MinHeight="95"
-              BorderBrush="{DynamicResource BorderBrushTheme}"
+      <Border Padding="9,10" MinHeight="92"
+              BorderBrush="{DynamicResource SoftDividerBrush}"
               BorderThickness="0,0,0,1" Background="Transparent">
         <Grid>
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="78"/>
             <ColumnDefinition Width="*"/>
           </Grid.ColumnDefinitions>
-          <Border Width="62" Height="69" VerticalAlignment="Top"
-                  CornerRadius="7" ClipToBounds="True"
+          <Border Width="64" Height="70" VerticalAlignment="Center"
+                  CornerRadius="9" ClipToBounds="True"
                   Background="{DynamicResource BadgeBrush}">
             <Grid>
               <TextBlock Text="&#xE7F4;" FontFamily="Segoe MDL2 Assets" FontSize="21"
                          Foreground="{DynamicResource AccentInkBrush}"
                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
               <Image Source="{Binding Thumbnail}" Stretch="Uniform"
-                     RenderOptions.BitmapScalingMode="HighQuality"
-                     Width="62" Height="69"/>
+                     RenderOptions.BitmapScalingMode="NearestNeighbor"
+                     Width="64" Height="70"/>
             </Grid>
           </Border>
           <StackPanel Grid.Column="1" VerticalAlignment="Center">
@@ -595,9 +616,10 @@
                        Foreground="{DynamicResource MutedBrush}"
                        ToolTip="{Binding Summary}" Margin="0,0,0,6"/>
             <WrapPanel>
-              <TextBlock Text="{Binding Source}" FontSize="11"
-                         Foreground="{DynamicResource AccentInkBrush}"
-                         Margin="0,0,9,2"/>
+              <Border Style="{StaticResource SkinMetaBadge}">
+                <TextBlock Text="{Binding Source}" FontSize="10.5"
+                           Foreground="{DynamicResource AccentInkBrush}"/>
+              </Border>
               <TextBlock Text="{Binding AuthorLabel}" FontSize="11"
                          Foreground="{DynamicResource MutedBrush}"
                          Margin="0,0,9,2" TextTrimming="CharacterEllipsis"
