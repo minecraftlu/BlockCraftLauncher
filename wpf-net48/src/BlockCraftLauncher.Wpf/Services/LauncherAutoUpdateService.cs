@@ -49,7 +49,7 @@ namespace BlockCraftLauncher.Wpf.Services
     /// </summary>
     public sealed class LauncherAutoUpdateService
     {
-        internal const string CurrentTag = "v0.9.39-wpf-rc.1";
+        internal const string CurrentTag = "v0.9.39-wpf-rc.2";
         internal static string BuildChannelLabel => CurrentTag.Contains("-wpf-rc.") ? "预览版" : "正式版";
         internal const string ReleasesApi =
             "https://api.github.com/repos/minecraftlu/BlockCraftLauncher/releases?per_page=100";
@@ -790,6 +790,28 @@ namespace BlockCraftLauncher.Wpf.Services
                 try { if (File.Exists(marker)) File.Delete(marker); }
                 catch (IOException) { }
             }
+        }
+
+        /// <summary>
+        /// Only opt-in verified updates may be installed during a normal
+        /// user-initiated window close. No download/install happens when an
+        /// update is still in flight, while trying a preview directly, or
+        /// during smoke/UI tests. This policy never changes an EXE itself.
+        /// </summary>
+        internal static bool ShouldAutoInstallOnExit(LauncherConfig preferences,
+            PreparedLauncherUpdate prepared, LauncherUpdateOffer currentOffer,
+            bool busy, bool suppressed)
+        {
+            return preferences != null &&
+                preferences.AutoCheckUpdates &&
+                preferences.AutoDownloadUpdates &&
+                preferences.AutoInstallUpdatesOnExit &&
+                !busy && !suppressed &&
+                prepared != null && prepared.Offer != null &&
+                ReferenceEquals(prepared.Offer, currentOffer) &&
+                !string.IsNullOrWhiteSpace(prepared.TargetPath) &&
+                !string.IsNullOrWhiteSpace(prepared.StagedPath) &&
+                !string.IsNullOrWhiteSpace(prepared.Sha256);
         }
 
         public void StartExternalInstaller(PreparedLauncherUpdate prepared)
