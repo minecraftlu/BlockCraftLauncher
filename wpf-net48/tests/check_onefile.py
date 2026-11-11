@@ -16,7 +16,7 @@ assert 'CreateFromDirectory' in b and '0x8664' in b
 current = (r/'src/BlockCraftLauncher.Wpf/Services/LauncherAutoUpdateService.cs').read_text('utf8')
 packager = (r/'build/package-windows.ps1').read_text('utf-8-sig')
 bootstrap = re.search(r'private const string Release = "(v\d+\.\d+\.\d+)";', s)
-updater = re.search(r'internal const string CurrentTag = "(v\d+\.\d+\.\d+)";', current)
+updater = re.search(r'internal const string CurrentTag = "(v\d+\.\d+\.\d+)(?:-wpf-rc\.\d+)?";', current)
 assert bootstrap and updater and bootstrap.group(1) == updater.group(1), 'OneFile cache tag != updater tag'
 assert updater.group(1) in b, 'OneFile artifact filename does not match binary version'
 assert updater.group(1) in packager, 'ZIP version does not match binary version'
