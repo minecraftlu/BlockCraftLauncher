@@ -108,7 +108,7 @@
           <ScaleTransform x:Name="UiScale" ScaleX="1" ScaleY="1"/>
         </Grid.LayoutTransform>
         <Grid.ColumnDefinitions>
-          <ColumnDefinition x:Name="SideColumn" Width="164"/>
+          <ColumnDefinition x:Name="SideColumn" Width="184"/>
           <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
         <Border x:Name="SideBar" Background="{DynamicResource SidebarBrush}"
@@ -146,7 +146,7 @@
         </Button>
         <Button x:Name="PostponeUpdateButton" DockPanel.Dock="Right"
                 Style="{StaticResource FooterButton}" Visibility="Collapsed"
-                Content="稍后安装" ToolTip="推迟本次自动重启"/>
+                Content="稍后更新" ToolTip="暂缓自动关闭旧版并打开新版"/>
         <TextBlock x:Name="BuildVersionText" DockPanel.Dock="Right" Margin="0,0,12,0"
                    FontSize="11" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
         <TextBlock x:Name="StatusText" Text="就绪" Margin="0,0,12,0"
