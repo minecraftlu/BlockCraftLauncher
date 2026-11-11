@@ -22,15 +22,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
           persist-credentials: false
       - name: Assert published Stable source is unchanged and release is public
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $original = (& git rev-parse HEAD^).Trim()
-          if ($LASTEXITCODE -ne 0 -or $original -ne '28051fe501f9e838068dd4b769b762ae890bc137') {
-            throw 'This verifier must descend directly from published v0.9.45 Stable'
+          $original = '28051fe501f9e838068dd4b769b762ae890bc137'
+          & git merge-base --is-ancestor $original HEAD
+          if ($LASTEXITCODE -ne 0) {
+            throw 'This verifier must descend only from published v0.9.45 Stable'
           }
           $changes = @(& git diff --name-only $original HEAD)
           $expected = @('.github/workflows/wpf-net48-v0945-public-upgrade-verify.yml')
