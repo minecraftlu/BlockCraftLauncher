@@ -1385,7 +1385,6 @@ namespace BlockCraftLauncher.Wpf
             settingsRoot.Text = originalRoot;
 
             int originalZoom = settings.Zoom;
-            string originalTheme = settings.Theme;
             try
             {
                 settings.Zoom = 140;
