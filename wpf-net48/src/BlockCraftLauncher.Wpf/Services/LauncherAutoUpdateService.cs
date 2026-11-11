@@ -823,6 +823,18 @@ namespace BlockCraftLauncher.Wpf.Services
             }
         }
 
+        internal static bool SameOffer(LauncherUpdateOffer left, LauncherUpdateOffer right)
+        {
+            return ReferenceEquals(left, right) ||
+                (left != null && right != null &&
+                    string.Equals(left.Tag, right.Tag, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(left.Mode, right.Mode, StringComparison.Ordinal) &&
+                    string.Equals(left.AssetName, right.AssetName, StringComparison.Ordinal) &&
+                    string.Equals(left.AssetUrl, right.AssetUrl, StringComparison.Ordinal) &&
+                    string.Equals(left.ManifestUrl, right.ManifestUrl, StringComparison.Ordinal) &&
+                    left.AssetSize == right.AssetSize);
+        }
+
         /// <summary>
         /// Only opt-in verified updates may be installed during a normal
         /// user-initiated window close. No download/install happens when an
@@ -839,7 +851,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 preferences.AutoInstallUpdatesOnExit &&
                 !busy && !suppressed &&
                 prepared != null && prepared.Offer != null &&
-                ReferenceEquals(prepared.Offer, currentOffer) &&
+                SameOffer(prepared.Offer, currentOffer) &&
                 !string.IsNullOrWhiteSpace(prepared.TargetPath) &&
                 !string.IsNullOrWhiteSpace(prepared.StagedPath) &&
                 !string.IsNullOrWhiteSpace(prepared.Sha256);
@@ -847,8 +859,12 @@ namespace BlockCraftLauncher.Wpf.Services
 
         public void StartExternalInstaller(PreparedLauncherUpdate prepared)
         {
-            if (prepared == null || prepared.Offer.Mode != InstallMode)
+            if (prepared?.Offer == null || prepared.Offer.Mode != InstallMode)
                 throw new InvalidOperationException("尚未准备好可校验的更新包");
+            if (!IsPathInsideUpdateStaging(prepared.StagedPath, prepared.UpdatesRoot) ||
+                (prepared.Offer.Mode == "onefile" && !File.Exists(prepared.StagedPath)) ||
+                (prepared.Offer.Mode == "zip" && !Directory.Exists(prepared.StagedPath)))
+                throw new IOException("更新暂存包已不可用，请连接下载目录所在磁盘并重新下载。");
             string updater = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, UpdaterFile);
             if (!File.Exists(updater))
                 throw new FileNotFoundException("当前安装包缺少独立更新助手。请手动安装新版一次。", updater);

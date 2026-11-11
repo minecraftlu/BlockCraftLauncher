@@ -134,6 +134,29 @@ namespace BlockCraftLauncher.Wpf
             return p;
         }
 
+        static Grid AdaptivePanels(UIElement main, UIElement side, double sideWidth, double gap)
+        {
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(gap) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(sideWidth) });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.Children.Add(main);
+            Grid.SetColumn(side, 2);
+            grid.Children.Add(side);
+            grid.SizeChanged += (sender, args) =>
+            {
+                if (!args.WidthChanged) return;
+                bool stacked = args.NewSize.Width < sideWidth + 325;
+                grid.ColumnDefinitions[1].Width = new GridLength(stacked ? 0 : gap);
+                grid.ColumnDefinitions[2].Width = new GridLength(stacked ? 0 : sideWidth);
+                Grid.SetColumn(side, stacked ? 0 : 2);
+                Grid.SetRow(side, stacked ? 1 : 0);
+            };
+            return grid;
+        }
+
         static Border Card(UIElement content, bool search = false)
         {
             var border = new Border { Child = content };
@@ -145,7 +168,7 @@ namespace BlockCraftLauncher.Wpf
         static Button ActionButton(string caption, Action action, bool accent = false)
         {
             var b = new Button { MinHeight = 34 };
-            var label = new TextBlock { Text = caption };
+            var label = new TextBlock { Text = caption, TextWrapping = TextWrapping.Wrap };
             label.SetBinding(TextBlock.ForegroundProperty, new System.Windows.Data.Binding(nameof(Button.Foreground))
                 { Source = b, Mode = System.Windows.Data.BindingMode.OneWay });
             b.Content = label;
@@ -224,12 +247,6 @@ namespace BlockCraftLauncher.Wpf
             // Both navigation entries reuse this one instance so unsaved
             // edits and the selected search result survive page switches.
 
-            var columns = new Grid();
-            columns.ColumnDefinitions.Add(new ColumnDefinition {
-                Width = new GridLength(1, GridUnitType.Star) });
-            columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
-            columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(288) });
-
             var toolRow = new WrapPanel();
             tool.ItemsSource = new[] { "画笔", "橡皮擦", "取色器", "油漆桶" };
             tool.SelectedIndex = 0; tool.Width = 116;
@@ -290,7 +307,6 @@ namespace BlockCraftLauncher.Wpf
                 Row(Label("缩放"), zoom, Label("画笔大小"), brush, showGrid),
                 viewport, pointInfo,
                 Label("蓝线标记基础层，金线标记外层。拖动鼠标可连续绘制。")));
-            columns.Children.Add(editor);
 
             var rightPanel = Column();
             armModel.ItemsSource = new[] { "经典宽臂 · Steve（4px）", "纤细手臂 · Alex（3px）" };
@@ -362,9 +378,7 @@ namespace BlockCraftLauncher.Wpf
             manage.Children.Add(Label("登录微软正版账号后可上传。编辑草稿会自动备份。"));
             rightPanel.Children.Add(Card(manage));
             rightPanel.Children.Add(Card(Column(Label("编辑状态", 16, true), info)));
-            Grid.SetColumn(rightPanel, 2);
-            columns.Children.Add(rightPanel);
-            page.Children.Add(columns);
+            page.Children.Add(AdaptivePanels(editor, rightPanel, 288, 12));
             editorPage = page;
             downloadPage = BuildOnlineSearch();
             downloadPage.Visibility = Visibility.Collapsed;
@@ -523,16 +537,7 @@ namespace BlockCraftLauncher.Wpf
                 Label("正面 2D 参考"), onlinePreview,
                 onlineAttribution, onlineSaveButton,
                 onlineEditButton, onlineDetailButton);
-            var layout = new Grid();
-            layout.ColumnDefinitions.Add(new ColumnDefinition {
-                Width = new GridLength(1, GridUnitType.Star) });
-            layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(14) });
-            layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(295) });
-            layout.Children.Add(Card(results));
-            var details = Card(selected);
-            Grid.SetColumn(details, 2);
-            layout.Children.Add(details);
-            root.Children.Add(layout);
+            root.Children.Add(AdaptivePanels(Card(results), Card(selected), 295, 14));
 
             onlineStatus.Text = "图片缩略图按需获取，不会自动批量下载皮肤；联网失败不影响本地 DIY。";
             onlineStatus.TextWrapping = TextWrapping.Wrap;

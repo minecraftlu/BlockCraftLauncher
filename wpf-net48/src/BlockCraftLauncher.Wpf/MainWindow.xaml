@@ -4,7 +4,7 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Style="{StaticResource {x:Type Window}}"
         Title="BlockCraft Launcher · Minecraft Java 启动器"
-        Width="1080" Height="680" MinWidth="850" MinHeight="560"
+        Width="1080" Height="680" MinWidth="760" MinHeight="480"
         WindowStyle="None" WindowStartupLocation="CenterScreen"
         Icon="Assets/blockcraft_icon.ico"
         UseLayoutRounding="True" SnapsToDevicePixels="True">
@@ -104,7 +104,7 @@
     <ScrollViewer x:Name="WindowViewport" Grid.Row="1"
                   HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
                   Background="{DynamicResource PageBrush}" SizeChanged="WindowViewport_SizeChanged">
-      <Grid x:Name="Shell" MinWidth="820" MinHeight="320">
+      <Grid x:Name="Shell">
         <Grid.LayoutTransform>
           <ScaleTransform x:Name="UiScale" ScaleX="1" ScaleY="1"/>
         </Grid.LayoutTransform>

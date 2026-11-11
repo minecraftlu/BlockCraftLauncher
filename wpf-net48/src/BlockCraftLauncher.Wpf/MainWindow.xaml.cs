@@ -36,6 +36,7 @@ namespace BlockCraftLauncher.Wpf
         bool updateChecking;
         bool updatePreparing;
         bool updateCheckFailed;
+        string updatePreparationError;
         // Normal window close can install a fully verified prepared update,
         // but never when manual installation/direct-preview already handled it.
         bool suppressAutomaticInstallOnClose;
@@ -436,7 +437,7 @@ namespace BlockCraftLauncher.Wpf
             sidebarButtons.Clear();
             LaunchPane.Visibility = section == NavigationSection.Launch ? Visibility.Visible : Visibility.Collapsed;
             SideMenu.Visibility = section == NavigationSection.Launch ? Visibility.Collapsed : Visibility.Visible;
-            SideColumn.Width = new GridLength(section == NavigationSection.Launch ? 264 : 164);
+            UpdateShellSize();
             switch (section)
             {
                 case NavigationSection.Versions:
@@ -721,11 +722,18 @@ namespace BlockCraftLauncher.Wpf
         void UpdateShellSize()
         {
             if (WindowViewport == null || Shell == null) return;
-            var scale = Math.Max(0.8, UiScale.ScaleX);
-            if (WindowViewport.ActualWidth > 0)
-                Shell.Width = Math.Max(Shell.MinWidth, (WindowViewport.ActualWidth - 2) / scale);
-            if (WindowViewport.ActualHeight > 0)
-                Shell.Height = Math.Max(Shell.MinHeight, (WindowViewport.ActualHeight - 2) / scale);
+            double scale = UiScale.ScaleX;
+            double width = WindowViewport.ActualWidth > 2 ?
+                (WindowViewport.ActualWidth - 2) / scale : Width / scale;
+            if (WindowViewport.ActualWidth > 2) Shell.Width = width;
+            if (WindowViewport.ActualHeight > 2)
+                Shell.Height = (WindowViewport.ActualHeight - 2) / scale;
+
+            bool compact = width < 720;
+            bool launch = SectionFor(currentPage) == NavigationSection.Launch;
+            SideColumn.Width = new GridLength(launch ? (compact ? 204 : 264) : (compact ? 140 : 164));
+            PageScroll.Padding = compact ? new Thickness(12, 12, 12, 6) :
+                new Thickness(20, 16, 20, 9);
         }
         void WindowViewport_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateShellSize();
 
@@ -1375,6 +1383,36 @@ namespace BlockCraftLauncher.Wpf
             if (settingsRoot.Text != "layout-probe")
                 throw new InvalidOperationException("切换设置分类时丢失未保存的修改");
             settingsRoot.Text = originalRoot;
+
+            int originalZoom = settings.Zoom;
+            string originalTheme = settings.Theme;
+            try
+            {
+                settings.Zoom = 140;
+                settings.Theme = "深色";
+                ApplyTheme();
+                ApplyZoom();
+                foreach (string page in new[] { "首页", "游戏版本", "皮肤下载", "皮肤 DIY",
+                    "启动器更新", "下载设置", "更新设置" })
+                {
+                    Navigate(page);
+                    ArrangeLayoutProbe(760, 480, page == "下载设置" ? "08-settings-compact" : null);
+                    if (Shell.ActualWidth * UiScale.ScaleX > WindowViewport.ActualWidth + 1 ||
+                        WindowViewport.ScrollableWidth > 1)
+                        throw new InvalidOperationException(page + "在 140% 缩放时超出窗口宽度");
+                }
+                if (settingsAutoInstallOnExit.ActualWidth <= 0 ||
+                    settingsAutoInstallOnExit.TranslatePoint(new Point(settingsAutoInstallOnExit.ActualWidth, 0),
+                        PageHost).X > PageHost.ActualWidth + 1)
+                    throw new InvalidOperationException("紧凑窗口下自动安装选项超出设置区域");
+            }
+            finally
+            {
+                settings.Zoom = originalZoom;
+                settings.Theme = originalTheme;
+                ApplyTheme();
+                ApplyZoom();
+            }
 
             Navigate("关于");
             settings.Profiles.Remove(sampleProfile);
@@ -2994,7 +3032,8 @@ namespace BlockCraftLauncher.Wpf
             {
                 Height = 9, Minimum = 0, Maximum = 100,
                 Margin = new Thickness(0, 6, 0, 13),
-                Visibility = Visibility.Collapsed
+                Visibility = updatePreparing ? Visibility.Visible : Visibility.Collapsed,
+                IsIndeterminate = updatePreparing
             };
             updateProgressBar.SetResourceReference(ProgressBar.ForegroundProperty, "AccentBrush");
             updateNotesText = Txt("", 12, false, true);
@@ -3019,10 +3058,23 @@ namespace BlockCraftLauncher.Wpf
                     12, false, true))));
             root.Children.Add(Card(Col(Txt("更新选项", 16, true),
                 Row(Btn("更新设置", () => Navigate("更新设置")),
+                    Btn("查看更新日志", OpenUpdateLog),
                     Btn("查看发布记录", () => LauncherReleaseService.OpenOfficialRelease(
                         "https://github.com/minecraftlu/BlockCraftLauncher/releases"))))));
             RefreshLauncherUpdatePanel();
             return root;
+        }
+
+        void OpenUpdateLog()
+        {
+            string path = Path.Combine(DownloadPathService.UpdatesRoot(null), "update-error.log");
+            if (!File.Exists(path))
+            {
+                Status("暂无更新替换失败记录。");
+                return;
+            }
+            try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
+            catch (Exception ex) { ShowError("无法打开更新日志", ex); }
         }
 
         void RefreshLauncherUpdatePanel()
@@ -3045,6 +3097,8 @@ namespace BlockCraftLauncher.Wpf
                             "已校验 " + preparedUpdate.Offer.Tag +
                             "，下次正常关闭启动器时将自动替换旧 EXE。" :
                             "更新已下载并通过启动校验，准备安装：" + preparedUpdate.Offer.Tag) :
+                    !string.IsNullOrWhiteSpace(updatePreparationError) ?
+                        "更新准备失败：" + updatePreparationError :
                     available ? "发现可用更新：" + offeredUpdate.Tag :
                         updateCheckFailed ? "暂时无法连接 GitHub。可检测线路后重试。" :
                         "当前通道没有已确认的更高版本。";
@@ -3088,9 +3142,11 @@ namespace BlockCraftLauncher.Wpf
             {
                 var candidate = await autoUpdater.CheckAsync(updateCancellation.Token);
                 if (updateCancellation.IsCancellationRequested || settings.UpdateChannel != channel) return;
-                if (offeredUpdate?.Tag != candidate?.Tag ||
-                    offeredUpdate?.Mode != candidate?.Mode)
+                if (!LauncherAutoUpdateService.SameOffer(offeredUpdate, candidate))
+                {
                     preparedUpdate = null;
+                    updatePreparationError = null;
+                }
                 offeredUpdate = candidate;
                 settings.LastUpdateCheckUtc = DateTime.UtcNow;
                 try { store.Save(settings); }
@@ -3130,6 +3186,7 @@ namespace BlockCraftLauncher.Wpf
             if (updatePreparing || offeredUpdate == null ||
                 updateCancellation.IsCancellationRequested) return;
             updatePreparing = true;
+            updatePreparationError = null;
             if (updateProgressBar != null)
             {
                 updateProgressBar.Visibility = Visibility.Visible;
@@ -3159,14 +3216,18 @@ namespace BlockCraftLauncher.Wpf
                 });
                 var stage = await autoUpdater.PrepareAsync(
                     selected, updateCancellation.Token, progress);
-                if (updateCancellation.IsCancellationRequested || offeredUpdate != selected)
+                if (updateCancellation.IsCancellationRequested ||
+                    !LauncherAutoUpdateService.SameOffer(offeredUpdate, selected))
                     return;
                 preparedUpdate = stage;
-                Status("更新 " + selected.Tag + " 已下载并通过完整性与启动自检；等待安装确认。");
+                Status(settings.AutoInstallUpdatesOnExit ?
+                    "更新 " + selected.Tag + " 已校验，正常关闭启动器时安装。" :
+                    "更新 " + selected.Tag + " 已校验，可以安装。");
             }
             catch (OperationCanceledException) when (updateCancellation.IsCancellationRequested) { }
             catch (Exception ex)
             {
+                updatePreparationError = ex.GetBaseException().Message;
                 if (interactive) ShowError("下载或校验更新失败", ex);
                 else Log("后台预下载失败：" + ex.GetType().Name);
             }
@@ -3188,7 +3249,7 @@ namespace BlockCraftLauncher.Wpf
                 await CheckLauncherUpdatesAsync(true);
                 if (offeredUpdate == null) return;
             }
-            if (preparedUpdate == null || preparedUpdate.Offer != offeredUpdate)
+            if (!LauncherAutoUpdateService.SameOffer(preparedUpdate?.Offer, offeredUpdate))
                 await PrepareLauncherUpdateAsync(true);
             if (preparedUpdate == null) return;
 
@@ -3232,7 +3293,7 @@ namespace BlockCraftLauncher.Wpf
                 await CheckLauncherUpdatesAsync(true);
                 if (offeredUpdate == null) return;
             }
-            if (preparedUpdate == null || preparedUpdate.Offer != offeredUpdate)
+            if (!LauncherAutoUpdateService.SameOffer(preparedUpdate?.Offer, offeredUpdate))
                 await PrepareLauncherUpdateAsync(true);
             if (preparedUpdate == null) return;
 
@@ -3248,7 +3309,13 @@ namespace BlockCraftLauncher.Wpf
                     "；原 EXE 路径保持不变，完成后自动打开新版并清理临时文件。");
                 Application.Current.Shutdown();
             }
-            catch (Exception ex) { ShowError("无法启动独立更新程序", ex); }
+            catch (Exception ex)
+            {
+                preparedUpdate = null;
+                updatePreparationError = ex.GetBaseException().Message;
+                RefreshLauncherUpdatePanel();
+                ShowError("无法启动独立更新程序", ex);
+            }
         }
 
         // Shared two-column settings rows, matching the PCL2-style label /
@@ -3258,12 +3325,25 @@ namespace BlockCraftLauncher.Wpf
             var form = new Grid { Margin = new Thickness(2, 7, 0, 0) };
             form.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) });
             form.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            form.SizeChanged += (sender, args) =>
+            {
+                if (!args.WidthChanged) return;
+                bool stacked = args.NewSize.Width < 420;
+                if (stacked == (form.ColumnDefinitions[0].Width.Value == 0)) return;
+                form.ColumnDefinitions[0].Width = new GridLength(stacked ? 0 : 130);
+                for (int row = 0; row < form.Children.Count; row += 2)
+                {
+                    Grid.SetColumn(form.Children[row], stacked ? 1 : 0);
+                    Grid.SetRow(form.Children[row + 1], stacked ? row + 1 : row);
+                }
+            };
             return form;
         }
 
         static void SettingRow(Grid form, string name, FrameworkElement editor, string description = null)
         {
             int row = form.RowDefinitions.Count;
+            form.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             form.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             var title = new Label
             {
@@ -3275,13 +3355,8 @@ namespace BlockCraftLauncher.Wpf
             Place(form, title, row, 0);
 
             var right = new StackPanel { Margin = new Thickness(0, 0, 0, 12) };
-            if (!double.IsPositiveInfinity(editor.MaxWidth))
-            {
-                editor.Width = editor.MaxWidth;
-                editor.HorizontalAlignment = HorizontalAlignment.Left;
-            }
-            else
-                editor.HorizontalAlignment = HorizontalAlignment.Stretch;
+            editor.HorizontalAlignment = double.IsPositiveInfinity(editor.MaxWidth) ?
+                HorizontalAlignment.Stretch : HorizontalAlignment.Left;
             if (editor is TextBox input)
             {
                 input.MinWidth = 100;
@@ -3297,6 +3372,17 @@ namespace BlockCraftLauncher.Wpf
                 right.Children.Add(note);
             }
             Place(form, right, row, 1);
+        }
+
+        Grid DirectoryEditor(TextBox input)
+        {
+            var editor = new Grid();
+            editor.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            editor.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            AutomationProperties.SetName(input, input == settingsRoot ? "游戏根目录" : "下载缓存目录");
+            Place(editor, input, 0, 0);
+            Place(editor, Btn("选择文件夹", () => ChooseFolder(input)), 0, 1);
+            return editor;
         }
 
         UIElement BuildSettings(string page)
@@ -3347,7 +3433,7 @@ namespace BlockCraftLauncher.Wpf
             var game = SettingsForm();
             settingsRoot = new TextBox { Text = settings.Root, ToolTip = "Minecraft 根目录（含 versions、libraries 等）" };
             SettingRow(game, "游戏根目录",
-                Row(settingsRoot, Btn("选择文件夹", () => ChooseFolder(settingsRoot))),
+                DirectoryEditor(settingsRoot),
                 "游戏本体、模组和资源包仍安装在对应 Minecraft 实例中；改动不会自动移动现有游戏。");
             settingsJava = new TextBox { Text = settings.JavaPath, ToolTip = "留空时由启动组件自动选择 Java" };
             SettingRow(game, "Java 路径", settingsJava, "留空时自动查找 Java。");
@@ -3356,7 +3442,7 @@ namespace BlockCraftLauncher.Wpf
             settingsMemory = new TextBox { Text = settings.MemoryMb.ToString(), MaxWidth = 180 };
             SettingRow(game, "游戏内存（MB）", settingsMemory, "至少 512 MB，例如 4096。");
             AddPage("设置", "启动设置", "配置游戏目录、Java 和运行内存。", game,
-                Btn("同一移动硬盘设置游戏与下载目录", ChooseSameDiskPaths),
+                Btn("同盘设置游戏与下载目录", ChooseSameDiskPaths),
                 Btn("打开游戏目录", OpenGameFolder));
 
             var network = SettingsForm();
@@ -3381,11 +3467,8 @@ namespace BlockCraftLauncher.Wpf
                 ToolTip = "例如 D:\\BlockCraftDownloads（用于启动器更新和整合包临时文件）"
             };
             SettingRow(network, "下载缓存目录",
-                Row(settingsDownloadDirectory,
-                    Btn("选择文件夹", () => ChooseFolder(settingsDownloadDirectory))),
-                "存放启动器更新包与整合包下载缓存，可放到 D/E 盘；" +
-                "Minecraft 版本和模组仍安装在游戏根目录。游戏和缓存可在同一块移动硬盘，" +
-                "但必须位于不同文件夹，例如 E:\\BlockCraftLauncher\\Minecraft 和 E:\\BlockCraftLauncher\\Downloads。");
+                DirectoryEditor(settingsDownloadDirectory),
+                "存放启动器更新包和整合包缓存。可与游戏根目录共用本地磁盘、U 盘或移动硬盘上的父文件夹。");
             settingsDownloadThreads = new TextBox { Text = settings.DownloadThreads.ToString(), MaxWidth = 130 };
             SettingRow(network, "并发连接", settingsDownloadThreads, "2～32 个连接");
             settingsDownloadRetries = new TextBox { Text = settings.DownloadRetries.ToString(), MaxWidth = 130 };
@@ -3436,7 +3519,7 @@ namespace BlockCraftLauncher.Wpf
             var networkPage = AddPage("下载设置", "下载设置",
                 "自定义下载缓存目录、线路、并发数和资源来源。", network,
                 probe,
-                Btn("移动硬盘：同时设置游戏与下载目录", ChooseSameDiskPaths),
+                Btn("同盘设置游戏与下载目录", ChooseSameDiskPaths),
                 Btn("恢复默认下载路径", () =>
                 {
                     settingsDownloadDirectory.Text = DownloadPathService.DefaultDirectory;
@@ -3486,7 +3569,11 @@ namespace BlockCraftLauncher.Wpf
             settingsAutoInstallOnExit = new CheckBox
             {
                 IsChecked = settings.AutoInstallUpdatesOnExit,
-                Content = "正常关闭启动器时自动替换原 EXE"
+                Content = new TextBlock
+                {
+                    Text = "正常关闭启动器时自动替换原 EXE",
+                    TextWrapping = TextWrapping.Wrap
+                }
             };
             SettingRow(updates, "自动安装", settingsAutoInstallOnExit,
                 "可选：同时启用自动检查与自动下载。仅在更新已校验完成后，" +
@@ -3497,13 +3584,9 @@ namespace BlockCraftLauncher.Wpf
         }
         void ChooseSameDiskPaths()
         {
-            // External USB hard drives can be reported as Fixed drives by
-            // Windows. Pick a folder on ANY local drive and generate two
-            // sibling directories, never two identical/nested directories.
-            // Existing Minecraft profiles and worlds are not migrated.
             using (var picker = new System.Windows.Forms.FolderBrowserDialog
             {
-                Description = "选择移动硬盘盘符或其下的父文件夹；启动器将分别使用 Minecraft 和 Downloads 子文件夹",
+                Description = "在本地磁盘、U 盘或移动硬盘上选择或新建一个文件夹。游戏和下载缓存分别放入 Minecraft 和 Downloads。",
                 ShowNewFolderButton = true
             })
             {
@@ -3522,15 +3605,13 @@ namespace BlockCraftLauncher.Wpf
                 if (!DownloadPathService.TryPlanSameDiskFolders(
                     picker.SelectedPath, out var game, out var cache, out var error))
                 {
-                    Status("移动硬盘路径不适用：" + error);
+                    Status("所选文件夹不可用：" + error);
                     return;
                 }
                 if (settingsRoot != null) settingsRoot.Text = game;
                 if (settingsDownloadDirectory != null)
                     settingsDownloadDirectory.Text = cache;
-                Status("已将游戏根目录设为 " + game +
-                    "，下载缓存设为 " + cache +
-                    "。两者在同一磁盘的不同文件夹；点击“保存设置”后生效。");
+                Status("已填写 " + game + " 和 " + cache + "。点击“保存设置”生效。");
             }
         }
 
@@ -3548,6 +3629,14 @@ namespace BlockCraftLauncher.Wpf
                 if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
                     target.Text = dialog.SelectedPath;
             }
+        }
+
+        static void CheckWritableDirectory(string directory)
+        {
+            Directory.CreateDirectory(directory);
+            string probe = Path.Combine(directory, ".blockcraft-write-check-" + Guid.NewGuid().ToString("N"));
+            using (new FileStream(probe, FileMode.CreateNew, FileAccess.Write,
+                FileShare.None, 4096, FileOptions.DeleteOnClose)) { }
         }
 
         void SaveSettings()
@@ -3571,19 +3660,25 @@ namespace BlockCraftLauncher.Wpf
             }
             try
             {
-                Directory.CreateDirectory(downloadDirectory);
-                // Test writability before accepting a new drive. Never clear
-                // existing user files or silently fall back to C:.
-                string probe = Path.Combine(downloadDirectory,
-                    ".blockcraft-write-check-" + Guid.NewGuid().ToString("N"));
-                try { File.WriteAllText(probe, "ok"); }
-                finally { if (File.Exists(probe)) File.Delete(probe); }
+                CheckWritableDirectory(downloadDirectory);
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
                 Navigate("下载设置");
                 Status("下载缓存目录不可写：" + ex.Message);
                 return;
+            }
+            if (!string.Equals(gameRoot, settings.Root, StringComparison.OrdinalIgnoreCase))
+            {
+                try { CheckWritableDirectory(gameRoot); }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException ||
+                    ex is ArgumentException || ex is NotSupportedException)
+                {
+                    Navigate("设置");
+                    Status("游戏根目录不可用：" + ex.Message);
+                    settingsRoot?.Focus();
+                    return;
+                }
             }
             settings.Root = gameRoot;
             settings.DownloadDirectory = downloadDirectory;
@@ -3617,6 +3712,7 @@ namespace BlockCraftLauncher.Wpf
             {
                 settings.UpdateChannel = selectedUpdateChannel.Key;
                 updateCheckFailed = false;
+                updatePreparationError = null;
                 offeredUpdate = null;
                 preparedUpdate = null;
                 settings.LastUpdateCheckUtc = DateTime.MinValue;

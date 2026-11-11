@@ -143,7 +143,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 resolvedPath == portableCache,
                 "同一磁盘不同文件夹的游戏和下载目录必须允许保存");
             string baseDirectory = Path.Combine(Path.GetTempPath(),
-                "Portable-BlockCraft-" + Guid.NewGuid().ToString("N"));
+                "我的启动器 " + Guid.NewGuid().ToString("N"));
             Require(DownloadPathService.TryPlanSameDiskFolders(baseDirectory,
                 out var selectedGame, out var selectedCache, out portableError) &&
                 selectedGame == Path.Combine(baseDirectory, "Minecraft") &&
@@ -322,6 +322,18 @@ namespace BlockCraftLauncher.Wpf.Services
                     Require(LauncherAutoUpdateService.ShouldAutoInstallOnExit(
                         automatic, preparedOne, rcOne, false, false),
                         "用户授权的已准备包应允许退出时原位替换");
+                    var refreshed = new LauncherUpdateOffer
+                    {
+                        Tag = rcOne.Tag, Mode = rcOne.Mode, AssetName = rcOne.AssetName,
+                        AssetUrl = rcOne.AssetUrl, ManifestUrl = rcOne.ManifestUrl, AssetSize = rcOne.AssetSize
+                    };
+                    Require(LauncherAutoUpdateService.ShouldAutoInstallOnExit(
+                        automatic, preparedOne, refreshed, false, false),
+                        "重复检查同一个发布包后应继续安装已校验的更新");
+                    refreshed.AssetSize++;
+                    Require(!LauncherAutoUpdateService.ShouldAutoInstallOnExit(
+                        automatic, preparedOne, refreshed, false, false),
+                        "已替换的发布包须重新下载验证");
                     automatic.AutoInstallUpdatesOnExit = false;
                     Require(!LauncherAutoUpdateService.ShouldAutoInstallOnExit(
                         automatic, preparedOne, rcOne, false, false),
