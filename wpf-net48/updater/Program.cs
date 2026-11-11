@@ -703,6 +703,28 @@ namespace BlockCraftLauncher.Updater
                 if (File.Exists(legacyBackup) || !File.Exists(notOurs))
                     throw new Exception("清理旧版 EXE 时删除了非启动器文件");
 
+                // Custom download roots are never deleted wholesale, and a
+                // named stage requires an exact marker before helper cleanup.
+                string external = Path.Combine(root, "external-cache", "updates");
+                string stageName = "staged-" + Guid.NewGuid().ToString("N");
+                string customStage = Path.Combine(external, stageName);
+                Directory.CreateDirectory(customStage);
+                File.WriteAllText(Path.Combine(customStage, "personal-data.txt"),
+                    "not eligible until marked", Encoding.ASCII);
+                if (OwnedStageDirectory(customStage, external) != null)
+                    throw new Exception("没有标记的自定义缓存不允许自动删除");
+                File.WriteAllText(Path.Combine(customStage, ".blockcraft-stage"),
+                    "BlockCraftLauncher update staging v1", Encoding.ASCII);
+                if (OwnedStageDirectory(Path.Combine(customStage, "unpacked", "payload"),
+                    external) != customStage ||
+                    OwnedStageDirectory(Path.Combine(root, "unrelated"), external) != null)
+                    throw new Exception("自定义下载路径的暂存目录边界验证失败");
+                string unsafeFile = Path.Combine(external, "other-user-file.txt");
+                File.WriteAllText(unsafeFile, "keep", Encoding.ASCII);
+                CleanupOwnedStage(Path.Combine(customStage, "unpacked", "payload"), external);
+                if (Directory.Exists(customStage) || !File.Exists(unsafeFile))
+                    throw new Exception("清理自定义缓存时误删非启动器文件");
+
                 // The directory updater must also restore DLLs and the main
                 // WPF executable when its post-install smoke test fails.
                 string fullStage = Path.Combine(root, "full-package");
