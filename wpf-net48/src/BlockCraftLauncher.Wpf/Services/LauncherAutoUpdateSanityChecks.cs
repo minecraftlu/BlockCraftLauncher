@@ -127,6 +127,43 @@ namespace BlockCraftLauncher.Wpf.Services
                 out var resolvedPath, out var pathError) &&
                 resolvedPath == Path.GetFullPath(downloadsRoot),
                 "应允许将下载缓存设在独立的本地磁盘目录");
+            // USB HDDs frequently appear as Fixed disks, not Removable.
+            // Both settings may live on the SAME drive if they are separate
+            // sibling directories; neither must be on C: specifically.
+            string drive = Path.GetPathRoot(gameRoot);
+            Require(DownloadPathService.TryPlanSameDiskFolders(drive,
+                out var portableGame, out var portableCache, out var portableError) &&
+                portableGame == Path.Combine(drive, "BlockCraftLauncher", "Minecraft") &&
+                portableCache == Path.Combine(drive, "BlockCraftLauncher", "Downloads") &&
+                string.Equals(Path.GetPathRoot(portableGame),
+                    Path.GetPathRoot(portableCache), StringComparison.OrdinalIgnoreCase),
+                "选择移动硬盘根目录后必须生成同盘的两个独立子目录");
+            Require(DownloadPathService.TryValidate(portableCache,
+                portableGame, out resolvedPath, out pathError) &&
+                resolvedPath == portableCache,
+                "同一磁盘不同文件夹的游戏和下载目录必须允许保存");
+            string baseDirectory = Path.Combine(Path.GetTempPath(),
+                "Portable-BlockCraft-" + Guid.NewGuid().ToString("N"));
+            Require(DownloadPathService.TryPlanSameDiskFolders(baseDirectory,
+                out var selectedGame, out var selectedCache, out portableError) &&
+                selectedGame == Path.Combine(baseDirectory, "Minecraft") &&
+                selectedCache == Path.Combine(baseDirectory, "Downloads") &&
+                DownloadPathService.TryValidate(selectedCache, selectedGame,
+                    out resolvedPath, out pathError),
+                "移动硬盘已选父目录也要生成可用的兄弟文件夹");
+            Require(!DownloadPathService.TryValidate(baseDirectory, selectedGame,
+                out resolvedPath, out pathError),
+                "下载缓存不能选成包含 Minecraft 的共同父目录");
+            Require(!DownloadPathService.TryValidate(selectedGame, selectedGame,
+                out resolvedPath, out pathError),
+                "同一目录不能同时作为游戏和下载缓存");
+            Require(!DownloadPathService.TryPlanSameDiskFolders(@"\\server\\share",
+                out var unsafeGame, out var unsafeCache, out portableError),
+                "不能通过移动硬盘配置绕过网络共享限制");
+            Require(!DownloadPathService.TryPlanSameDiskFolders(
+                drive.Substring(0, 2) + "relative",
+                out unsafeGame, out unsafeCache, out portableError),
+                "不能把盘符相对路径当作已插入的移动硬盘绝对路径");
             Require(!DownloadPathService.TryValidate("relative\\downloads",
                 gameRoot, out resolvedPath, out pathError),
                 "拒绝相对路径");
@@ -369,7 +406,8 @@ namespace BlockCraftLauncher.Wpf.Services
                 var settings = new LauncherConfig {
                     AutoCheckUpdates = true, AutoDownloadUpdates = true,
                     AutoInstallUpdatesOnExit = true,
-                    DownloadDirectory = Path.Combine(folder, "custom-downloads"),
+                    Root = Path.Combine(folder, "portable", "Minecraft"),
+                    DownloadDirectory = Path.Combine(folder, "portable", "Downloads"),
                     UpdateChannel = "preview",
                     LastUpdateCheckUtc = new DateTime(2026, 11, 10, 0, 0, 0, DateTimeKind.Utc)
                 };
@@ -377,6 +415,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 var restored = store.Load();
                 Require(restored.AutoCheckUpdates && restored.AutoDownloadUpdates &&
                     restored.AutoInstallUpdatesOnExit &&
+                    restored.Root == settings.Root &&
                     restored.DownloadDirectory == settings.DownloadDirectory &&
                     restored.UpdateChannel == "preview" &&
                     restored.LastUpdateCheckUtc.Year == 2026,
