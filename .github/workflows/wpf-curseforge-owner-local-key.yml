@@ -49,7 +49,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
-          $run = Start-Process -FilePath $exe -ArgumentList '--layout-selftest' -PassThru
+          $run = Start-Process -FilePath $exe -ArgumentList '--ui-layout-selftest' -PassThru
           if (-not $run.WaitForExit(60000)) { $run.Kill(); throw 'WPF layout selftest timeout' }
           $run.Refresh()
           if ($run.ExitCode -ne 0) { throw "WPF layout selftest exit $($run.ExitCode)" }
