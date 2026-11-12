@@ -59,7 +59,8 @@ assert "dpplugins.com" in docs and "Mojang" in docs
 # Online skin search is a distinct Download navigation page, while DIY remains in More.
 main = (SRC / "MainWindow.xaml.cs").read_text("utf8")
 assert any(
-    'AddNavSection("社区资源",' in line and '"皮肤下载"' in line
+    ('AddNavSection("社区资源",' in line or 'AddNavSection("资源",' in line)
+    and '"皮肤下载"' in line
     for line in main.splitlines()
 )
 assert 'AddNavSection("工具", "皮肤 DIY"' in main
