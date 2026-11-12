@@ -34,7 +34,13 @@ cf = (src / "Services/CurseForgeMirrorClient.cs").read_text("utf8")
 for symbol in ("RequireEnabled", "AllowedDownload", "MaxDependencies", "DownloadVerifiedAsync",
                "relationType", "File.Exists(dest)", "SHA-1"):
     assert symbol in cf, symbol
-assert 'x-api-key' not in cf.lower()
+# Official CurseForge API support was explicitly approved for the project.
+# The header must be restricted to the owner-local official endpoints, not
+# absent entirely. Private key bytes must never appear in repo source.
+assert '"x-api-key"' in cf.lower()
+assert 'MaySendOwnerKey(url)' in cf and 'allowRedirects: false' in cf
+assert 'BLOCKCRAFT_CURSEFORGE_API_KEY' in cf
+assert 'mod.mcimirror.top' in cf and 'DownloadFromOfficialCdnAsync' in cf
 assert "settings.McimEnabled = settingsMcim?.IsChecked == true;" in main
 
 update = (src / "Services/ManagedModUpdateService.cs").read_text("utf8")
