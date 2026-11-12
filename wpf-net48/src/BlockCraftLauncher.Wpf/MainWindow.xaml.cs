@@ -1516,6 +1516,12 @@ namespace BlockCraftLauncher.Wpf
                 throw new InvalidOperationException("PCL 顶部导航或侧边栏控件缺失");
             if (PageScroll.HorizontalScrollBarVisibility != ScrollBarVisibility.Disabled)
                 throw new InvalidOperationException("内容页出现不允许的横向滚动");
+            if (ResizeMode != ResizeMode.CanMinimize ||
+                MaximizeButton.Visibility != Visibility.Collapsed ||
+                MaximizeButton.IsEnabled ||
+                System.Windows.Shell.WindowChrome.GetWindowChrome(this)?.ResizeBorderThickness.Left != 0 ||
+                Width > 960 || Height > 600)
+                throw new InvalidOperationException("启动器窗口未锁定在 PCL 风格的固定尺寸");
             if (FindResource("ResourceItemTemplate") == null ||
                 FindResource("VersionItemTemplate") == null ||
                 FindResource("DownloadItemTemplate") == null ||
@@ -1556,7 +1562,7 @@ namespace BlockCraftLauncher.Wpf
             if (profileList?.ItemTemplate == null || profileList.SelectedItem != sampleProfile ||
                 ContextNavigation.Visibility != Visibility.Visible)
                 throw new InvalidOperationException("版本选择没有显示已安装版本");
-            ArrangeLayoutProbe(1080, 680, "02-versions");
+            ArrangeLayoutProbe(960, 600, "02-versions");
             OpenVersionSettings("版本选择");
             Navigate("模组更新");
             if (localResourceList?.ItemTemplate == null || sidebarButtons.Count != 3)
@@ -1600,13 +1606,13 @@ namespace BlockCraftLauncher.Wpf
             });
             resourceQuery.Text = "示例筛选";
             resourceList.SelectedIndex = 0;
-            ArrangeLayoutProbe(1080, 680, "03-download");
+            ArrangeLayoutProbe(960, 600, "03-download");
             string originalTheme = settings.Theme;
             try
             {
                 settings.Theme = "深色";
                 ApplyTheme();
-                ArrangeLayoutProbe(1080, 680, "06-dark-download");
+                ArrangeLayoutProbe(960, 600, "06-dark-download");
             }
             finally
             {
@@ -1649,7 +1655,7 @@ namespace BlockCraftLauncher.Wpf
                     AutomationProperties.GetName(list) == "兼容的模组文件") ||
                 DetailHost.Content != null || !ReferenceEquals(PageHost.Content, unifiedPage))
                 throw new InvalidOperationException("CurseForge 文件选择未显示在同一页面。");
-            ArrangeLayoutProbe(1280, 780, "03-mod-download-curseforge");
+            ArrangeLayoutProbe(960, 600, "03-mod-download-curseforge");
             ArrangeLayoutProbe(850, 560, "03-mod-download-curseforge-narrow");
             modTarget.SelectedItem = null;
             modPanel = (modDetailsHost.Content as Border)?.Child as StackPanel;
@@ -1732,7 +1738,7 @@ namespace BlockCraftLauncher.Wpf
                 sidebarButtons.ContainsKey("皮肤 DIY"))
                 throw new InvalidOperationException("皮肤下载未在下载分类中单独打开");
             skinStudio.VerifyOfflineLayout();
-            skinStudio.VerifyOnlinePreviewLayout(() => ArrangeLayoutProbe(1080, 680, "10-skin-gallery"));
+            skinStudio.VerifyOnlinePreviewLayout(() => ArrangeLayoutProbe(960, 600, "10-skin-gallery"));
             Navigate("皮肤库");
             if (skinStudio == null || PageHost.Content != skinStudio ||
                 !skinStudio.LibraryMode || !sidebarButtons.ContainsKey("皮肤库"))
@@ -1745,13 +1751,13 @@ namespace BlockCraftLauncher.Wpf
                 sidebarButtons.ContainsKey("皮肤下载"))
                 throw new InvalidOperationException("皮肤 DIY 未独立于下载分类");
             skinStudio.VerifyOfflineLayout();
-            ArrangeLayoutProbe(1080, 680, "04-skin");
+            ArrangeLayoutProbe(960, 600, "04-skin");
             skinStudio.Verify3DRenderedPixels();
 
             Navigate("启动器更新");
             if (PageHost.Content == null || PostponeUpdateButton.Visibility != Visibility.Collapsed)
                 throw new InvalidOperationException("启动器更新页或重启控件初始化错误");
-            ArrangeLayoutProbe(1080, 680, "09-launcher-updates");
+            ArrangeLayoutProbe(960, 600, "09-launcher-updates");
 
             Navigate("运行日志");
             ArrangeLayoutProbe(960, 600, "15-log");
