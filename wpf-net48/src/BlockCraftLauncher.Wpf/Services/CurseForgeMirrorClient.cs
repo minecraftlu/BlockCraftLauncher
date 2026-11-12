@@ -38,6 +38,11 @@ namespace BlockCraftLauncher.Wpf.Services
         public override string ToString() => Name;
     }
 
+    internal sealed class CurseForgeDownloadFile : ModDownloadFile
+    {
+        public IReadOnlyList<long> RequiredProjects { get; set; }
+    }
+
     public sealed class CurseForgeMirrorClient : IDisposable
     {
         const string MirrorApi = "https://mod.mcimirror.top/curseforge/v1";
@@ -143,10 +148,13 @@ namespace BlockCraftLauncher.Wpf.Services
             return envelope;
         }
 
-        async Task<Dictionary<string, object>> OfficialGetAsync(string path, CancellationToken ct)
+        async Task<Dictionary<string, object>> OfficialRequestAsync(string path, CancellationToken ct,
+            long[] modIds = null)
         {
-            if (!path.StartsWith("/mods/", StringComparison.Ordinal) &&
-                !path.StartsWith("/categories?", StringComparison.Ordinal))
+            bool supported = modIds == null
+                ? path.StartsWith("/mods/", StringComparison.Ordinal) || path.StartsWith("/categories?", StringComparison.Ordinal)
+                : path == "/mods";
+            if (!supported)
                 throw new InvalidOperationException("CurseForge 官方接口路径无效。");
             string url = OfficialApi + path;
             if (!MaySendOwnerKey(url))
@@ -158,9 +166,12 @@ namespace BlockCraftLauncher.Wpf.Services
                 ct.ThrowIfCancellationRequested();
                 try
                 {
-                    using (var request = new HttpRequestMessage(HttpMethod.Get, url))
+                    using (var request = new HttpRequestMessage(modIds == null ? HttpMethod.Get : HttpMethod.Post, url))
                     {
                         request.Headers.TryAddWithoutValidation("x-api-key", officialKey);
+                        if (modIds != null)
+                            request.Content = new StringContent(json.Serialize(new { modIds }),
+                                Encoding.UTF8, "application/json");
                         using (var response = await NetworkDownloader.SendWithHeaderTimeoutAsync(
                             official, request, TimeSpan.FromSeconds(12), ct).ConfigureAwait(false))
                         using (var memory = new MemoryStream())
@@ -195,7 +206,7 @@ namespace BlockCraftLauncher.Wpf.Services
         {
             RequireEnabled();
             if (!useMirror)
-                return await OfficialGetAsync(path, ct).ConfigureAwait(false);
+                return await OfficialRequestAsync(path, ct).ConfigureAwait(false);
             return await net.GetMetadataWithFallbackAsync(MirrorApi + path, "official",
                 body => ParseEnvelope(json, body), ct).ConfigureAwait(false);
         }
@@ -378,6 +389,26 @@ namespace BlockCraftLauncher.Wpf.Services
                 .OrderBy(row => row.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
         }
 
+        internal async Task<IReadOnlyDictionary<long, string>> GetDependencyNamesAsync(
+            IEnumerable<long> projectIds, CancellationToken ct)
+        {
+            RequireEnabled();
+            if (useMirror) throw new InvalidOperationException("前置项目名称查询需要 CurseForge 官方来源。");
+            var ids = projectIds.Where(id => id > 0).Distinct().Take(MaxDependencies).ToArray();
+            var names = new Dictionary<long, string>();
+            if (ids.Length == 0) return names;
+            var response = await OfficialRequestAsync("/mods", ct, ids).ConfigureAwait(false);
+            var rows = Value(response, "data") as object[];
+            if (rows == null) throw new InvalidDataException("CurseForge 前置项目列表格式无效。");
+            foreach (var row in rows.OfType<Dictionary<string, object>>())
+            {
+                if (!long.TryParse(Text(row, "id"), out long id) || !ids.Contains(id)) continue;
+                string name = Truncated(Text(row, "name"), 95);
+                if (name.Length > 0) names[id] = name;
+            }
+            return names;
+        }
+
         static bool HasNextPage(Dictionary<string, object> envelope, int page, int pageSize, int count)
         {
             int nextIndex = (page + 1) * pageSize;
@@ -469,16 +500,21 @@ namespace BlockCraftLauncher.Wpf.Services
                 throw new InvalidDataException("模组版本列表格式异常");
             return raw.OfType<Dictionary<string, object>>().Where(file => Compatible(file, profile))
                 .OrderByDescending(file => Text(file, "fileDate"))
-                .Select(file => new ModDownloadFile
+                .Select(file =>
                 {
-                    VersionId = Id(file, "id").ToString(),
-                    FileName = Text(file, "fileName"),
-                    DisplayName = Truncated(Text(file, "displayName"), 95).Length > 0
-                        ? Truncated(Text(file, "displayName"), 95) : Truncated(Text(file, "fileName"), 95),
-                    Published = Truncated(Text(file, "fileDate"), 10),
-                    Release = Text(file, "releaseType") == "1" ? "正式版" :
-                        Text(file, "releaseType") == "2" ? "Beta" : "Alpha",
-                    RequiredDependencies = RequiredProjects(file).Count()
+                    var dependencies = RequiredProjects(file).ToArray();
+                    string name = Truncated(Text(file, "displayName"), 95);
+                    return new CurseForgeDownloadFile
+                    {
+                        VersionId = Id(file, "id").ToString(),
+                        FileName = Text(file, "fileName"),
+                        DisplayName = name.Length > 0 ? name : Truncated(Text(file, "fileName"), 95),
+                        Published = Truncated(Text(file, "fileDate"), 10),
+                        Release = Text(file, "releaseType") == "1" ? "正式版" :
+                            Text(file, "releaseType") == "2" ? "Beta" : "Alpha",
+                        RequiredDependencies = dependencies.Length,
+                        RequiredProjects = dependencies
+                    };
                 }).ToArray();
         }
 

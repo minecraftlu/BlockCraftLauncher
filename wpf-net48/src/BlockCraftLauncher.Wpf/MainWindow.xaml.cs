@@ -198,6 +198,7 @@ namespace BlockCraftLauncher.Wpf
                 CancelAndDetach(ref resourceSearchCancellation);
                 CancelAndDetach(ref modCategoryCancellation);
                 CancelAndDetach(ref modFileCancellation);
+                CancelAndDetach(ref modDependencyCancellation);
                 gameProcesses.Dispose(); // Does not terminate the Minecraft game.
             };
         }
@@ -577,6 +578,7 @@ namespace BlockCraftLauncher.Wpf
             CancelAndDetach(ref resourceSearchCancellation);
             CancelAndDetach(ref modCategoryCancellation);
             CancelAndDetach(ref modFileCancellation);
+            CancelAndDetach(ref modDependencyCancellation);
             modDetailsHost = null;
             CancelAndDetach(ref packSearchCancellation);
             CancelAndDetach(ref serverFinderCancellation);
@@ -1396,12 +1398,13 @@ namespace BlockCraftLauncher.Wpf
             resourceSearchCancellation = finishedCancellation;
             modCategoryCancellation = finishedCancellation;
             modFileCancellation = finishedCancellation;
+            modDependencyCancellation = finishedCancellation;
             packSearchCancellation = finishedCancellation;
             serverFinderCancellation = finishedCancellation;
             Navigate("局域网");
             if (localModIconLoad != null ||
                 resourceSearchCancellation != null ||
-                modCategoryCancellation != null || modFileCancellation != null ||
+                modCategoryCancellation != null || modFileCancellation != null || modDependencyCancellation != null ||
                 packSearchCancellation != null ||
                 serverFinderCancellation != null)
                 throw new InvalidOperationException(

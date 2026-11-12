@@ -1,6 +1,6 @@
 namespace BlockCraftLauncher.Wpf.Services
 {
-    internal sealed class ModDownloadFile
+    internal class ModDownloadFile
     {
         public string VersionId { get; set; }
         public string DisplayName { get; set; }

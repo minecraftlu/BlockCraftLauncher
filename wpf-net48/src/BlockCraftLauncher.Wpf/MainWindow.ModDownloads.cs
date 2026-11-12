@@ -48,13 +48,14 @@ namespace BlockCraftLauncher.Wpf
 
         readonly Dictionary<ModSource, IReadOnlyList<CurseForgeCategory>> modCategories =
             new Dictionary<ModSource, IReadOnlyList<CurseForgeCategory>>();
+        readonly Dictionary<long, string> curseForgeDependencyNames = new Dictionary<long, string>();
         (ModSource Source, string Query, string Version, string Loader, int Sort, int Category)? resourceSearchFilters;
         ModSource? preferredModSource;
         bool resourceHasMore;
         ComboBox modTarget;
         TextBlock modSourceStatus;
         ContentControl modDetailsHost;
-        CancellationTokenSource modCategoryCancellation, modFileCancellation;
+        CancellationTokenSource modCategoryCancellation, modFileCancellation, modDependencyCancellation;
 
         ModSource SelectedModSource => resourceType == "mod" && resourceSource?.SelectedIndex >= 0
             ? (ModSource)resourceSource.SelectedIndex : ModSource.Modrinth;
@@ -350,6 +351,7 @@ namespace BlockCraftLauncher.Wpf
         void RefreshModDetails()
         {
             CancelAndDetach(ref modFileCancellation);
+            CancelAndDetach(ref modDependencyCancellation);
             if (modDetailsHost == null) return;
             var hit = resourceList.SelectedItem as ResourceHit;
             if (hit == null)
@@ -470,6 +472,7 @@ namespace BlockCraftLauncher.Wpf
             }
             picker.SelectionChanged += (sender, args) =>
             {
+                CancelAndDetach(ref modDependencyCancellation);
                 var file = picker.SelectedItem as ModDownloadFile;
                 if (install != null) install.IsEnabled = file != null;
                 if (save != null) save.IsEnabled = file != null;
@@ -477,6 +480,9 @@ namespace BlockCraftLauncher.Wpf
                     (file.RequiredDependencies == 0 ? "必需前置 0 项" :
                         "自动安装 " + file.RequiredDependencies + " 项直接前置及其必需依赖");
                 dependencyStatus.Visibility = file == null ? Visibility.Collapsed : Visibility.Visible;
+                if (IsLoaded && hit.Source == "CurseForge" &&
+                    file is CurseForgeDownloadFile detailsFile && detailsFile.RequiredProjects.Count > 0)
+                    _ = PreviewCurseForgeDependenciesAsync(detailsFile, dependencyStatus, profile != null);
             };
             dependencyStatus.Visibility = Visibility.Collapsed;
 
@@ -551,6 +557,41 @@ namespace BlockCraftLauncher.Wpf
             actions.Children.Add(more);
             details.Children.Add(actions);
             if (IsLoaded) _ = LoadFilesAsync();
+        }
+
+        async Task PreviewCurseForgeDependenciesAsync(CurseForgeDownloadFile file,
+            TextBlock status, bool install)
+        {
+            var missing = file.RequiredProjects.Where(id => !curseForgeDependencyNames.ContainsKey(id)).ToArray();
+            if (missing.Length > 0)
+            {
+                using (var request = new CancellationTokenSource(TimeSpan.FromSeconds(20)))
+                {
+                    modDependencyCancellation = request;
+                    try
+                    {
+                        using (var client = new CurseForgeMirrorClient(settings))
+                        {
+                            var names = await client.GetDependencyNamesAsync(missing, request.Token);
+                            if (!ReferenceEquals(modDependencyCancellation, request)) return;
+                            foreach (var entry in names) curseForgeDependencyNames[entry.Key] = entry.Value;
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        if (!ReferenceEquals(modDependencyCancellation, request)) return;
+                    }
+                    finally
+                    {
+                        if (ReferenceEquals(modDependencyCancellation, request)) modDependencyCancellation = null;
+                    }
+                }
+            }
+
+            var required = file.RequiredProjects.Select(id => curseForgeDependencyNames.TryGetValue(id, out string name)
+                ? name : "项目 #" + id);
+            status.Text = file.FileName + "\n必需前置 · " + string.Join("、", required) +
+                (install ? "\n安装时会同时处理这些前置。" : "");
         }
 
         void QueueCurseForgeSave(CurseForgeHit hit, ModDownloadFile file)

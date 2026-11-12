@@ -49,6 +49,11 @@ namespace BlockCraftLauncher.Wpf.Services
                     Require(firstPage.HasMore && olderPage.Files.Single().VersionId == "1002" &&
                         olderPage.Files[0].RequiredDependencies == 1 && !olderPage.HasMore,
                         "能从后续页选择精确文件，并区分必需和可选前置");
+                    var choice = (CurseForgeDownloadFile)olderPage.Files[0];
+                    var names = await client.GetDependencyNamesAsync(choice.RequiredProjects,
+                        CancellationToken.None).ConfigureAwait(false);
+                    Require(names.Count == 1 && names[202] == "Dependency",
+                        "批量查询所选文件的必需前置名称");
 
                     var installed = await client.InstallAsync(101, profile, null, CancellationToken.None,
                         1002).ConfigureAwait(false);
@@ -162,6 +167,11 @@ namespace BlockCraftLauncher.Wpf.Services
                         Require(uri.Query.Contains("categoryId=409") && uri.Query.Contains("gameVersion=1.21.1") &&
                             uri.Query.Contains("modLoaderType=4"), "筛选参数发送给官方 API");
                         return Json(new[] { new { id = 101, name = "Fixture" } }, 21);
+                    case "/v1/mods":
+                        Require(request.Method == HttpMethod.Post &&
+                            request.Content.ReadAsStringAsync().GetAwaiter().GetResult().Contains("\"modIds\":[202]"),
+                            "批量元数据请求只携带必需前置的项目 ID");
+                        return Json(new[] { new { id = 202, name = "Dependency" } });
                     case "/v1/mods/101":
                         return Json(new { id = 101, name = "Fixture", allowModDistribution = !Restricted });
                     case "/v1/mods/202":
