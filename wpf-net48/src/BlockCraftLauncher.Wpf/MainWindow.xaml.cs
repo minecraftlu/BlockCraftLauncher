@@ -134,6 +134,10 @@ namespace BlockCraftLauncher.Wpf
         public MainWindow()
         {
             InitializeComponent();
+            // PCL-style launcher window: the user can drag and minimize, but
+            // cannot resize or maximize it. On a small or high-DPI screen,
+            // reduce the initial bounds once so the close button remains usable.
+            ConfigureFixedLauncherWindow();
             settings = store.Load();
             autoUpdater = new LauncherAutoUpdateService(settings);
             minecraft = new MinecraftBackend(settings);
@@ -544,10 +548,27 @@ namespace BlockCraftLauncher.Wpf
         void CloseButton_Click(object sender, RoutedEventArgs e) => SystemCommands.CloseWindow(this);
         void MaximizeButton_Click(object sender, RoutedEventArgs e)
         {
-            if (WindowState == WindowState.Maximized)
-                SystemCommands.RestoreWindow(this);
+            // The hidden button is retained for XAML/code-behind compatibility;
+            // intentionally do not expose maximize while the window is fixed.
+        }
+
+        void ConfigureFixedLauncherWindow()
+        {
+            ResizeMode = ResizeMode.CanMinimize;
+            const double designWidth = 960, designHeight = 600;
+            var workArea = SystemParameters.WorkArea;
+            if (workArea.Width >= 660 && workArea.Height >= 440)
+            {
+                Width = Math.Min(designWidth, workArea.Width - 16);
+                Height = Math.Min(designHeight, workArea.Height - 16);
+            }
             else
-                SystemCommands.MaximizeWindow(this);
+            {
+                Width = designWidth;
+                Height = designHeight;
+            }
+            MaximizeButton.Visibility = Visibility.Collapsed;
+            MaximizeButton.IsEnabled = false;
         }
 
         protected override void OnStateChanged(EventArgs e)
@@ -774,17 +795,17 @@ namespace BlockCraftLauncher.Wpf
                 (byte)Math.Round(from.B * (1 - weight) + to.B * weight));
             double Luminance(Color color) => 0.2126 * color.ScR + 0.7152 * color.ScG + 0.0722 * color.ScB;
 
-            Set("WindowBrush", light ? "#F7FAFF" : "#172233");
-            Set("PageBrush", light ? "#EAF2FE" : "#141E2D");
-            Set("SidebarBrush", light ? "#FBFCFE" : "#1C2839");
+            Set("WindowBrush", light ? "#F6F9FF" : "#172233");
+            Set("PageBrush", light ? "#E8F1FD" : "#141E2D");
+            Set("SidebarBrush", light ? "#FCFDFF" : "#1C2839");
             Set("PanelBrush", light ? "#FFFFFF" : "#223146");
-            Set("PanelAltBrush", light ? "#F1F6FE" : "#293B54");
-            Set("TextBrush", light ? "#343D4A" : "#EEF4FC");
-            Set("MutedBrush", light ? "#5C6779" : "#ACBED5");
-            Set("BorderBrushTheme", light ? "#CFDCED" : "#3C526E");
+            Set("PanelAltBrush", light ? "#F2F7FF" : "#293B54");
+            Set("TextBrush", light ? "#374258" : "#EEF4FC");
+            Set("MutedBrush", light ? "#637389" : "#ACBED5");
+            Set("BorderBrushTheme", light ? "#CBD9EB" : "#3C526E");
             Set("InputBorderBrush", light ? "#B8C9DF" : "#536D8E");
             Set("HoverBrush", light ? "#EAF2FE" : "#2E4563");
-            Set("SelectedBrush", light ? "#D5E6FD" : "#324D70");
+            Set("SelectedBrush", light ? "#DBEAFE" : "#324D70");
             Set("BadgeBrush", light ? "#E0EAFD" : "#304A6B");
             Set("SoftDividerBrush", light ? "#E2EAF5" : "#374C65");
             Set("SearchSurfaceBrush", light ? "#FFFFFF" : "#223146");
@@ -796,7 +817,7 @@ namespace BlockCraftLauncher.Wpf
             bool defaultAccent = !IsHexColor(settings.Accent) ||
                 string.Equals(settings.Accent, "#1875CE", StringComparison.OrdinalIgnoreCase);
             var accent = (Color)ColorConverter.ConvertFromString(defaultAccent ? "#1370F3" : settings.Accent);
-            var header = Luminance(accent) > 0.25 ? Blend(accent, Colors.Black, 0.43) : accent;
+            var header = Luminance(accent) > 0.35 ? Blend(accent, Colors.Black, 0.20) : accent;
             SetBrush("AccentBrush", accent);
             Set("AccentTextBrush", Luminance(accent) > 0.179 ? "#000000" : "#FFFFFF");
             SetBrush("AccentInkBrush", light ? Blend(accent, Colors.Black, Luminance(accent) > 0.35 ? 0.55 : 0.19)
@@ -804,8 +825,8 @@ namespace BlockCraftLauncher.Wpf
             SetBrush("HeaderSelectionTextBrush", Blend(header, Colors.Black, 0.15));
             SetBrush("SecondaryAccentBrush", Blend(accent, Colors.White, 0.23));
             resources["TitleBarBrush"] = new LinearGradientBrush(
-                Blend(header, Colors.Black, light ? 0.10 : 0.32),
-                Blend(header, light ? Colors.White : Colors.Black, light ? 0.11 : 0.16), 0);
+                Blend(header, Colors.Black, light ? 0.03 : 0.32),
+                Blend(header, light ? Colors.White : Colors.Black, light ? 0.10 : 0.16), 0);
             resources["FeaturePanelBrush"] = new LinearGradientBrush(
                 (Color)ColorConverter.ConvertFromString(light ? "#FFFFFF" : "#253A53"),
                 (Color)ColorConverter.ConvertFromString(light ? "#F1F7FF" : "#223146"), 25);
@@ -825,9 +846,9 @@ namespace BlockCraftLauncher.Wpf
 
             bool compact = width < 720;
             bool launch = SectionFor(currentPage) == NavigationSection.Launch;
-            SideColumn.Width = new GridLength(launch ? (compact ? 190 : 234) : (compact ? 126 : 156));
-            PageScroll.Padding = compact ? new Thickness(11, 11, 11, 6) :
-                new Thickness(18, 14, 18, 8);
+            SideColumn.Width = new GridLength(launch ? (compact ? 188 : 224) : (compact ? 132 : 156));
+            PageScroll.Padding = compact ? new Thickness(11, 10, 11, 6) :
+                new Thickness(16, 12, 16, 8);
         }
         void WindowViewport_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateCompactLayout();
 
@@ -970,7 +991,7 @@ namespace BlockCraftLauncher.Wpf
                 label.TextWrapping = TextWrapping.NoWrap;
                 label.TextTrimming = TextTrimming.CharacterEllipsis;
                 label.TextAlignment = TextAlignment.Center;
-                label.SetResourceReference(TextBlock.ForegroundProperty, "AccentInkBrush");
+                label.SetResourceReference(TextBlock.ForegroundProperty, "AccentTextBrush");
             }
             homeLaunchButton = Btn("启动游戏", async () =>
             {
@@ -1139,7 +1160,11 @@ namespace BlockCraftLauncher.Wpf
             };
             form.SizeChanged += (sender, args) =>
             {
-                if (args.WidthChanged) form.Columns = fields.Length > 1 && args.NewSize.Width >= 438 ? 2 : 1;
+                if (!args.WidthChanged) return;
+                // PCL-style compact downloads: three columns at normal width,
+                // two at medium width and one only on genuinely small screens.
+                form.Columns = args.NewSize.Width >= 690 ? Math.Min(3, fields.Length) :
+                    args.NewSize.Width >= 438 ? Math.Min(2, fields.Length) : 1;
             };
             foreach (var field in fields)
             {
@@ -1238,7 +1263,8 @@ namespace BlockCraftLauncher.Wpf
             var install = Card(Col(Txt("安装配置", 16, true), selectedVersion,
                 SearchFields(("加载器", versionLoader)), Row(versionInstallButton, versionCancelButton)));
             var versions = ResultsCard(Col(Txt("可安装版本", 16, true), versionCounter, versionList));
-            return Col(filters, PageColumns(versions, install, 278),
+            return Col(PageHeading("自动安装", "选择 Minecraft 版本与加载器，下载任务将自动加入队列。"),
+                filters, PageColumns(versions, install, 278),
                 Card(Col(Txt("本地游戏", 16, true),
                     Row(Btn("导入本地版本", ImportLocalGame),
                         Btn("打开游戏目录", OpenGameFolder)))));
@@ -1339,7 +1365,7 @@ namespace BlockCraftLauncher.Wpf
 
         UIElement BuildDownloadCenter()
         {
-            var root = Col();
+            var root = Col(PageHeading("下载任务", "查看正在运行、已完成和失败的任务，可取消或重试。"));
             downloadSearchQuery = new TextBox();
             ApplySearchInputStyle(downloadSearchQuery, "按名称或资源类型查找任务");
             downloadStatusFilter = new ComboBox
@@ -2029,7 +2055,8 @@ namespace BlockCraftLauncher.Wpf
             var actions = Row(resourceSearchButton, clear);
             if (isMod) return BuildModDownloadPage(title, actions);
 
-            var root = Col(SearchCard(Col(Txt(title, 16, true),
+            var root = Col(PageHeading(title, "浏览并筛选兼容资源，选择项目查看详情后安装到当前游戏版本。"),
+                SearchCard(Col(Txt(title, 16, true),
                 SearchFields(("名称", resourceQuery), ("版本", resourceVersion), ("排序", resourceSort)),
                 resourceMatchVersion, actions)));
             void Open() => ShowResourceDetails(resourceList.SelectedItem as ResourceHit);
