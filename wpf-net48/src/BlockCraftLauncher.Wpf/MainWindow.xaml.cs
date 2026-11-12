@@ -1726,7 +1726,7 @@ namespace BlockCraftLauncher.Wpf
             };
             resourceSource = new ComboBox
             {
-                ItemsSource = isMod ? new[] { "Modrinth", "CurseForge（通过 MCIM）", "GitHub 开源项目（Releases）" } : new[] { "Modrinth" },
+                ItemsSource = isMod ? new[] { "Modrinth", "CurseForge（官方 API / MCIM）", "GitHub 开源项目（Releases）" } : new[] { "Modrinth" },
                 SelectedIndex = 0, IsEnabled = isMod
             };
             resourceCategory = new ComboBox
@@ -1877,7 +1877,7 @@ namespace BlockCraftLauncher.Wpf
                 string version = resourceMatchVersion.IsChecked == true
                     ? activeProfile?.BaseVersion : resourceVersion.Text;
                 Navigate("CurseForge");
-                if (settings.McimEnabled)
+                if (settings.McimEnabled || CurseForgeMirrorClient.HasLocalOfficialKey)
                 {
                     cfSearchQuery.Text = query;
                     if (!string.IsNullOrWhiteSpace(version) && !version.StartsWith("全部", StringComparison.Ordinal))
@@ -2132,7 +2132,7 @@ namespace BlockCraftLauncher.Wpf
         UIElement BuildCurseForge()
         {
             cfLoadedHits.Clear();
-            if (!settings.McimEnabled)
+            if (!settings.McimEnabled && !CurseForgeMirrorClient.HasLocalOfficialKey)
                 return Col(SearchCard(Col(
                         Txt("搜索 CurseForge 模组", 16, true),
                         Txt("启用 MCIM 社区镜像后，可搜索模组并查看项目图标和截图。", 12, false, true),
@@ -2210,7 +2210,9 @@ namespace BlockCraftLauncher.Wpf
                 SearchCard(Col(Txt("搜索 CurseForge 模组", 16, true),
                     SearchFields(("名称", cfSearchQuery), ("类型", cfCategoryFilter),
                         ("版本", cfVersionFilter), ("排序", cfSortMode)),
-                    Txt("来源为 MCIM。版本、类型和排序仅筛选已加载的项目。", 12, false, true),
+                    Txt(CurseForgeMirrorClient.HasLocalOfficialKey
+                        ? "来源：CurseForge 官方 API。密钥仅从本机读取，不发送到 MCIM；版本、类型和排序仅筛选已加载项目。"
+                        : "来源为 MCIM。版本、类型和排序仅筛选已加载的项目。", 12, false, true),
                     Row(search, reset))),
                 ProjectResults(cfSearchStatus, cfSearchResults, Row(install, details)));
         }
@@ -2306,7 +2308,8 @@ namespace BlockCraftLauncher.Wpf
             var query = (cfSearchQuery?.Text ?? "").Trim();
             var results = cfSearchResults;
             var label = cfSearchStatus;
-            if (results == null || !settings.McimEnabled) return;
+            if (results == null || (!settings.McimEnabled &&
+                !CurseForgeMirrorClient.HasLocalOfficialKey)) return;
 
             CancelAndDetach(ref cfSearchCancellation);
             var cancellation = new CancellationTokenSource();
@@ -2314,7 +2317,8 @@ namespace BlockCraftLauncher.Wpf
             if (label != null) label.Text = "正在加载模组封面、作者和截图信息...";
             try
             {
-                Status("正在通过 MCIM 查询 CurseForge...");
+                Status(CurseForgeMirrorClient.HasLocalOfficialKey
+                    ? "正在通过官方 API 查询 CurseForge..." : "正在通过 MCIM 查询 CurseForge...");
                 IReadOnlyList<CurseForgeHit> found;
                 using (var client = new CurseForgeMirrorClient(settings))
                     found = await client.SearchAsync(query, cancellation.Token);
@@ -2341,7 +2345,9 @@ namespace BlockCraftLauncher.Wpf
             {
                 if (!cancellation.IsCancellationRequested)
                 {
-                    if (label != null) label.Text = "搜索失败：可以稍后重试或检查 MCIM 设置。";
+                    if (label != null) label.Text = CurseForgeMirrorClient.HasLocalOfficialKey
+                        ? "搜索失败：请检查本机 CurseForge API Key 和官方服务状态。"
+                        : "搜索失败：可以稍后重试或检查 MCIM 设置。";
                     ShowError("CurseForge 查询失败", ex);
                 }
             }
@@ -3699,7 +3705,7 @@ namespace BlockCraftLauncher.Wpf
                 }
             };
             SettingRow(network, "社区镜像", settingsMcim,
-                "用于 CurseForge 搜索与下载，并可作为 Modrinth 的备用来源。");
+                "仅在本机没有配置官方 API Key 时用于 CurseForge 搜索；也可作为 Modrinth 的备用来源。");
             var probeText = Txt("", 12);
             var probeCard = Card(Col(Txt("线路检测结果", 16, true),
                 Txt("检测公开接口的连接和首包耗时。微软登录使用 Windows 系统网络。", 12, false, true),
