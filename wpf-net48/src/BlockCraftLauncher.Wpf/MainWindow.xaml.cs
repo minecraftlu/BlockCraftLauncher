@@ -109,7 +109,9 @@ namespace BlockCraftLauncher.Wpf
         ListBox modUpgradeResults;
         TextBox cfSearchQuery, cfVersionFilter;
         ListBox cfSearchResults;
-        ComboBox cfCategoryFilter, cfSortMode;
+        ComboBox cfCategoryFilter, cfSortMode, cfLoaderFilter;
+        Button cfPrevButton, cfNextButton;
+        int cfPage;
         readonly List<CurseForgeHit> cfLoadedHits = new List<CurseForgeHit>();
         TextBlock cfSearchStatus;
         CancellationTokenSource cfSearchCancellation;
@@ -2132,6 +2134,7 @@ namespace BlockCraftLauncher.Wpf
         UIElement BuildCurseForge()
         {
             cfLoadedHits.Clear();
+            cfPage = 0;
             if (!settings.McimEnabled && !CurseForgeMirrorClient.HasLocalOfficialKey)
                 return Col(SearchCard(Col(
                         Txt("搜索 CurseForge 模组", 16, true),
@@ -2168,8 +2171,13 @@ namespace BlockCraftLauncher.Wpf
                 }
             };
             cfVersionFilter = new TextBox();
-            ApplySearchInputStyle(cfVersionFilter, "在当前页筛选，例如输入 1.21.1");
-            cfVersionFilter.TextChanged += (sender, args) => ApplyCurseForgeFilters();
+            ApplySearchInputStyle(cfVersionFilter, "在线筛选 Minecraft 版本，例如 1.21.1");
+            cfLoaderFilter = new ComboBox
+            {
+                ItemsSource = new[] { "全部加载器", "Fabric", "Forge", "NeoForge", "Quilt" },
+                SelectedIndex = 0
+            };
+            ApplySearchInputStyle(cfLoaderFilter, "选择加载器前需填写游戏版本");
             cfCategoryFilter = new ComboBox
             {
                 ItemsSource = new[] { "全部分类" }, SelectedIndex = 0
@@ -2178,11 +2186,10 @@ namespace BlockCraftLauncher.Wpf
             cfCategoryFilter.SelectionChanged += (sender, args) => ApplyCurseForgeFilters();
             cfSortMode = new ComboBox
             {
-                ItemsSource = new[] { "相关度", "最多下载", "按名称" },
+                ItemsSource = new[] { "相关度", "最多下载", "最近更新", "按名称" },
                 SelectedIndex = 0
             };
-            ApplySearchInputStyle(cfSortMode, "排序只针对当前已加载的项目");
-            cfSortMode.SelectionChanged += (sender, args) => ApplyCurseForgeFilters();
+            ApplySearchInputStyle(cfSortMode, "选择后点击搜索，排序作用于所有在线结果");
 
             cfSearchStatus = Txt("点击“搜索”查看项目。", 12, false, true);
             cfSearchResults = new ListBox
@@ -2197,7 +2204,11 @@ namespace BlockCraftLauncher.Wpf
                 cfSearchCancellation?.Cancel();
                 cfSearchQuery.Clear();
                 cfVersionFilter.Clear();
+                cfLoaderFilter.SelectedIndex = 0;
+                cfPage = 0;
                 cfLoadedHits.Clear();
+                if (cfPrevButton != null) cfPrevButton.IsEnabled = false;
+                if (cfNextButton != null) cfNextButton.IsEnabled = false;
                 cfCategoryFilter.ItemsSource = new[] { "全部分类" };
                 cfCategoryFilter.SelectedIndex = 0;
                 cfSortMode.SelectedIndex = 0;
@@ -2206,42 +2217,50 @@ namespace BlockCraftLauncher.Wpf
             var details = Btn("查看详情与截图", ShowCurseForgeDetails);
             var install = Btn("安装到当前版本", async () => await InstallCurseForgeAsync(), true);
             WireResultActions(cfSearchResults, ShowCurseForgeDetails, details, install);
+            cfPrevButton = Btn("上一页", async () =>
+            {
+                if (cfPage > 0) await SearchCurseForgeAsync(cfPage - 1);
+            });
+            cfNextButton = Btn("下一页", async () =>
+            {
+                if (cfPage < 499) await SearchCurseForgeAsync(cfPage + 1);
+            });
+            cfPrevButton.IsEnabled = false;
+            cfNextButton.IsEnabled = false;
             return Col(
                 SearchCard(Col(Txt("搜索 CurseForge 模组", 16, true),
                     SearchFields(("名称", cfSearchQuery), ("类型", cfCategoryFilter),
-                        ("版本", cfVersionFilter), ("排序", cfSortMode)),
+                        ("版本", cfVersionFilter), ("加载器", cfLoaderFilter),
+                        ("排序", cfSortMode)),
                     Txt(CurseForgeMirrorClient.HasLocalOfficialKey
-                        ? "来源：CurseForge 官方 API。密钥仅从本机读取，不发送到 MCIM；版本、类型和排序仅筛选已加载项目。"
-                        : "来源为 MCIM。版本、类型和排序仅筛选已加载的项目。", 12, false, true),
+                        ? "来源：CurseForge 官方 API。按游戏版本、加载器和排序在线检索；类型筛选当前页。密钥仅保存在本机。"
+                        : "来源为可选 MCIM。版本、加载器和排序重新在线检索；类型筛选当前页。", 12, false, true),
                     Row(search, reset))),
-                ProjectResults(cfSearchStatus, cfSearchResults, Row(install, details)));
+                ProjectResults(cfSearchStatus, cfSearchResults,
+                    Row(install, details, cfPrevButton, cfNextButton)));
         }
 
         void ApplyCurseForgeFilters()
         {
             if (cfSearchResults == null || currentPage != "CurseForge") return;
-            string version = (cfVersionFilter?.Text ?? "").Trim();
             string category = Convert.ToString(cfCategoryFilter?.SelectedItem) ?? "全部分类";
             IEnumerable<CurseForgeHit> filtered = cfLoadedHits;
-            if (version.Length > 0)
-                filtered = filtered.Where(hit =>
-                    (hit.VersionsLabel ?? "").IndexOf(version, StringComparison.OrdinalIgnoreCase) >= 0);
             if (category != "全部分类")
                 filtered = filtered.Where(hit =>
                     (hit.CategoryLabel ?? "").Split(new[] { " · " },
                         StringSplitOptions.RemoveEmptyEntries).Any(value =>
                             string.Equals(value, category, StringComparison.OrdinalIgnoreCase)));
-            if (cfSortMode?.SelectedIndex == 1)
-                filtered = filtered.OrderByDescending(hit => hit.DownloadCount);
-            else if (cfSortMode?.SelectedIndex == 2)
-                filtered = filtered.OrderBy(hit => hit.Name, StringComparer.CurrentCultureIgnoreCase);
+            // Server-side ordering and game version filters were applied by
+            // CurseForge already. Never discard a valid project merely because
+            // only its three most recent game versions were shown in the card.
             var visible = filtered.ToList();
             cfSearchResults.ItemsSource = visible;
             if (cfSearchStatus != null)
                 cfSearchStatus.Text = cfLoadedHits.Count == 0 ?
                     "暂无项目。试试更换关键词。" :
                     visible.Count == 0 ? "已加载项目中没有匹配项。" :
-                    "显示 " + visible.Count + " / " + cfLoadedHits.Count + " 个模组";
+                    "第 " + (cfPage + 1) + " 页 · 显示 " + visible.Count +
+                    " / " + cfLoadedHits.Count + " 个模组";
         }
 
         void ShowCurseForgeDetails()
@@ -2303,9 +2322,14 @@ namespace BlockCraftLauncher.Wpf
                     ? (UIElement)Txt("作者暂未提供截图。", 12, false, true) : gallery))));
         }
 
-        async Task SearchCurseForgeAsync()
+        async Task SearchCurseForgeAsync(int requestedPage = 0)
         {
+            if (requestedPage < 0 || requestedPage > 499) return;
             var query = (cfSearchQuery?.Text ?? "").Trim();
+            var version = (cfVersionFilter?.Text ?? "").Trim();
+            var loader = cfLoaderFilter?.SelectedIndex > 0 ?
+                Convert.ToString(cfLoaderFilter.SelectedItem) : "";
+            var sort = Math.Max(0, cfSortMode?.SelectedIndex ?? 0);
             var results = cfSearchResults;
             var label = cfSearchStatus;
             if (results == null || (!settings.McimEnabled &&
@@ -2314,16 +2338,26 @@ namespace BlockCraftLauncher.Wpf
             CancelAndDetach(ref cfSearchCancellation);
             var cancellation = new CancellationTokenSource();
             cfSearchCancellation = cancellation;
-            if (label != null) label.Text = "正在加载模组封面、作者和截图信息...";
+            if (label != null) label.Text = "正在向 CurseForge 请求第 " +
+                (requestedPage + 1) + " 页...";
+            if (cfPrevButton != null) cfPrevButton.IsEnabled = false;
+            if (cfNextButton != null) cfNextButton.IsEnabled = false;
             try
             {
                 Status(CurseForgeMirrorClient.HasLocalOfficialKey
                     ? "正在通过官方 API 查询 CurseForge..." : "正在通过 MCIM 查询 CurseForge...");
                 IReadOnlyList<CurseForgeHit> found;
                 using (var client = new CurseForgeMirrorClient(settings))
-                    found = await client.SearchAsync(query, cancellation.Token);
+                    found = await client.SearchAsync(query, version, loader, sort,
+                        requestedPage, cancellation.Token);
                 if (cancellation.IsCancellationRequested ||
                     currentPage != "CurseForge" || results != cfSearchResults) return;
+                if (found.Count == 0 && requestedPage > 0)
+                {
+                    if (label != null) label.Text = "已到最后一页，没有更多模组。";
+                    return;
+                }
+                cfPage = requestedPage;
                 cfLoadedHits.Clear();
                 cfLoadedHits.AddRange(found);
                 if (cfCategoryFilter != null)
@@ -2338,7 +2372,8 @@ namespace BlockCraftLauncher.Wpf
                     cfCategoryFilter.SelectedIndex = 0;
                 }
                 ApplyCurseForgeFilters();
-                Status("CurseForge 已加载 " + found.Count + " 个图文项目");
+                Status("CurseForge 第 " + (cfPage + 1) + " 页已加载 " +
+                    found.Count + " 个图文项目");
             }
             catch (OperationCanceledException) { /* Search or page switch cancelled. */ }
             catch (Exception ex)
@@ -2353,17 +2388,24 @@ namespace BlockCraftLauncher.Wpf
             }
             finally
             {
-                if (cfSearchCancellation == cancellation) cfSearchCancellation = null;
+                if (cfSearchCancellation == cancellation)
+                {
+                    cfSearchCancellation = null;
+                    if (cfPrevButton != null) cfPrevButton.IsEnabled = cfPage > 0;
+                    if (cfNextButton != null)
+                        cfNextButton.IsEnabled = cfPage < 499 && cfLoadedHits.Count == 20;
+                }
                 cancellation.Dispose();
             }
         }
 
-        async Task InstallCurseForgeAsync(CurseForgeHit hit = null)
+        async Task InstallCurseForgeAsync(CurseForgeHit hit = null, long? selectedFileId = null)
         {
             hit = hit ?? cfSearchResults?.SelectedItem as CurseForgeHit;
             var profile = activeProfile;
             if (hit == null || profile == null) { MessageBox.Show("请先选择模组和游戏实例"); return; }
             if (MessageBox.Show("将为 " + profile.Name + " 下载 " + hit.Name +
+                (selectedFileId.HasValue ? "（选择文件 " + selectedFileId.Value + "）" : "") +
                 " 及必要依赖。仅从允许的镜像/官方 CDN 下载，不覆盖已有文件。\n\n继续？",
                 "CurseForge 安装确认", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
 
@@ -2371,7 +2413,8 @@ namespace BlockCraftLauncher.Wpf
             {
                 using (var client = new CurseForgeMirrorClient(settings))
                 {
-                    var files = await client.InstallAsync(hit.Id, profile, progress, token);
+                    var files = await client.InstallAsync(hit.Id, profile, progress, token,
+                        selectedFileId);
                     progress.Report("CurseForge 安装完成：" + files.Count + " 个文件");
                     Status("CurseForge 已安装：" + hit.Name);
                 }
