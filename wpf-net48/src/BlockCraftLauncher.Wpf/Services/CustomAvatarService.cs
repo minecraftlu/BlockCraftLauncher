@@ -47,7 +47,8 @@ namespace BlockCraftLauncher.Wpf.Services
                 }
                 catch (Exception error) when (error is IOException ||
                     error is UnauthorizedAccessException || error is NotSupportedException ||
-                    error is ArgumentException || error is System.Runtime.InteropServices.COMException)
+                    error is ArgumentException || error is FileFormatException ||
+                    error is System.Runtime.InteropServices.COMException)
                 {
                     // A damaged/locked avatar must never prevent launcher startup.
                 }
