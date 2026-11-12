@@ -146,6 +146,7 @@ namespace BlockCraftLauncher.Wpf
             TopLaunchButton.Click += (sender, args) => Navigate("首页");
             TopDownloadButton.Click += (sender, args) => Navigate("游戏版本");
             TopMultiplayerButton.Click += (sender, args) => Navigate("多人联机");
+            TopMultiplayerButton.Visibility = Visibility.Collapsed; // PCL-style four main tabs
             TopSettingsButton.Click += (sender, args) => Navigate("设置");
             TopMoreButton.Click += (sender, args) => Navigate("关于");
             TaskShortcut.Click += (sender, args) => Navigate("下载管理");
@@ -374,9 +375,10 @@ namespace BlockCraftLauncher.Wpf
                 case "版本设置": return "概览";
                 case "模组更新": return "模组与资源";
                 case "存档管理": return "存档";
-                case "游戏版本": return "原版游戏";
+                case "游戏版本": return "自动安装";
+                case "手动安装": return "手动安装包";
                 case "下载管理": return "下载任务";
-                case "资源中心": return "模组下载";
+                case "资源中心": return "Mod";
                 case "光影引擎": return "光影包";
                 case "皮肤 DIY": return "皮肤 DIY";
                 case "皮肤下载": return "皮肤";
@@ -394,6 +396,7 @@ namespace BlockCraftLauncher.Wpf
             {
                 case "版本选择":
                 case "游戏版本": return "\uE7B8";
+                case "手动安装": return "\uE8B7";
                 case "版本设置": return "\uE8A5";
                 case "存档管理": return "\uE74E";
                 case "下载管理": return "\uE896";
@@ -430,6 +433,7 @@ namespace BlockCraftLauncher.Wpf
                 case "存档管理":
                     return NavigationSection.VersionSettings;
                 case "游戏版本":
+                case "手动安装":
                 case "下载管理":
                 case "资源中心":
                 case "皮肤下载":
@@ -467,8 +471,8 @@ namespace BlockCraftLauncher.Wpf
                     AddNavSection("版本设置", "版本设置", "模组更新", "存档管理");
                     break;
                 case NavigationSection.Download:
-                    AddNavSection("游戏组件", "游戏版本");
-                    AddNavSection("社区资源", "资源中心", "整合包", "资源包", "光影引擎", "皮肤下载", "皮肤库");
+                    AddNavSection("Minecraft", "游戏版本", "手动安装");
+                    AddNavSection("资源", "资源中心", "整合包", "资源包", "光影引擎", "皮肤下载", "皮肤库");
                     AddNavSection("任务", "下载管理");
                     break;
                 case NavigationSection.Multiplayer:
@@ -478,6 +482,7 @@ namespace BlockCraftLauncher.Wpf
                     AddNavSection("设置", "设置", "个性化", "下载设置", "更新设置");
                     break;
                 case NavigationSection.More:
+                    AddNavSection("联机", "多人联机", "查找服务器", "局域网");
                     AddNavSection("工具", "皮肤 DIY", "启动器更新", "运行日志");
                     AddNavSection("信息", "关于");
                     break;
@@ -505,7 +510,8 @@ namespace BlockCraftLauncher.Wpf
             SetHeaderTab(TopDownloadButton, section == NavigationSection.Download);
             SetHeaderTab(TopMultiplayerButton, section == NavigationSection.Multiplayer);
             SetHeaderTab(TopSettingsButton, section == NavigationSection.Settings);
-            SetHeaderTab(TopMoreButton, section == NavigationSection.More);
+            SetHeaderTab(TopMoreButton, section == NavigationSection.More ||
+                section == NavigationSection.Multiplayer);
         }
 
         void BackButton_Click(object sender, RoutedEventArgs e)
@@ -656,6 +662,7 @@ namespace BlockCraftLauncher.Wpf
                 case "版本设置": PageHost.Content = BuildInstanceOverview(); break;
                 case "存档管理": PageHost.Content = BuildInstanceSaves(); break;
                 case "游戏版本": PageHost.Content = BuildVersions(); break;
+                case "手动安装": PageHost.Content = BuildManualInstallPage(); break;
                 case "下载管理": PageHost.Content = BuildDownloadCenter(); break;
                 case "资源中心": PageHost.Content = BuildResources("mod"); break;
                 case "光影引擎": PageHost.Content = BuildResources("shader"); break;
