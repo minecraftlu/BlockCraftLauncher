@@ -60,6 +60,15 @@ namespace BlockCraftLauncher.Wpf.Services
                         1002).ConfigureAwait(false);
                     Require(again.Count == 0 && handler.EdgeRequests == requests, "复用校验一致的已有模组和前置");
 
+                    var browse = await client.ListCompatibleFilesAsync(101, null, 1,
+                        CancellationToken.None).ConfigureAwait(false);
+                    Require(browse.Files.Single().VersionId == "1002", "无实例时仍可浏览文件");
+                    string savedJar = Path.Combine(folder, "saved.jar");
+                    await client.SaveFileAsync(101, 1002, savedJar, null, CancellationToken.None).ConfigureAwait(false);
+                    Require(File.ReadAllBytes(savedJar).SequenceEqual(File.ReadAllBytes(installed.Last())) &&
+                        Directory.GetFiles(Path.Combine(folder, "mods")).Length == 2,
+                        "单独保存校验通过的 JAR，无需向实例写入文件");
+
                     bool corruptRejected = false;
                     try { await client.InstallAsync(101, profile, null, CancellationToken.None, 1003).ConfigureAwait(false); }
                     catch (IOException ex) { corruptRejected = ex.Message.Contains("SHA-1"); }

@@ -408,37 +408,48 @@ namespace BlockCraftLauncher.Wpf.Services
             return code;
         }
 
-        static bool IsModJar(string name) => name.EndsWith(".jar", StringComparison.OrdinalIgnoreCase) &&
+        static bool IsModJar(string name) => !string.IsNullOrWhiteSpace(name) && name.Length <= 180 &&
+            name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 && name == Path.GetFileName(name) &&
+            name.EndsWith(".jar", StringComparison.OrdinalIgnoreCase) &&
             !name.EndsWith("-sources.jar", StringComparison.OrdinalIgnoreCase) &&
             !name.EndsWith("-dev.jar", StringComparison.OrdinalIgnoreCase) &&
             !name.EndsWith("-javadoc.jar", StringComparison.OrdinalIgnoreCase);
 
+        static bool IsClientJar(Dictionary<string, object> file) =>
+            !Equals(Value(file, "isAvailable"), false) && !Equals(Value(file, "isServerPack"), true) &&
+            IsModJar(Text(file, "fileName"));
+
         static bool Compatible(Dictionary<string, object> file, GameProfile profile)
         {
-            if (Equals(Value(file, "isAvailable"), false) || Equals(Value(file, "isServerPack"), true) ||
-                !IsModJar(Text(file, "fileName"))) return false;
+            if (!IsClientJar(file)) return false;
+            if (profile == null) return true;
+            var tags = (Value(file, "gameVersions") as object[] ?? Array.Empty<object>())
+                .OfType<string>().ToArray();
+            if (!string.IsNullOrWhiteSpace(profile.BaseVersion) &&
+                !tags.Contains(profile.BaseVersion, StringComparer.Ordinal)) return false;
+            if (string.IsNullOrWhiteSpace(profile.Loader)) return true;
             int expectedLoader = RequireLoader(profile.Loader);
             if (int.TryParse(Text(file, "modLoaderType"), out int declaredLoader) &&
                 declaredLoader != 0 && declaredLoader != expectedLoader) return false;
-            var versions = Value(file, "gameVersions") as object[];
-            if (versions == null || !versions.OfType<string>().Contains(profile.BaseVersion, StringComparer.Ordinal))
-                return false;
-            var tags = versions.OfType<string>().Select(LoaderCode).Where(code => code > 0).ToArray();
-            return tags.Length == 0 || tags.Contains(expectedLoader);
+            var loaders = tags.Select(LoaderCode).Where(code => code > 0).ToArray();
+            return loaders.Length == 0 || loaders.Contains(expectedLoader);
         }
 
         async Task<(object[] Rows, bool HasMore)> CompatibleFilesRawAsync(
             long project, GameProfile profile, int page, CancellationToken ct)
         {
-            if (profile == null) throw new ArgumentNullException(nameof(profile));
             if (project < 1) throw new ArgumentOutOfRangeException(nameof(project));
             if (page < 0 || page >= MaxResults / FilePageSize) throw new ArgumentOutOfRangeException(nameof(page));
-            string version = profile.BaseVersion ?? "";
-            if (!Regex.IsMatch(version, @"^[A-Za-z0-9._-]{1,64}$"))
-                throw new InvalidDataException("Minecraft 版本号无效");
-            int loader = RequireLoader(profile.Loader);
-            string url = "/mods/" + project + "/files?gameVersion=" + Uri.EscapeDataString(version)
-                + "&modLoaderType=" + loader + "&pageSize=" + FilePageSize + "&index=" + (page * FilePageSize);
+            string version = profile?.BaseVersion;
+            var url = "/mods/" + project + "/files?pageSize=" + FilePageSize + "&index=" + (page * FilePageSize);
+            if (!string.IsNullOrWhiteSpace(version))
+            {
+                if (!Regex.IsMatch(version, @"^[A-Za-z0-9._-]{1,64}$"))
+                    throw new InvalidDataException("Minecraft 版本号无效");
+                url += "&gameVersion=" + Uri.EscapeDataString(version);
+                if (!string.IsNullOrWhiteSpace(profile.Loader))
+                    url += "&modLoaderType=" + RequireLoader(profile.Loader);
+            }
             var envelope = await ApiGetAsync(url, ct).ConfigureAwait(false);
             var rows = Value(envelope, "data") as object[];
             if (rows == null || rows.Length > FilePageSize)
@@ -454,7 +465,7 @@ namespace BlockCraftLauncher.Wpf.Services
 
         internal static IReadOnlyList<ModDownloadFile> ParseCompatibleFiles(object[] raw, GameProfile profile)
         {
-            if (raw == null || raw.Length > FilePageSize || profile == null)
+            if (raw == null || raw.Length > FilePageSize)
                 throw new InvalidDataException("模组版本列表格式异常");
             return raw.OfType<Dictionary<string, object>>().Where(file => Compatible(file, profile))
                 .OrderByDescending(file => Text(file, "fileDate"))
@@ -510,8 +521,7 @@ namespace BlockCraftLauncher.Wpf.Services
 
         static string SafeFilename(string name)
         {
-            if (string.IsNullOrWhiteSpace(name) || name.Length > 180 || name != Path.GetFileName(name) ||
-                name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || !IsModJar(name))
+            if (!IsModJar(name))
                 throw new InvalidDataException("CurseForge 返回了无效的模组文件名。");
             return name;
         }
@@ -629,6 +639,57 @@ namespace BlockCraftLauncher.Wpf.Services
             return direct;
         }
 
+        async Task<Dictionary<string, object>> GetFileAsync(long project, long fileId, CancellationToken ct)
+        {
+            if (project < 1) throw new ArgumentOutOfRangeException(nameof(project));
+            if (fileId < 1) throw new ArgumentOutOfRangeException(nameof(fileId));
+            var file = Dict(await ApiDataAsync("/mods/" + project + "/files/" + fileId, ct).ConfigureAwait(false));
+            if (file == null || Id(file, "id") != fileId ||
+                (Text(file, "modId").Length > 0 && Id(file, "modId") != project))
+                throw new InvalidDataException("CurseForge 未返回所选项目的文件。");
+            return file;
+        }
+
+        async Task DownloadJarAsync(Planned item, string target, IProgress<DownloadBytes> bytes, CancellationToken ct)
+        {
+            if (useMirror)
+                await net.DownloadVerifiedDetailedAsync(item.Url, target, item.Sha1, ct, bytes).ConfigureAwait(false);
+            else
+                await DownloadFromOfficialCdnAsync(item.Url, target, item.Sha1, bytes, ct).ConfigureAwait(false);
+            if (new FileInfo(target).Length > 200L * 1024 * 1024)
+                throw new InvalidDataException("下载文件超过大小限制。");
+            using (var jar = ZipFile.OpenRead(target))
+                if (jar.Entries.Count == 0) throw new InvalidDataException("下载的 JAR 文件无效。");
+        }
+
+        internal async Task SaveFileAsync(long project, long fileId, string destination,
+            IProgress<DownloadBytes> bytes, CancellationToken ct)
+        {
+            var file = await GetFileAsync(project, fileId, ct).ConfigureAwait(false);
+            if (!IsClientJar(file))
+                throw new InvalidDataException("所选文件无法作为模组 JAR 下载。");
+            string filename = SafeFilename(Text(file, "fileName"));
+            string sha1 = FileSha1(file);
+            if (!NetworkDownloader.ValidSha1(sha1))
+                throw new InvalidDataException(filename + " 缺少 SHA-1 校验值，无法下载。");
+            string url = await ResolveDownloadUrlAsync(project, file, filename, ct).ConfigureAwait(false);
+            string target = Path.GetFullPath(destination);
+            string staging = Path.Combine(Path.GetDirectoryName(target), ".blockcraft-cf-save-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                await DownloadJarAsync(new Planned { Name = filename, Url = url, Sha1 = sha1 },
+                    staging, bytes, ct).ConfigureAwait(false);
+                ct.ThrowIfCancellationRequested();
+                NetworkDownloader.CommitVerifiedFile(staging, target);
+            }
+            finally
+            {
+                try { File.Delete(staging); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
+
         async Task Visit(long project, Dictionary<string, object> file, GameProfile profile,
             string mods, HashSet<long> seen, List<Planned> results, int depth, CancellationToken ct)
         {
@@ -668,8 +729,10 @@ namespace BlockCraftLauncher.Wpf.Services
             IProgress<DownloadBytes> bytes = null)
         {
             RequireEnabled();
-            if (profile == null || string.IsNullOrWhiteSpace(profile.Directory))
+            if (profile == null || string.IsNullOrWhiteSpace(profile.Directory) ||
+                string.IsNullOrWhiteSpace(profile.BaseVersion))
                 throw new InvalidOperationException("请先选择游戏实例。");
+            RequireLoader(profile.Loader);
             if (project < 1) throw new ArgumentOutOfRangeException(nameof(project));
             if (selectedFileId.HasValue && selectedFileId.Value < 1)
                 throw new ArgumentOutOfRangeException(nameof(selectedFileId));
@@ -693,16 +756,9 @@ namespace BlockCraftLauncher.Wpf.Services
         {
             string mods = Path.Combine(root, "mods");
             progress?.Report("正在核对所选版本与必需前置模组…");
-            Dictionary<string, object> selected;
-            if (selectedFileId.HasValue)
-            {
-                selected = Dict(await ApiDataAsync("/mods/" + project + "/files/" +
-                    selectedFileId.Value, ct).ConfigureAwait(false));
-                if (selected == null || Id(selected, "id") != selectedFileId.Value)
-                    throw new InvalidDataException("CurseForge 未返回所选文件。");
-            }
-            else
-                selected = await CompatibleFileAsync(project, profile, null, ct).ConfigureAwait(false);
+            var selected = selectedFileId.HasValue
+                ? await GetFileAsync(project, selectedFileId.Value, ct).ConfigureAwait(false)
+                : await CompatibleFileAsync(project, profile, null, ct).ConfigureAwait(false);
 
             var plan = new List<Planned>();
             await Visit(project, selected, profile, mods, new HashSet<long>(), plan, 0, ct).ConfigureAwait(false);
@@ -725,23 +781,17 @@ namespace BlockCraftLauncher.Wpf.Services
                     var item = toDownload[i];
                     progress?.Report("下载 CurseForge 模组 " + (i + 1) + "/" +
                         toDownload.Length + " · " + item.Name);
-                    string stageFile = Path.Combine(stage, item.Name);
-                    if (useMirror)
-                        await net.DownloadVerifiedDetailedAsync(item.Url, stageFile,
-                            item.Sha1, ct, bytes).ConfigureAwait(false);
-                    else
-                        await DownloadFromOfficialCdnAsync(item.Url, stageFile,
-                            item.Sha1, bytes, ct).ConfigureAwait(false);
-                    if (new FileInfo(stageFile).Length > 200L * 1024 * 1024)
-                        throw new InvalidDataException("下载文件超过大小限制。");
-                    using (var jar = ZipFile.OpenRead(stageFile))
-                        if (jar.Entries.Count == 0) throw new InvalidDataException("下载的 JAR 文件无效。");
+                    await DownloadJarAsync(item, Path.Combine(stage, item.Name), bytes, ct).ConfigureAwait(false);
                 }
                 foreach (var item in toDownload)
                 {
                     ct.ThrowIfCancellationRequested();
                     string target = Path.Combine(mods, item.Name);
-                    if (File.Exists(target) && MatchesHash(target, item.Sha1)) continue;
+                    if (File.Exists(target))
+                    {
+                        if (MatchesHash(target, item.Sha1)) continue;
+                        throw new IOException("安装时发现同名文件：" + item.Name);
+                    }
                     File.Move(Path.Combine(stage, item.Name), target);
                     committed.Add(target);
                 }

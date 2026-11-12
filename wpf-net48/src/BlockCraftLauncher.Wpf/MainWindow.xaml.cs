@@ -1341,6 +1341,13 @@ namespace BlockCraftLauncher.Wpf
                 throw new InvalidOperationException("CurseForge 文件选择未显示在同一页面。");
             ArrangeLayoutProbe(1280, 780, "03-mod-download-curseforge");
             ArrangeLayoutProbe(850, 560, "03-mod-download-curseforge-narrow");
+            modTarget.SelectedItem = null;
+            modPanel = (modDetailsHost.Content as Border)?.Child as StackPanel;
+            var fileActions = modPanel?.Children.OfType<WrapPanel>().LastOrDefault();
+            var actionNames = fileActions?.Children.OfType<Button>().Select(AutomationProperties.GetName).ToArray();
+            if (actionNames == null || !actionNames.Contains("另存为 JAR") || actionNames.Contains("安装所选版本"))
+                throw new InvalidOperationException("未选实例时应支持 CurseForge 文件另存为。");
+            modTarget.SelectedItem = sampleProfile;
             resourceSource.SelectedIndex = (int)ModSource.GitHub;
             if (resourceCategory.IsEnabled || resourceLoader.IsEnabled || resourceResults.Count > 0 ||
                 !ReferenceEquals(PageHost.Content, unifiedPage))

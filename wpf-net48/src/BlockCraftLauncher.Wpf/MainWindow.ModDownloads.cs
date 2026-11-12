@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,6 +12,7 @@ using System.Windows.Data;
 using System.Windows.Media;
 using BlockCraftLauncher.Wpf.Models;
 using BlockCraftLauncher.Wpf.Services;
+using Microsoft.Win32;
 
 namespace BlockCraftLauncher.Wpf
 {
@@ -376,9 +378,12 @@ namespace BlockCraftLauncher.Wpf
                 }
             }
 
-            if (profile == null || ModDownloadTarget.Loader(profile.Loader) == null)
+            bool canInstall = profile != null && ModDownloadTarget.Loader(profile.Loader) != null &&
+                !string.IsNullOrWhiteSpace(profile.BaseVersion) && !string.IsNullOrWhiteSpace(profile.Directory);
+            if (!canInstall)
             {
-                details.Children.Add(Txt("请选择已安装 Fabric、Forge、NeoForge 或 Quilt 的实例。", 12, false, true));
+                details.Children.Add(Txt("安装需选择带模组加载器的实例。", 12, false, true));
+                if (hit is CurseForgeHit) BuildModFileChooser(details, hit, null);
                 return;
             }
             if (hit.Source == "GitHub")
@@ -430,18 +435,45 @@ namespace BlockCraftLauncher.Wpf
             var status = Txt("兼容文件版本", 12, false, true);
             var dependencyStatus = Txt("", 12, false, true);
             int page = 0;
-            Button more = null;
-            var install = Btn("安装所选版本", async () =>
+            var curseForge = hit as CurseForgeHit;
+            var filter = profile;
+            if (curseForge != null && filter == null)
             {
-                if (picker.SelectedItem is ModDownloadFile selected)
-                    await InstallResourceAsync(hit, profile, selected.VersionId);
-            }, true);
-            install.IsEnabled = false;
+                string version = resourceVersion.Text.Trim();
+                filter = new GameProfile
+                {
+                    BaseVersion = version == "全部版本" ? "" : version,
+                    Loader = resourceLoader.SelectedIndex > 0 ? resourceLoader.SelectedItem as string : null
+                };
+            }
+
+            Button more = null;
+            Button install = null;
+            if (profile != null)
+            {
+                install = Btn("安装所选版本", async () =>
+                {
+                    if (picker.SelectedItem is ModDownloadFile selected)
+                        await InstallResourceAsync(hit, profile, selected.VersionId);
+                }, true);
+                install.IsEnabled = false;
+            }
+            Button save = null;
+            if (curseForge != null)
+            {
+                save = Btn("另存为 JAR", () =>
+                {
+                    if (picker.SelectedItem is ModDownloadFile selected)
+                        QueueCurseForgeSave(curseForge, selected);
+                }, profile == null);
+                save.IsEnabled = false;
+            }
             picker.SelectionChanged += (sender, args) =>
             {
                 var file = picker.SelectedItem as ModDownloadFile;
-                install.IsEnabled = file != null;
-                dependencyStatus.Text = file == null ? "" : file.FileName + " · " +
+                if (install != null) install.IsEnabled = file != null;
+                if (save != null) save.IsEnabled = file != null;
+                dependencyStatus.Text = file == null || profile == null ? file?.FileName ?? "" : file.FileName + " · " +
                     (file.RequiredDependencies == 0 ? "必需前置 0 项" :
                         "自动安装 " + file.RequiredDependencies + " 项直接前置及其必需依赖");
                 dependencyStatus.Visibility = file == null ? Visibility.Collapsed : Visibility.Visible;
@@ -460,12 +492,12 @@ namespace BlockCraftLauncher.Wpf
                     {
                         IReadOnlyList<ModDownloadFile> rows;
                         bool hasMore = false;
-                        if (hit is CurseForgeHit curseForge)
+                        if (curseForge != null)
                         {
                             using (var client = new CurseForgeMirrorClient(settings, hit.Source == "MCIM"))
                             {
                                 var result = await client.ListCompatibleFilesAsync(
-                                    curseForge.Id, profile, page, request.Token);
+                                    curseForge.Id, filter, page, request.Token);
                                 rows = result.Files;
                                 hasMore = result.HasMore;
                             }
@@ -507,13 +539,47 @@ namespace BlockCraftLauncher.Wpf
 
             more = Btn("更多版本", async () => await LoadFilesAsync());
             more.Visibility = Visibility.Collapsed;
-            details.Children.Add(Txt(profile.Name + " · " + profile.BaseVersion + " / " + profile.Loader,
-                12, true));
+            if (profile != null)
+                details.Children.Add(Txt(profile.Name + " · " + profile.BaseVersion + " / " + profile.Loader,
+                    12, true));
             details.Children.Add(status);
             details.Children.Add(picker);
             details.Children.Add(dependencyStatus);
-            details.Children.Add(Row(install, more));
+            var actions = Row();
+            if (install != null) actions.Children.Add(install);
+            if (save != null) actions.Children.Add(save);
+            actions.Children.Add(more);
+            details.Children.Add(actions);
             if (IsLoaded) _ = LoadFilesAsync();
+        }
+
+        void QueueCurseForgeSave(CurseForgeHit hit, ModDownloadFile file)
+        {
+            if (!hit.DistributionAllowed || !long.TryParse(file.VersionId, out long fileId) || fileId <= 0) return;
+            var dialog = new SaveFileDialog
+            {
+                Title = "保存模组文件",
+                FileName = file.FileName,
+                Filter = "Minecraft 模组 (*.jar)|*.jar",
+                DefaultExt = ".jar",
+                AddExtension = true,
+                OverwritePrompt = true
+            };
+            if (Directory.Exists(settings.DownloadDirectory))
+                dialog.InitialDirectory = settings.DownloadDirectory;
+            if (dialog.ShowDialog(this) != true) return;
+
+            string path = dialog.FileName;
+            bool mirror = hit.Source == "MCIM";
+            downloads.Enqueue(hit.SourceLabel, file.FileName, async (token, stage, bytes) =>
+            {
+                stage.Report("正在下载所选文件…");
+                using (var client = new CurseForgeMirrorClient(settings, mirror))
+                    await client.SaveFileAsync(hit.Id, fileId, path, bytes, token);
+                stage.Report("已保存到 " + path);
+                Status("已保存：" + file.FileName);
+            });
+            Status("已加入下载任务：" + file.FileName);
         }
 
         void QueueCurseForgeInstall(CurseForgeHit hit, GameProfile profile, string versionId)
