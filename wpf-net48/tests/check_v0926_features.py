@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 root = Path(__file__).resolve().parent.parent
 src = root / "src/BlockCraftLauncher.Wpf"
 main = (src / "MainWindow.xaml.cs").read_text("utf8")
+mod_downloads = (src / "MainWindow.ModDownloads.cs").read_text("utf8")
 prj = ET.parse(src / "BlockCraftLauncher.Wpf.csproj").getroot()
 assert prj.findtext(".//TargetFramework") == "net48"
 assert prj.findtext(".//PlatformTarget") == "x64"
@@ -18,12 +19,16 @@ for name in (
 
 for symbol in (
     "BuildModpacks", "ImportMrpackFromDisk", "InstallMrpackAsync",
-    "BuildCurseForge", "InstallCurseForgeAsync", "BuildMultiplayer",
+    "BuildMultiplayer",
     "ScanLanWorldsAsync", "JoinLanWorldAsync", "BuildModUpdates",
     "CheckManagedUpdatesAsync", "ApplyManagedUpdatesAsync", "BuildLauncherUpdates",
     "CheckLauncherUpdatesAsync", "InstallLauncherUpdateAsync", "SaveSettings",
 ):
     assert symbol in main, symbol
+
+assert "if (isMod) return BuildModDownloadPage(title, actions);" in main
+assert "void QueueCurseForgeInstall(" in mod_downloads
+assert "client.InstallAsync(hit.Id, profile, stage, token, fileId, bytes)" in mod_downloads
 
 modpack = (src / "Services/MrpackInstaller.cs").read_text("utf8")
 for symbol in ("SafeRelative", "UnderRoot", "SHA512.Create()", "DownloadVerifiedAsync", "loaderVersion",
@@ -31,8 +36,8 @@ for symbol in ("SafeRelative", "UnderRoot", "SHA512.Create()", "DownloadVerified
     assert symbol in modpack, symbol
 
 cf = (src / "Services/CurseForgeMirrorClient.cs").read_text("utf8")
-for symbol in ("RequireEnabled", "AllowedDownload", "MaxDependencies", "DownloadVerifiedAsync",
-               "relationType", "File.Exists(dest)", "SHA-1"):
+for symbol in ("RequireEnabled", "AllowedDownload", "MaxDependencies", "DownloadVerifiedDetailedAsync",
+               "relationType", "MatchesHash(target, item.Sha1)", "SHA-1"):
     assert symbol in cf, symbol
 # Official CurseForge API support was explicitly approved for the project.
 # The header must be restricted to the owner-local official endpoints, not
