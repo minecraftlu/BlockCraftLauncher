@@ -331,16 +331,12 @@
           <ControlTemplate TargetType="TextBox">
             <Border x:Name="Input" Background="{TemplateBinding Background}"
                     BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
-                    Padding="{TemplateBinding Padding}" CornerRadius="3">
+                    CornerRadius="3">
               <ScrollViewer x:Name="PART_ContentHost" Focusable="False"
-                            VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                             HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}"
                             VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}"/>
             </Border>
             <ControlTemplate.Triggers>
-              <Trigger Property="AcceptsReturn" Value="True">
-                <Setter TargetName="PART_ContentHost" Property="VerticalAlignment" Value="Stretch"/>
-              </Trigger>
               <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="Input" Property="BorderBrush" Value="{DynamicResource SecondaryAccentBrush}"/>
               </Trigger>
@@ -456,12 +452,12 @@
       </Setter>
     </Style>
     <Style x:Key="SearchTextBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
-      <Setter Property="Padding" Value="8,5"/>
+      <Setter Property="Padding" Value="8,4"/>
       <Setter Property="MinHeight" Value="30"/>
     </Style>
     <Style x:Key="SearchComboBox" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
       <Setter Property="MinHeight" Value="30"/>
-      <Setter Property="Padding" Value="9,6"/>
+      <Setter Property="Padding" Value="9,4"/>
     </Style>
     <Style TargetType="ListBox">
       <Setter Property="Background" Value="{DynamicResource PanelBrush}"/>

@@ -1476,6 +1476,13 @@ namespace BlockCraftLauncher.Wpf
                 resourceMatchVersion == null || resourceQuery.ActualWidth < 140 ||
                 Math.Abs(resourceQuery.ActualWidth - resourceSource.ActualWidth) > 2)
                 throw new InvalidOperationException("资源列表或窄窗口筛选网格布局错误");
+            var versionEditor = resourceVersion.Template.FindName("PART_EditableTextBox", resourceVersion) as TextBox;
+            foreach (var input in new[] { resourceQuery, versionEditor })
+            {
+                if (!(input?.Template?.FindName("PART_ContentHost", input) is ScrollViewer host) ||
+                    host.ActualHeight - host.Padding.Top - host.Padding.Bottom < input.FontSize)
+                    throw new InvalidOperationException("筛选输入框的文字高度不足。");
+            }
             var unifiedPage = PageHost.Content;
             if (modDetailsHost.Content == null || DetailHost.Content != null ||
                 PageHost.Visibility != Visibility.Visible || resourceQuery.Text != "示例筛选" ||
