@@ -131,7 +131,9 @@ namespace BlockCraftLauncher.Wpf
             var content = PageColumns(results, modDetailsHost, 320);
             RefreshModSource();
             RefreshModDetails();
-            return Col(search, content);
+            return Col(PageHeading("Mod 下载",
+                "选择下载源、兼容版本和目标实例，按需查看文件与依赖。"),
+                search, content);
         }
 
         void RefreshModSource()
