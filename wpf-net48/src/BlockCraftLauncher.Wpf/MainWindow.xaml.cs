@@ -1222,6 +1222,52 @@ namespace BlockCraftLauncher.Wpf
             return columns;
         }
 
+        UIElement BuildManualInstallPage()
+        {
+            // Original implementation over existing importers. Avoid offering
+            // archive formats we cannot actually install or interpreting a
+            // mod JAR as a Minecraft version installer.
+            var game = Card(Col(Txt("导入现有游戏版本", 16, true),
+                Txt("选择本机已存在的 Minecraft 版本 JSON，导入后可在版本选择页管理。", 12, false, true),
+                Row(Btn("选择版本信息文件", ImportLocalGame, true),
+                    Btn("打开游戏目录", OpenGameFolder))));
+            var packs = Card(Col(Txt("本地整合包", 16, true),
+                Txt("支持经过安全检查的 Modrinth .mrpack；安装后创建独立游戏实例。", 12, false, true),
+                Row(Btn("选择 .mrpack 文件", ImportMrpackFromDisk, true),
+                    Btn("浏览在线整合包", () => Navigate("整合包")))));
+            var resources = Card(Col(Txt("手动添加资源", 16, true),
+                Txt("将 JAR 模组或 ZIP 资源包添加到所选实例，保留原有安装与文件校验规则。", 12, false, true),
+                Row(Btn("导入模组 JAR", () => ImportManualResource("模组"), true),
+                    Btn("导入资源包 ZIP", () => ImportManualResource("资源包")),
+                    Btn("导入光影包 ZIP", () => ImportManualResource("光影")))));
+            return Col(PageHeading("手动安装包", "本机已有的版本、整合包和资源文件均可直接导入。"),
+                game, packs, resources);
+        }
+
+        void ImportManualResource(string kind)
+        {
+            if (activeProfile == null)
+            {
+                MessageBox.Show("请先在启动页选择游戏版本，再导入模组或资源包。");
+                return;
+            }
+            bool isMod = kind == "模组";
+            var picker = new OpenFileDialog
+            {
+                Filter = isMod ? "Minecraft 模组 (*.jar)|*.jar" :
+                    "Minecraft ZIP 资源 (*.zip)|*.zip",
+                Title = "为 " + activeProfile.Name + " 导入" + kind,
+                CheckFileExists = true
+            };
+            if (picker.ShowDialog(this) != true) return;
+            try
+            {
+                string result = InstanceResourceService.Import(activeProfile, kind, picker.FileName);
+                Status("已导入" + kind + "：" + Path.GetFileName(result));
+            }
+            catch (Exception ex) { ShowError("导入" + kind + "失败", ex); }
+        }
+
         UIElement BuildVersions()
         {
             versionQuery = new TextBox();
@@ -2304,7 +2350,8 @@ namespace BlockCraftLauncher.Wpf
                 packSearchStatus.Text = "点击“搜索”查看项目。";
                 packPrevButton.IsEnabled = packNextButton.IsEnabled = false;
             });
-            var root = Col(SearchCard(Col(Txt("搜索整合包", 16, true),
+            var root = Col(PageHeading("整合包", "搜索 Modrinth 整合包，或者从本机安全导入 .mrpack 文件。"),
+                SearchCard(Col(Txt("搜索整合包", 16, true),
                 SearchFields(("名称", packSearchQuery), ("版本", packVersionFilter), ("排序", packSortMode)),
                 Row(packSearchButton, reset, Btn("导入已有整合包", ImportMrpackFromDisk)))));
 
