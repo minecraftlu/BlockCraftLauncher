@@ -13,7 +13,7 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Shapes;
+using Ellipse = System.Windows.Shapes.Ellipse;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using BlockCraftLauncher.Wpf.Models;
@@ -810,7 +810,7 @@ namespace BlockCraftLauncher.Wpf
                     Stretch = Stretch.UniformToFill
                 }
             };
-            avatar.SetResourceReference(Shape.StrokeProperty, "BorderBrushTheme");
+            avatar.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "BorderBrushTheme");
             AutomationProperties.SetName(avatar, "启动器玩家头像");
             avatarVisuals.Add(avatar);
             return avatar;
