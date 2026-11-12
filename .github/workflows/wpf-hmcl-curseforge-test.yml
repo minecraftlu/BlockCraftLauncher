@@ -1,9 +1,10 @@
-name: HMCL-style CurseForge search Windows CI (no secrets)
+name: BlockCraft WPF Windows preview checks
 
 on:
   push:
     branches:
       - feature/hmcl-curseforge-install-flow
+      - feature/pcl2-ui-rework
   workflow_dispatch:
 
 permissions:
@@ -43,8 +44,10 @@ jobs:
           $run.Refresh()
           if ($run.ExitCode -ne 0) { throw "Download/CurseForge selftests exit $($run.ExitCode)" }
           Write-Host 'PASS: official API key destinations validated, MCIM cannot receive private key'
-      - name: WPF GUI and HMCL-style CurseForge search and file chooser regression
+      - name: WPF navigation, themes and compact layout regression
         shell: pwsh
+        env:
+          BLOCKCRAFT_UI_CAPTURE_DIR: ${{ runner.temp }}/blockcraft-ui
         working-directory: wpf-net48
         run: |
           $ErrorActionPreference = 'Stop'
@@ -52,13 +55,24 @@ jobs:
           $run = Start-Process -FilePath $exe -ArgumentList '--ui-layout-selftest' -PassThru
           if (-not $run.WaitForExit(60000)) { $run.Kill(); throw 'WPF layout selftest timeout' }
           $run.Refresh()
-          if ($run.ExitCode -ne 0) { throw "WPF layout selftest exit $($run.ExitCode)" }
-          Write-Host 'PASS: CurseForge UI layout stable'
+          if ($run.ExitCode -ne 0) {
+            $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+            if (Test-Path $log) { Get-Content $log -Tail 35 }
+            throw "WPF layout selftest exit $($run.ExitCode)"
+          }
 
-      - name: Upload owner-local CurseForge test builds (no private API key included)
+      - name: Upload WPF layout screenshots
         uses: actions/upload-artifact@v4
         with:
-          name: BlockCraft-CurseForge-HMCL-TEST-Windows-x64
+          name: BlockCraft-WPF-layout
+          path: ${{ runner.temp }}/blockcraft-ui/*.png
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Windows test builds
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlockCraft-WPF-TEST-Windows-x64
           path: |
             wpf-net48/dist/*-WPF-OneFile-Windows-x64.exe
             wpf-net48/dist/*-WPF-net48-Windows-x64.zip

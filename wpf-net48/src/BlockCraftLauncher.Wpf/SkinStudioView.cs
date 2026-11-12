@@ -12,6 +12,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using MessageBox = BlockCraftLauncher.Wpf.LauncherDialog;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using Microsoft.Win32;
@@ -136,8 +137,8 @@ namespace BlockCraftLauncher.Wpf
                 FontWeight = strong ? FontWeights.SemiBold : FontWeights.Normal,
                 TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 7)
             };
-            label.SetResourceReference(TextBlock.ForegroundProperty,
-                strong ? "TextBrush" : "MutedBrush");
+            if (strong && font >= 16) label.SetResourceReference(FrameworkElement.StyleProperty, "CardTitle");
+            label.SetResourceReference(TextBlock.ForegroundProperty, strong ? "TextBrush" : "MutedBrush");
             return label;
         }
 
@@ -154,29 +155,6 @@ namespace BlockCraftLauncher.Wpf
                 VerticalAlignment = VerticalAlignment.Center };
             foreach (var child in children) p.Children.Add(child);
             return p;
-        }
-
-        static Grid AdaptivePanels(UIElement main, UIElement side, double sideWidth, double gap)
-        {
-            var grid = new Grid();
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(gap) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(sideWidth) });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.Children.Add(main);
-            Grid.SetColumn(side, 2);
-            grid.Children.Add(side);
-            grid.SizeChanged += (sender, args) =>
-            {
-                if (!args.WidthChanged) return;
-                bool stacked = args.NewSize.Width < sideWidth + 325;
-                grid.ColumnDefinitions[1].Width = new GridLength(stacked ? 0 : gap);
-                grid.ColumnDefinitions[2].Width = new GridLength(stacked ? 0 : sideWidth);
-                Grid.SetColumn(side, stacked ? 0 : 2);
-                Grid.SetRow(side, stacked ? 1 : 0);
-            };
-            return grid;
         }
 
         static Border Card(UIElement content, bool search = false)
@@ -260,8 +238,7 @@ namespace BlockCraftLauncher.Wpf
         void Build()
         {
             var page = Column(Card(Column(
-                Label("皮肤编辑", 20, true),
-                Label("绘制 Minecraft 皮肤，预览人物正反面，或导入已有 PNG。"),
+                Label("皮肤 DIY", 16, true),
                 Row(ActionButton("导入 PNG", ImportPng),
                     ActionButton("保存到皮肤库", SaveToLibrary, true),
                     ActionButton("导出 PNG", ExportPng),
@@ -325,12 +302,18 @@ namespace BlockCraftLauncher.Wpf
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 Height = 413, Content = paintingSurface
             };
-            viewport.SetResourceReference(Control.BackgroundProperty, "SearchSurfaceBrush");
+            viewport.SetResourceReference(Control.BackgroundProperty, "PreviewFloorBrush");
+            var canvasFrame = new Border
+            {
+                Child = viewport, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4),
+                Margin = new Thickness(0, 4, 0, 7), ClipToBounds = true
+            };
+            canvasFrame.SetResourceReference(Border.BorderBrushProperty, "BorderBrushTheme");
             var editor = Card(Column(Label("像素画布", 16, true),
                 toolRow, history,
                 Row(Label("缩放"), zoom, Label("画笔大小"), brush, showGrid),
-                viewport, pointInfo,
-                Label("蓝线标记基础层，金线标记外层。拖动鼠标可连续绘制。")));
+                canvasFrame, pointInfo, info,
+                Label("蓝线标记基础层，金线标记外层。")));
 
             var rightPanel = Column();
             armModel.ItemsSource = new[] { "经典宽臂 · Steve（4px）", "纤细手臂 · Alex（3px）" };
@@ -401,8 +384,7 @@ namespace BlockCraftLauncher.Wpf
                 Process.Start(new ProcessStartInfo(OfficialArticle) { UseShellExecute = true })));
             manage.Children.Add(Label("登录微软正版账号后可上传。编辑草稿会自动备份。"));
             rightPanel.Children.Add(Card(manage));
-            rightPanel.Children.Add(Card(Column(Label("编辑状态", 16, true), info)));
-            page.Children.Add(AdaptivePanels(editor, rightPanel, 288, 12));
+            page.Children.Add(MainWindow.PageColumns(editor, rightPanel, 280));
             editorPage = page;
             downloadPage = BuildOnlineSearch();
             downloadPage.Visibility = Visibility.Collapsed;
@@ -445,36 +427,31 @@ namespace BlockCraftLauncher.Wpf
         // selected preview/detail -> download/apply, similar to mod search.
         UIElement BuildOnlineSearch()
         {
-            var root = Column(Label("皮肤下载", 23, true),
-                Row(ActionButton("打开皮肤库", OpenSkinLibrary),
-                    ActionButton("皮肤 DIY", () => openEditor?.Invoke())));
+            var root = Column();
+            var libraryActions = Row(ActionButton("皮肤库", OpenSkinLibrary),
+                ActionButton("皮肤 DIY", () => openEditor?.Invoke()));
             if (openDownloadTasks != null)
-                ((WrapPanel)root.Children[1]).Children.Add(ActionButton("下载任务", openDownloadTasks));
+                libraryActions.Children.Add(ActionButton("下载任务", openDownloadTasks));
 
             onlineSource.ItemsSource = new[] {
                 "自由授权图库（Mosaicary）", "全部图库（多来源）",
                 "社区图库（DP-Plugins）",
                 "全部公开皮肤（授权未知需确认）", "玩家皮肤（Mojang）" };
             onlineSource.SelectedIndex = 1; // all supported galleries, by default
-            onlineSource.Width = 186;
             StyleSearch(onlineSource);
             onlineQuery.MaxLength = 60;
-            onlineQuery.Width = 226;
             onlineQuery.Text = "";
             onlineQuery.ToolTip = "输入皮肤名称、作者或关键词；留空可以浏览皮肤图库";
             StyleSearch(onlineQuery);
             onlineCategory.ItemsSource = new[] {
                 "全部分类", "女生", "男生", "角色", "生物" };
             onlineCategory.SelectedIndex = 0;
-            onlineCategory.Width = 124;
             StyleSearch(onlineCategory);
             onlineArms.ItemsSource = new[] { "全部模型", "Steve", "Alex" };
             onlineArms.SelectedIndex = 0;
-            onlineArms.Width = 120;
             StyleSearch(onlineArms);
             onlineSort.ItemsSource = new[] { "最新发布", "最多下载", "最受欢迎" };
             onlineSort.SelectedIndex = 0;
-            onlineSort.Width = 122;
             StyleSearch(onlineSort);
             onlineOpenOnly.Content = Label("仅显示开放许可");
             onlineOpenOnly.IsChecked = true;
@@ -487,20 +464,8 @@ namespace BlockCraftLauncher.Wpf
                 await SearchOnlineAsync(1);
             };
 
-            StackPanel Filter(string label, FrameworkElement control)
-            {
-                return new StackPanel
-                {
-                    Margin = new Thickness(0, 0, 12, 10),
-                    Children = { Label(label), control }
-                };
-            }
-            var filters = new WrapPanel { Orientation = Orientation.Horizontal };
-            filters.Children.Add(Filter("名称 / 关键词", onlineQuery));
-            filters.Children.Add(Filter("下载来源", onlineSource));
-            filters.Children.Add(Filter("皮肤分类", onlineCategory));
-            filters.Children.Add(Filter("手臂模型", onlineArms));
-            filters.Children.Add(Filter("结果排序", onlineSort));
+            var filters = MainWindow.SearchFields(("名称", onlineQuery), ("来源", onlineSource),
+                ("分类", onlineCategory), ("模型", onlineArms), ("排序", onlineSort));
             onlineSearchButton = ActionButton("搜索 / 刷新", async () =>
                 await SearchOnlineAsync(1), true);
             onlineSearchButton.MinWidth = 120;
@@ -516,7 +481,8 @@ namespace BlockCraftLauncher.Wpf
             });
             onlineCancelSearch = ActionButton("取消搜索", () => onlineSearchCancellation?.Cancel());
             onlineCancelSearch.Visibility = Visibility.Collapsed;
-            var search = Column(filters, onlineOpenOnly, Row(onlineSearchButton, reset, onlineCancelSearch));
+            var search = Column(Label("皮肤下载", 16, true), filters,
+                onlineOpenOnly, Row(onlineSearchButton, reset, onlineCancelSearch));
             root.Children.Add(Card(search, true));
 
             onlineResults.MinHeight = 280;
@@ -592,7 +558,7 @@ namespace BlockCraftLauncher.Wpf
             previewStage.Children.Add(onlinePreviewMessage);
             var stageFrame = new Border
             {
-                Child = previewStage, CornerRadius = new CornerRadius(9),
+                Child = previewStage, CornerRadius = new CornerRadius(5),
                 Margin = new Thickness(0, 3, 0, 9)
             };
             stageFrame.SetResourceReference(Border.BackgroundProperty, "PanelAltBrush");
@@ -605,7 +571,8 @@ namespace BlockCraftLauncher.Wpf
                 Row(onlineSaveButton, onlineEditButton, onlineDetailButton), onlineDownloadFeedback);
             onlineDetailPanel = Card(selected);
             ((Border)onlineDetailPanel).SetResourceReference(StyleProperty, "FeaturePanel");
-            root.Children.Add(AdaptivePanels(Card(results), onlineDetailPanel, 329, 14));
+            root.Children.Add(MainWindow.PageColumns(Card(results), onlineDetailPanel, 320, 13));
+            root.Children.Add(Card(libraryActions));
 
             onlineStatus.TextWrapping = TextWrapping.Wrap;
             onlineStatus.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
@@ -946,25 +913,16 @@ namespace BlockCraftLauncher.Wpf
             if (selectedOnlineTexture == null || selectedOnlineSkin == null) return;
             var viewer = new Skin3DPreview { Height = double.NaN, Margin = new Thickness(14, 0, 14, 10) };
             viewer.SetSkin(selectedOnlineTexture, selectedOnlineSkin.SlimArms, onlineOuter.IsChecked != false);
-            var area = SystemParameters.WorkArea;
-            var dialog = new Window
-            {
-                Owner = Window.GetWindow(this), Title = selectedOnlineSkin.Name + " · 皮肤预览",
-                Width = Math.Min(650, area.Width - 24), Height = Math.Min(580, area.Height - 24),
-                WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false
-            };
+            var (dialog, body) = LauncherDialog.Create(Window.GetWindow(this),
+                selectedOnlineSkin.Name + " · 皮肤预览", 622, 552);
             var content = new DockPanel();
-            var heading = Label(selectedOnlineSkin.Name, 18, true);
-            heading.Margin = new Thickness(14, 12, 14, 8);
-            DockPanel.SetDock(heading, Dock.Top);
-            content.Children.Add(heading);
             var controls = Column(PreviewControls(viewer),
                 Label("拖动旋转，聚焦后滚轮缩放。双击复位。"));
             controls.Margin = new Thickness(14, 0, 14, 6);
             DockPanel.SetDock(controls, Dock.Bottom);
             content.Children.Add(controls);
             content.Children.Add(viewer);
-            dialog.Content = content;
+            body.Content = content;
             dialog.ShowDialog();
         }
 

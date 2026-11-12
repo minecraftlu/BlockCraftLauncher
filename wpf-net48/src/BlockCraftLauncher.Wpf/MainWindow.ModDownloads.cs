@@ -127,34 +127,10 @@ namespace BlockCraftLauncher.Wpf
                 resourceMatchVersion, modSourceStatus, actions));
             var results = ProjectResults(resourceCounter, resourceList, Row(details),
                 resourcePrevButton, resourceNextButton);
-            var content = ArrangeModResults(results, modDetailsHost);
+            var content = PageColumns(results, modDetailsHost, 320);
             RefreshModSource();
             RefreshModDetails();
             return Col(search, content);
-        }
-
-        static Grid ArrangeModResults(Border results, ContentControl details)
-        {
-            var grid = new Grid();
-            grid.ColumnDefinitions.Add(new ColumnDefinition());
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0) });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            Grid.SetRow(details, 1);
-            grid.Children.Add(results);
-            grid.Children.Add(details);
-            grid.SizeChanged += (sender, args) =>
-            {
-                if (!args.WidthChanged) return;
-                bool sideBySide = args.NewSize.Width >= 860;
-                grid.ColumnDefinitions[0].Width = new GridLength(sideBySide ? 53 : 1, GridUnitType.Star);
-                grid.ColumnDefinitions[1].Width = sideBySide
-                    ? new GridLength(47, GridUnitType.Star) : new GridLength(0);
-                Grid.SetColumn(details, sideBySide ? 1 : 0);
-                Grid.SetRow(details, sideBySide ? 0 : 1);
-                details.Margin = sideBySide ? new Thickness(12, 0, 0, 0) : new Thickness(0);
-            };
-            return grid;
         }
 
         void RefreshModSource()
@@ -363,7 +339,7 @@ namespace BlockCraftLauncher.Wpf
             var profile = modTarget.SelectedItem as GameProfile;
             var meta = string.Join(" · ", new[] { hit.SourceLabel, hit.Author, hit.DownloadsLabel }
                 .Where(value => !string.IsNullOrWhiteSpace(value)));
-            var details = Col(Txt(hit.Name, 19, true), Txt(meta, 12, false, true));
+            var details = Col(Txt(hit.Name, 17, true), Txt(meta, 12, false, true));
             if (!string.IsNullOrWhiteSpace(hit.Description))
                 details.Children.Add(Txt(hit.Description, 13));
 

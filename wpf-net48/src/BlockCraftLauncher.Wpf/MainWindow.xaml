@@ -4,37 +4,38 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Style="{StaticResource {x:Type Window}}"
         Title="BlockCraft Launcher · Minecraft Java 启动器"
-        Width="1080" Height="680" MinWidth="760" MinHeight="480"
+        Width="960" Height="600" MinWidth="760" MinHeight="480"
         WindowStyle="None" WindowStartupLocation="CenterScreen"
         Icon="Assets/blockcraft_icon.ico"
         UseLayoutRounding="True" SnapsToDevicePixels="True">
   <shell:WindowChrome.WindowChrome>
-    <shell:WindowChrome CaptionHeight="46" ResizeBorderThickness="5"
-                        GlassFrameThickness="0" CornerRadius="0" UseAeroCaptionButtons="False"/>
+    <shell:WindowChrome CaptionHeight="44" ResizeBorderThickness="5"
+                        GlassFrameThickness="0" CornerRadius="6" UseAeroCaptionButtons="False"/>
   </shell:WindowChrome.WindowChrome>
   <Grid>
     <Grid.RowDefinitions>
-      <RowDefinition Height="52"/>
+      <RowDefinition Height="48"/>
       <RowDefinition Height="*"/>
-      <RowDefinition Height="34"/>
+      <RowDefinition Height="27"/>
     </Grid.RowDefinitions>
 
     <Border Background="{DynamicResource TitleBarBrush}">
-      <Grid Margin="13,0,5,0">
+      <Grid Margin="12,0,8,0">
         <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="203"/>
           <ColumnDefinition Width="*"/>
           <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-          <Image Source="Assets/blockcraft_icon.png" Width="25" Height="25" Margin="0,0,8,0"/>
-          <TextBlock Text="BlockCraft Launcher" FontSize="15" FontWeight="SemiBold"
-                     Foreground="{DynamicResource HeaderTextBrush}" VerticalAlignment="Center"/>
-        </StackPanel>
+        <DockPanel x:Name="HeaderBrand" VerticalAlignment="Center" Margin="2,0,8,0" IsHitTestVisible="False">
+          <Image DockPanel.Dock="Left" Source="Assets/blockcraft_icon.png" Width="23" Height="23" Margin="0,0,7,0"/>
+          <TextBlock Text="BlockCraft Launcher" FontSize="14" FontWeight="SemiBold"
+                     Foreground="{DynamicResource HeaderTextBrush}" VerticalAlignment="Center"
+                     TextTrimming="CharacterEllipsis"/>
+        </DockPanel>
 
         <StackPanel x:Name="TopNavigation" Grid.Column="1" Orientation="Horizontal"
-                    VerticalAlignment="Center">
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
           <Button x:Name="TopLaunchButton" Style="{StaticResource HeaderTab}" AutomationProperties.Name="启动">
             <StackPanel Orientation="Horizontal">
               <TextBlock Text="&#xE768;" Style="{StaticResource HeaderGlyph}"/>
@@ -66,7 +67,7 @@
             </StackPanel>
           </Button>
         </StackPanel>
-        <Grid x:Name="ContextNavigation" Grid.Column="1" Visibility="Collapsed">
+        <Grid x:Name="ContextNavigation" Grid.ColumnSpan="3" Margin="0,0,100,0" Visibility="Collapsed">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="*"/>
@@ -83,7 +84,7 @@
                      Margin="10,0,12,0" TextTrimming="CharacterEllipsis"/>
         </Grid>
 
-        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+        <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
           <Button Style="{StaticResource CaptionButton}" ToolTip="最小化"
                   AutomationProperties.Name="最小化" Click="MinimizeButton_Click">
             <TextBlock Style="{StaticResource HeaderGlyph}" Margin="0" Text="&#xE921;"/>
@@ -108,22 +109,24 @@
           <ScaleTransform x:Name="UiScale" ScaleX="1" ScaleY="1"/>
         </Grid.LayoutTransform>
         <Grid.ColumnDefinitions>
-          <ColumnDefinition x:Name="SideColumn" Width="184"/>
+          <ColumnDefinition x:Name="SideColumn" Width="156"/>
           <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
         <Border x:Name="SideBar" Background="{DynamicResource SidebarBrush}"
                 BorderBrush="{DynamicResource BorderBrushTheme}" BorderThickness="0,0,1,0">
-          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <Grid>
-              <ContentControl x:Name="LaunchPane" HorizontalContentAlignment="Stretch"
-                              VerticalContentAlignment="Top" Visibility="Collapsed"/>
-              <StackPanel x:Name="SideMenu" Margin="8,14,8,10"/>
-            </Grid>
-          </ScrollViewer>
+          <Grid>
+            <ContentControl x:Name="LaunchPane" HorizontalContentAlignment="Stretch"
+                            VerticalContentAlignment="Stretch" Visibility="Collapsed"/>
+            <ScrollViewer x:Name="SideMenuScroll"
+                          Visibility="{Binding Visibility, ElementName=SideMenu}"
+                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel x:Name="SideMenu" Margin="0,11,0,10"/>
+            </ScrollViewer>
+          </Grid>
         </Border>
         <ScrollViewer x:Name="PageScroll" Grid.Column="1"
                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                      Padding="20,16,20,9">
+                      Padding="18,14,18,8">
           <Grid>
             <ContentControl x:Name="PageHost" HorizontalContentAlignment="Stretch"
                             VerticalContentAlignment="Top"/>
@@ -134,7 +137,7 @@
       </Grid>
     </Border>
 
-    <Border Grid.Row="2" Background="{DynamicResource WindowBrush}" Padding="14,0,9,0"
+    <Border Grid.Row="2" Background="{DynamicResource SidebarBrush}" Padding="12,0,8,0"
             BorderBrush="{DynamicResource BorderBrushTheme}" BorderThickness="0,1,0,0">
       <DockPanel LastChildFill="True">
         <Button x:Name="TaskShortcut" DockPanel.Dock="Right" Style="{StaticResource FooterButton}"
@@ -149,7 +152,7 @@
                 Content="稍后更新" ToolTip="暂缓自动关闭旧版并打开新版"/>
         <TextBlock x:Name="BuildVersionText" DockPanel.Dock="Right" Margin="0,0,12,0"
                    FontSize="11" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
-        <TextBlock x:Name="StatusText" Text="就绪" Margin="0,0,12,0"
+        <TextBlock x:Name="StatusText" Margin="0,0,12,0"
                    Foreground="{DynamicResource MutedBrush}" FontSize="11"
                    TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                    ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
