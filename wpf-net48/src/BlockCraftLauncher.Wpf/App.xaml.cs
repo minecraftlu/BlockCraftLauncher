@@ -129,6 +129,7 @@ namespace BlockCraftLauncher.Wpf
                 {
                     SkinEditorDocument.RunOfflineSelfTest();
                     OnlineSkinSearchService.RunOfflineSelfTest();
+                    CustomAvatarService.RunOfflineSelfTest();
                     Shutdown(0);
                 }
                 catch (Exception error)
