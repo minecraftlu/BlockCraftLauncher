@@ -376,6 +376,7 @@ namespace BlockCraftLauncher.Wpf
                 case "光影引擎": return "光影包";
                 case "皮肤 DIY": return "皮肤 DIY";
                 case "皮肤下载": return "皮肤";
+                case "皮肤库": return "我的皮肤库";
                 case "设置": return "启动设置";
                 case "多人联机": return "服务器收藏";
                 case "查找服务器": return "查找服务器";
@@ -400,6 +401,7 @@ namespace BlockCraftLauncher.Wpf
                 case "整合包": return "\uE8F1";
                 case "皮肤 DIY": return "\uE70F";
                 case "皮肤下载": return "\uE8B7";
+                case "皮肤库": return "\uE8A7";
                 case "多人联机":
                 case "查找服务器":
                 case "局域网": return "\uE902";
@@ -427,6 +429,7 @@ namespace BlockCraftLauncher.Wpf
                 case "下载管理":
                 case "资源中心":
                 case "皮肤下载":
+                case "皮肤库":
                 case "光影引擎":
                 case "资源包":
                 case "整合包":
@@ -461,7 +464,7 @@ namespace BlockCraftLauncher.Wpf
                     break;
                 case NavigationSection.Download:
                     AddNavSection("游戏组件", "游戏版本");
-                    AddNavSection("社区资源", "资源中心", "整合包", "资源包", "光影引擎", "皮肤下载");
+                    AddNavSection("社区资源", "资源中心", "整合包", "资源包", "光影引擎", "皮肤下载", "皮肤库");
                     AddNavSection("任务", "下载管理");
                     break;
                 case NavigationSection.Multiplayer:
@@ -561,7 +564,7 @@ namespace BlockCraftLauncher.Wpf
                     () => settings.AccountMode == "microsoft" ? settings.AccountName : null,
                     () => Navigate("皮肤 DIY"), QueueSkinDownload,
                     () => Navigate("皮肤下载"), enableDraftRecovery,
-                    () => Navigate("下载管理"));
+                    () => Navigate("下载管理"), () => Navigate("皮肤库"));
             return skinStudio;
         }
 
@@ -639,6 +642,10 @@ namespace BlockCraftLauncher.Wpf
                 case "整合包": PageHost.Content = BuildModpacks(); break;
                 case "皮肤下载":
                     GetSkinStudio().ShowDownloadPage(true);
+                    PageHost.Content = skinStudio;
+                    break;
+                case "皮肤库":
+                    GetSkinStudio().ShowLibraryPage();
                     PageHost.Content = skinStudio;
                     break;
                 case "皮肤 DIY":
@@ -1647,6 +1654,12 @@ namespace BlockCraftLauncher.Wpf
                 throw new InvalidOperationException("皮肤下载未在下载分类中单独打开");
             skinStudio.VerifyOfflineLayout();
             skinStudio.VerifyOnlinePreviewLayout(() => ArrangeLayoutProbe(1080, 680, "10-skin-gallery"));
+            Navigate("皮肤库");
+            if (skinStudio == null || PageHost.Content != skinStudio ||
+                !skinStudio.LibraryMode || !sidebarButtons.ContainsKey("皮肤库"))
+                throw new InvalidOperationException("我的皮肤库未在下载分类中单独打开");
+            skinStudio.VerifyLibraryLayout();
+            ArrangeLayoutProbe(960, 600, "16-local-skin-library");
             Navigate("皮肤 DIY");
             if (skinStudio == null || PageHost.Content != skinStudio ||
                 skinStudio.DownloadMode || !sidebarButtons.ContainsKey("皮肤 DIY") ||
