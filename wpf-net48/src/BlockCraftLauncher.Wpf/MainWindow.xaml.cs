@@ -1412,7 +1412,8 @@ namespace BlockCraftLauncher.Wpf
                 if (cfSearchResults == null || cfSearchResults.ItemTemplate == null ||
                     cfSearchQuery == null || cfVersionFilter == null ||
                     cfCategoryFilter == null || cfSortMode == null ||
-                    cfSearchStatus == null)
+                    cfLoaderFilter == null || cfPrevButton == null ||
+                    cfNextButton == null || cfSearchStatus == null)
                     throw new InvalidOperationException("CurseForge 图文搜索筛选控件未加载");
                 cfLoadedHits.Clear();
                 cfLoadedHits.Add(new CurseForgeHit
@@ -1430,8 +1431,16 @@ namespace BlockCraftLauncher.Wpf
                     throw new InvalidOperationException("CurseForge 图文详情未显示");
                 BackButton_Click(this, new RoutedEventArgs());
                 cfVersionFilter.Text = "1.20.1";
-                if (cfSearchResults.Items.Count != 0)
-                    throw new InvalidOperationException("CurseForge 版本筛选未生效");
+                cfLoaderFilter.SelectedIndex = 1;
+                string searchPath = CurseForgeMirrorClient.BuildSearchPath(
+                    "sodium", cfVersionFilter.Text,
+                    Convert.ToString(cfLoaderFilter.SelectedItem), 1, 1);
+                if (!searchPath.Contains("gameVersion=1.20.1") ||
+                    !searchPath.Contains("modLoaderType=4") ||
+                    !searchPath.Contains("sortField=6") ||
+                    !searchPath.Contains("index=20"))
+                    throw new InvalidOperationException("CurseForge 在线版本/加载器/排序和翻页未生效");
+                cfLoaderFilter.SelectedIndex = 0;
                 cfVersionFilter.Text = "";
             }
             finally { settings.McimEnabled = previousMcim; }
@@ -2309,7 +2318,64 @@ namespace BlockCraftLauncher.Wpf
                     tile.Children.Add(Txt(shot.Title, 11, false, true));
                 gallery.Children.Add(tile);
             }
-            var actions = Row(Btn("安装到当前版本", async () => await InstallCurseForgeAsync(hit), true));
+            // HMCL-style file chooser: ask CurseForge for actual files
+            // compatible with the selected Minecraft instance, not just
+            // versions guessed from project search metadata.
+            var filePicker = new ComboBox
+            {
+                MinWidth = 310, MaxWidth = 720, IsEnabled = false
+            };
+            ApplySearchInputStyle(filePicker, "选择要安装的实际文件版本");
+            var fileStatus = Txt(activeProfile == null
+                ? "请先在启动页面选择游戏实例。" :
+                "当前实例：" + activeProfile.Name + " · " +
+                activeProfile.BaseVersion + " · " + activeProfile.Loader, 12, false, true);
+            var selectedInstall = Btn("安装所选版本", async () =>
+            {
+                var chosen = filePicker.SelectedItem as CurseForgeFileOption;
+                if (chosen == null) return;
+                await InstallCurseForgeAsync(hit, chosen.FileId);
+            }, true);
+            selectedInstall.IsEnabled = false;
+            var loadVersions = Btn("查看可安装版本", async () =>
+            {
+                var profile = activeProfile;
+                if (profile == null)
+                {
+                    fileStatus.Text = "请先在启动页面选择游戏实例。";
+                    return;
+                }
+                loadVersions.IsEnabled = false;
+                selectedInstall.IsEnabled = false;
+                fileStatus.Text = "正在获取 " + profile.BaseVersion + " / " +
+                    profile.Loader + " 的兼容版本...";
+                try
+                {
+                    using (var ct = new CancellationTokenSource(TimeSpan.FromSeconds(40)))
+                    using (var client = new CurseForgeMirrorClient(settings))
+                    {
+                        var files = await client.ListCompatibleFilesAsync(hit.Id, profile, ct.Token);
+                        if (currentPage != "CurseForge" ||
+                            !ReferenceEquals(profile, activeProfile) ||
+                            DetailHost.Content == null) return;
+                        filePicker.ItemsSource = files;
+                        filePicker.IsEnabled = files.Count > 0;
+                        filePicker.SelectedIndex = files.Count > 0 ? 0 : -1;
+                        selectedInstall.IsEnabled = files.Count > 0;
+                        fileStatus.Text = files.Count > 0
+                            ? "已找到 " + files.Count + " 个兼容文件（正式/Beta/Alpha），选择后加入下载队列。"
+                            : "该项目没有匹配当前 Minecraft 版本和加载器的文件。";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (currentPage == "CurseForge" && DetailHost.Content != null)
+                        fileStatus.Text = "加载兼容文件失败：" + ex.GetBaseException().Message;
+                }
+                finally { loadVersions.IsEnabled = true; }
+            });
+            var actions = Row(Btn("自动选择最新兼容版", async () =>
+                await InstallCurseForgeAsync(hit), true));
             if (!string.IsNullOrEmpty(hit.OfficialUrl))
                 actions.Children.Add(Btn("打开 CurseForge 项目页", () =>
                 {
@@ -2317,6 +2383,11 @@ namespace BlockCraftLauncher.Wpf
                     catch (Exception ex) { ShowError("打开 CurseForge 项目页失败", ex); }
                 }));
             overview.Children.Add(actions);
+            overview.Children.Add(Card(Col(
+                Txt("版本选择与安装", 16, true),
+                fileStatus, filePicker,
+                Row(loadVersions, selectedInstall),
+                Txt("仅列出当前游戏实例兼容的 JAR 文件；必要依赖会自动处理，已有模组不会覆盖。", 12, false, true))));
             ShowDetails(hit.Name, Col(Card(overview),
                 Card(Col(Txt("项目截图", 16, true), gallery.Children.Count == 0
                     ? (UIElement)Txt("作者暂未提供截图。", 12, false, true) : gallery))));
