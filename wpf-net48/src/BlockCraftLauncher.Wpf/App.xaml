@@ -3,16 +3,16 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework">
   <Application.Resources>
-    <SolidColorBrush x:Key="WindowBrush" Color="#F7FAFF"/>
-    <SolidColorBrush x:Key="PageBrush" Color="#EAF2FE"/>
-    <SolidColorBrush x:Key="SidebarBrush" Color="#FBFCFE"/>
+    <SolidColorBrush x:Key="WindowBrush" Color="#F6F9FF"/>
+    <SolidColorBrush x:Key="PageBrush" Color="#E8F1FD"/>
+    <SolidColorBrush x:Key="SidebarBrush" Color="#FCFDFF"/>
     <SolidColorBrush x:Key="PanelBrush" Color="#FFFFFF"/>
-    <SolidColorBrush x:Key="PanelAltBrush" Color="#F1F6FE"/>
-    <SolidColorBrush x:Key="TextBrush" Color="#343D4A"/>
-    <SolidColorBrush x:Key="MutedBrush" Color="#5C6779"/>
-    <SolidColorBrush x:Key="BorderBrushTheme" Color="#CFDCED"/>
+    <SolidColorBrush x:Key="PanelAltBrush" Color="#F2F7FF"/>
+    <SolidColorBrush x:Key="TextBrush" Color="#374258"/>
+    <SolidColorBrush x:Key="MutedBrush" Color="#637389"/>
+    <SolidColorBrush x:Key="BorderBrushTheme" Color="#CBD9EB"/>
     <SolidColorBrush x:Key="HoverBrush" Color="#EAF2FE"/>
-    <SolidColorBrush x:Key="SelectedBrush" Color="#D5E6FD"/>
+    <SolidColorBrush x:Key="SelectedBrush" Color="#DBEAFE"/>
     <SolidColorBrush x:Key="AccentBrush" Color="#1370F3"/>
     <SolidColorBrush x:Key="AccentInkBrush" Color="#0B5BCB"/>
     <SolidColorBrush x:Key="AccentTextBrush" Color="#FFFFFF"/>
@@ -37,8 +37,8 @@
     <SolidColorBrush x:Key="InputBorderBrush" Color="#B8C9DF"/>
     <SolidColorBrush x:Key="DangerBrush" Color="#BA4052"/>
     <SolidColorBrush x:Key="WarningBrush" Color="#8C5D0A"/>
-    <DropShadowEffect x:Key="CardShadow" Color="#374F70" BlurRadius="10"
-                      ShadowDepth="2" Direction="270" Opacity="0.17" RenderingBias="Performance"/>
+    <DropShadowEffect x:Key="CardShadow" Color="#536C95" BlurRadius="8"
+                      ShadowDepth="1" Direction="270" Opacity="0.10" RenderingBias="Performance"/>
 
     <Style x:Key="KeyboardFocusOutline">
       <Setter Property="Control.Template">
@@ -105,14 +105,14 @@
       </Setter>
     </Style>
     <Style x:Key="AccentButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-      <Setter Property="Background" Value="{DynamicResource BadgeBrush}"/>
+      <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
-      <Setter Property="Foreground" Value="{DynamicResource AccentInkBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
     </Style>
     <Style x:Key="LaunchButton" TargetType="Button" BasedOn="{StaticResource AccentButton}">
-      <Setter Property="Background" Value="{DynamicResource PanelBrush}"/>
-      <Setter Property="BorderThickness" Value="2"/>
+      <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="MinHeight" Value="55"/>
       <Setter Property="MaxWidth" Value="Infinity"/>
       <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
@@ -224,9 +224,9 @@
       <Setter Property="Background" Value="{DynamicResource PanelBrush}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource SoftDividerBrush}"/>
       <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="CornerRadius" Value="5"/>
-      <Setter Property="Padding" Value="16,13,16,11"/>
-      <Setter Property="Margin" Value="0,0,0,12"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="Padding" Value="15,12,15,10"/>
+      <Setter Property="Margin" Value="0,0,0,10"/>
       <Setter Property="Effect" Value="{StaticResource CardShadow}"/>
     </Style>
     <Style x:Key="FeaturePanel" TargetType="Border" BasedOn="{StaticResource Panel}">
@@ -275,12 +275,12 @@
     <!-- Shared PCL-style search and download layouts. Distinct original
          visual assets, same familiar label/filter/results information flow. -->
     <Style x:Key="SearchPanel" TargetType="Border" BasedOn="{StaticResource Panel}">
-      <Setter Property="Padding" Value="16,13,16,8"/>
+      <Setter Property="Padding" Value="14,12,14,7"/>
       <Setter Property="Background" Value="{DynamicResource SearchSurfaceBrush}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushTheme}"/>
     </Style>
     <Style x:Key="ResultsPanel" TargetType="Border" BasedOn="{StaticResource Panel}">
-      <Setter Property="Padding" Value="15,12,15,8"/>
+      <Setter Property="Padding" Value="13,11,13,8"/>
     </Style>
     <Style x:Key="SectionCaption" TargetType="TextBlock">
       <Setter Property="FontSize" Value="11"/>
