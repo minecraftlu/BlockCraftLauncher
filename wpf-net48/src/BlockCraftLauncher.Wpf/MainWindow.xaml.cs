@@ -1334,8 +1334,10 @@ namespace BlockCraftLauncher.Wpf
                 CategoryLabel = "Technology", VersionsLabel = "1.21.1", DownloadsLabel = "5 万次下载"
             });
             resourceList.SelectedIndex = 0;
-            if (modDetailsHost.Content == null || DetailHost.Content != null ||
-                !ReferenceEquals(PageHost.Content, unifiedPage))
+            var modPanel = (modDetailsHost.Content as Border)?.Child as StackPanel;
+            if (modPanel == null || !modPanel.Children.OfType<ListBox>().Any(list =>
+                    AutomationProperties.GetName(list) == "兼容的模组文件") ||
+                DetailHost.Content != null || !ReferenceEquals(PageHost.Content, unifiedPage))
                 throw new InvalidOperationException("CurseForge 文件选择未显示在同一页面。");
             ArrangeLayoutProbe(1280, 780, "03-mod-download-curseforge");
             ArrangeLayoutProbe(850, 560, "03-mod-download-curseforge-narrow");

@@ -180,6 +180,7 @@ namespace BlockCraftLauncher.Wpf.Services
             // through the SAME CmlLib game routing handler as production.
             ChinaDownloadAndCurseForgeSanityChecks.Run();
             CurseForgeInstallSanityChecks.RunAsync().GetAwaiter().GetResult();
+            ModrinthDependencySanityChecks.Run();
             GitHubOpenSourceModSanityChecks.Run();
             LauncherAutoUpdateSanityChecks.Run();
             MinecraftRouteSanityChecks.RunAsync().GetAwaiter().GetResult();
