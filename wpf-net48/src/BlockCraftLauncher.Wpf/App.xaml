@@ -695,62 +695,6 @@
         </Grid>
       </Border>
     </DataTemplate>
-    <!-- CurseForge / MCIM: real project cover when safely provided, plus
-         source metadata. No project artwork is embedded in our application. -->
-    <DataTemplate x:Key="CurseForgeItemTemplate">
-      <Border Padding="8,8" BorderBrush="{DynamicResource BorderBrushTheme}"
-              BorderThickness="0,0,0,1" MinHeight="85">
-        <Grid>
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="60"/>
-            <ColumnDefinition Width="*"/>
-          </Grid.ColumnDefinitions>
-          <Border Width="50" Height="50" CornerRadius="8" VerticalAlignment="Top"
-                  Background="{DynamicResource BadgeBrush}" ClipToBounds="True">
-            <Grid>
-              <TextBlock Text="&#xE8B7;" FontFamily="Segoe MDL2 Assets"
-                         FontSize="23" Foreground="{DynamicResource AccentInkBrush}"
-                         HorizontalAlignment="Center" VerticalAlignment="Center"/>
-              <Image Source="{Binding IconUrl}" Width="50" Height="50"
-                     ToolTip="CurseForge 项目封面；加载失败时显示默认模组图标"
-                     Stretch="UniformToFill"
-                     RenderOptions.BitmapScalingMode="HighQuality"/>
-            </Grid>
-          </Border>
-          <StackPanel Grid.Column="1" VerticalAlignment="Center">
-            <WrapPanel Margin="0,0,0,5">
-              <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
-                         TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="36"
-                         ToolTip="{Binding Name}" Margin="0,0,12,0"/>
-              <TextBlock Text="{Binding AuthorLabel}" FontSize="11"
-                         Foreground="{DynamicResource MutedBrush}"
-                         VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                         MaxWidth="185"/>
-            </WrapPanel>
-            <TextBlock Text="{Binding Summary}" FontSize="12"
-                       Foreground="{DynamicResource MutedBrush}"
-                       TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
-                       LineHeight="17" MaxHeight="35" ToolTip="{Binding Summary}"
-                       Margin="0,0,0,7"/>
-            <WrapPanel>
-              <TextBlock Text="CurseForge" FontSize="11"
-                         Foreground="{DynamicResource AccentInkBrush}"
-                         Margin="0,0,13,3"/>
-              <TextBlock Text="{Binding DownloadsLabel}" FontSize="11"
-                         Foreground="{DynamicResource MutedBrush}"
-                         Margin="0,0,13,3"/>
-              <TextBlock Text="{Binding CategoryLabel}" FontSize="11"
-                         Foreground="{DynamicResource MutedBrush}"
-                         Margin="0,0,13,3"/>
-              <TextBlock Text="{Binding VersionsLabel}" FontSize="11"
-                         Foreground="{DynamicResource MutedBrush}"
-                         Margin="0,0,13,3" TextTrimming="CharacterEllipsis"
-                         MaxWidth="235" ToolTip="{Binding VersionsLabel}"/>
-            </WrapPanel>
-          </StackPanel>
-        </Grid>
-      </Border>
-    </DataTemplate>
     <DataTemplate x:Key="VersionItemTemplate">
       <Border Padding="9,7" BorderBrush="{DynamicResource SoftDividerBrush}"
               BorderThickness="0,0,0,1" MinHeight="49">

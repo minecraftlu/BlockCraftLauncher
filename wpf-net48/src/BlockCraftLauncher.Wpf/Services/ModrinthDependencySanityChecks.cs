@@ -113,6 +113,18 @@ namespace BlockCraftLauncher.Wpf.Services
                 StringComparison.OrdinalIgnoreCase)), "trusted CDN fixture");
             Require(plan.All(x => x.Sha1.Length == 40), "every planned file needs SHA-1");
 
+            var earlier = Version("A", "vEarlier", "A-older.jar",
+                new object[] { Dependency("C", "vC") });
+            var choices = await new ModrinthDependencyPlanner(Fixture(a, earlier, b, c))
+                .ListFilesAsync("A", "1.21.1", "Fabric", CancellationToken.None);
+            Require(choices.Count == 2 && choices[1].VersionId == "vEarlier" &&
+                choices[1].RequiredDependencies == 1, "compatible versions include the selected older file");
+            var independent = Version("C", "vC", "C.jar");
+            var earlierPlan = await new ModrinthDependencyPlanner(Fixture(a, earlier, b, independent))
+                .PlanAsync("A", "1.21.1", "fabric", CancellationToken.None, "vEarlier");
+            Require(earlierPlan.Count == 2 && earlierPlan.Last().Filename == "A-older.jar",
+                "install plans use the selected file instead of the newest project version");
+
             var mixed = Version("MIXED", "vMixed", "mixed-sources.jar");
             mixed["files"] = new object[] {
                 new Dictionary<string, object> {

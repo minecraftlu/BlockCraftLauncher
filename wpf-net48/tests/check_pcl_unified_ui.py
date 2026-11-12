@@ -25,7 +25,6 @@ for style in (
     "HeaderTab", "HeaderTabActive", "SidebarItem", "SidebarItemActive",
     "AccentButton", "Panel", "ResourceItemTemplate", "VersionItemTemplate",
     "DownloadItemTemplate", "ServerItemTemplate", "LocalResourceItemTemplate",
-    "CurseForgeItemTemplate",
 ):
     assert style in styles, style
 
@@ -47,7 +46,7 @@ for symbol in (
 
 for page in (
     "首页", "版本选择", "版本设置", "存档管理", "游戏版本", "下载管理", "资源中心",
-    "光影引擎", "资源包", "整合包", "CurseForge", "模组更新", "多人联机", "局域网",
+    "光影引擎", "资源包", "整合包", "模组更新", "多人联机", "局域网",
     "启动器更新", "设置", "下载设置", "个性化", "更新设置", "运行日志", "皮肤 DIY", "关于",
 ):
     assert f'case "{page}":' in main, page
@@ -88,8 +87,8 @@ assert 'if (preparedUpdate != null && settings.AutoRestartAfterUpdateDownload)' 
 for search in (
     'PageHeading(', 'SearchCard(', 'ResultsCard(', 'ApplySearchInputStyle(',
     'FilterChipButton(', 'versionCounter', 'ApplyDownloadFilter()',
-    'cfVersionFilter', 'cfCategoryFilter', 'cfSortMode',
-    'ApplyCurseForgeFilters()', 'packVersionFilter', 'packSortMode',
+    'BuildModDownloadPage', 'resourceVersion', 'resourceCategory', 'resourceLoader',
+    'packVersionFilter', 'packSortMode',
     'packPrevButton', 'packNextButton'
 ):
     assert search in main, f"Missing PCL-style download search UI: {search}"
