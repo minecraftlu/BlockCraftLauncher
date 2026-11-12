@@ -1,0 +1,56 @@
+name: WPF fixed PCL-inspired layout and downloads (preview)
+
+on:
+  push:
+    branches:
+      - feature/v0951-fixed-pcl-layout
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-net48:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: microsoft/setup-msbuild@v2
+      - name: Static shell, navigation and download checks
+        working-directory: wpf-net48
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($test in @('check_pcl_fixed_shell.py', 'check_pcl_unified_ui.py',
+              'check_pcl_downloads.py', 'check_download_bindings.py')) {
+            python "tests/$test"
+            if ($LASTEXITCODE -ne 0) { throw "Static UI test failed: $test" }
+          }
+      - name: Compile WPF and package full ZIP and OneFile EXE
+        shell: cmd
+        working-directory: wpf-net48
+        run: call build\build-windows.bat
+      - name: Smoke tests on WPF and OneFile
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $wpf = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $one = @(Get-ChildItem 'dist' -Filter 'BlockCraftLauncher-v*-WPF-OneFile-Windows-x64.exe')
+          if ($one.Count -ne 1) { throw 'Expected one portable Windows EXE' }
+          foreach ($binary in @($wpf, $one[0].FullName)) {
+            foreach ($argument in @('--ui-layout-selftest', '--download-ui-selftest',
+                '--skin-selftest', '--auth-selftest', '--smoke-test')) {
+              $proc = Start-Process -FilePath $binary -ArgumentList $argument -PassThru
+              if (-not $proc.WaitForExit(120000)) {
+                $proc.Kill()
+                throw "Timeout: $binary $argument"
+              }
+              if ($proc.ExitCode -ne 0) {
+                throw "Failed: $binary $argument exit $($proc.ExitCode)"
+              }
+              Write-Host "PASS: $binary $argument"
+            }
+          }
