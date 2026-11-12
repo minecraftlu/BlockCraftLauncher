@@ -123,8 +123,9 @@ namespace BlockCraftLauncher.Wpf
             var search = SearchCard(Col(Txt(title, 17, true),
                 SearchFields(("名称", resourceQuery), ("来源", resourceSource),
                     ("版本", resourceVersion), ("加载器", resourceLoader),
-                    ("分类", resourceCategory), ("排序", resourceSort), ("安装到", modTarget)),
-                resourceMatchVersion, modSourceStatus, actions));
+                    ("分类", resourceCategory), ("排序", resourceSort), ("安装到", modTarget),
+                    ("", resourceMatchVersion)),
+                modSourceStatus, actions));
             var results = ProjectResults(resourceCounter, resourceList, Row(details),
                 resourcePrevButton, resourceNextButton);
             var content = PageColumns(results, modDetailsHost, 320);
@@ -341,7 +342,13 @@ namespace BlockCraftLauncher.Wpf
                 .Where(value => !string.IsNullOrWhiteSpace(value)));
             var details = Col(Txt(hit.Name, 17, true), Txt(meta, 12, false, true));
             if (!string.IsNullOrWhiteSpace(hit.Description))
-                details.Children.Add(Txt(hit.Description, 13));
+            {
+                var summary = Txt(hit.Description, 13);
+                summary.MaxHeight = 61;
+                summary.TextTrimming = TextTrimming.CharacterEllipsis;
+                summary.ToolTip = hit.Description;
+                details.Children.Add(summary);
+            }
 
             modDetailsHost.Content = Card(details);
             if (!(hit is CurseForgeHit project) || project.OfficialUrl != null)

@@ -608,7 +608,17 @@
                 <Thumb>
                   <Thumb.Template>
                     <ControlTemplate TargetType="Thumb">
-                      <Border Background="{DynamicResource SecondaryAccentBrush}" CornerRadius="3" Margin="1"/>
+                      <Border x:Name="Grip" Background="{DynamicResource SecondaryAccentBrush}" CornerRadius="2.5"
+                              Width="5" HorizontalAlignment="Right" Margin="0,1,2,1"/>
+                      <ControlTemplate.Triggers>
+                        <DataTrigger Binding="{Binding Orientation, RelativeSource={RelativeSource AncestorType=ScrollBar}}" Value="Horizontal">
+                          <Setter TargetName="Grip" Property="Width" Value="Auto"/>
+                          <Setter TargetName="Grip" Property="Height" Value="5"/>
+                          <Setter TargetName="Grip" Property="HorizontalAlignment" Value="Stretch"/>
+                          <Setter TargetName="Grip" Property="VerticalAlignment" Value="Bottom"/>
+                          <Setter TargetName="Grip" Property="Margin" Value="1,0,1,2"/>
+                        </DataTrigger>
+                      </ControlTemplate.Triggers>
                     </ControlTemplate>
                   </Thumb.Template>
                 </Thumb>

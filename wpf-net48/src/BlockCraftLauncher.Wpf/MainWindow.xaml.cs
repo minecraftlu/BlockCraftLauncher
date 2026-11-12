@@ -1081,18 +1081,24 @@ namespace BlockCraftLauncher.Wpf
             foreach (var field in fields)
             {
                 var row = new Grid { Margin = new Thickness(0, 0, 8, 6) };
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(58) });
+                bool labeled = !string.IsNullOrWhiteSpace(field.Label);
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(labeled ? 58 : 0) });
                 row.ColumnDefinitions.Add(new ColumnDefinition());
-                var label = new Label
+                if (labeled)
                 {
-                    Content = field.Label, Target = field.Input, FontSize = 12.5,
-                    Padding = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center
-                };
-                label.SetResourceReference(Control.ForegroundProperty, "TextBrush");
-                AutomationProperties.SetLabeledBy(field.Input, label);
+                    var label = new Label
+                    {
+                        Content = field.Label, Target = field.Input, FontSize = 12.5,
+                        Padding = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center
+                    };
+                    label.SetResourceReference(Control.ForegroundProperty, "TextBrush");
+                    AutomationProperties.SetLabeledBy(field.Input, label);
+                    Place(row, label, 0, 0);
+                }
                 field.Input.Margin = new Thickness(0);
+                field.Input.MaxHeight = 32;
+                field.Input.VerticalAlignment = VerticalAlignment.Center;
                 field.Input.HorizontalAlignment = HorizontalAlignment.Stretch;
-                Place(row, label, 0, 0);
                 Place(row, field.Input, 0, 1);
                 form.Children.Add(row);
             }
@@ -1656,6 +1662,18 @@ namespace BlockCraftLauncher.Wpf
             }
 
             Navigate("关于");
+            if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("BLOCKCRAFT_UI_CAPTURE_DIR")))
+            {
+                var (dialog, body) = LauncherDialog.Create(null, "安装所选版本", 482);
+                body.Content = Col(Txt("目标实例 · 原版 1.21.1", 13),
+                    Txt("安装所选模组及其必需前置。", 12, false, true),
+                    Row(Btn("确定", () => { }, true), Btn("取消", () => { })));
+                var dialogFrame = (FrameworkElement)dialog.Content;
+                dialogFrame.Measure(new Size(482, 182));
+                dialogFrame.Arrange(new Rect(0, 0, 482, 182));
+                dialogFrame.UpdateLayout();
+                CaptureLayout(dialogFrame, 482, 182, "16-dialog");
+            }
             settings.Profiles.Remove(sampleProfile);
             activeProfile = originalProfile;
             Navigate("首页");
@@ -1754,6 +1772,11 @@ namespace BlockCraftLauncher.Wpf
             root.Measure(size);
             root.Arrange(rect);
             root.UpdateLayout();
+            CaptureLayout(root, width, height, captureName);
+        }
+
+        static void CaptureLayout(FrameworkElement root, int width, int height, string captureName)
+        {
             string directory = Environment.GetEnvironmentVariable("BLOCKCRAFT_UI_CAPTURE_DIR");
             if (captureName == null || string.IsNullOrWhiteSpace(directory)) return;
             Directory.CreateDirectory(directory);

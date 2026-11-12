@@ -485,8 +485,8 @@ namespace BlockCraftLauncher.Wpf
                 onlineOpenOnly, Row(onlineSearchButton, reset, onlineCancelSearch));
             root.Children.Add(Card(search, true));
 
-            onlineResults.MinHeight = 280;
-            onlineResults.Height = 398;
+            onlineResults.MinHeight = 132;
+            onlineResults.MaxHeight = 348;
             onlineResults.ItemTemplate =
                 (DataTemplate)Application.Current.FindResource("OnlineSkinResultTemplate");
             onlineResults.SelectionChanged += async (sender, args) =>
@@ -565,10 +565,10 @@ namespace BlockCraftLauncher.Wpf
             onlineModelInfo = Row(PreviewBadge(onlineSkinSource), PreviewBadge(onlineSkinModel));
             onlineDownloadProgress.SetResourceReference(ProgressBar.ForegroundProperty, "AccentBrush");
             onlineDownloadFeedback = Column(onlineDownloadStatus, onlineDownloadProgress);
-            var selected = Column(onlineSkinTitle, onlineModelInfo, stageFrame,
-                Row(onlinePreviewMode, onlineExpandPreview, onlineOuter, onlineRetryPreview),
-                onlineOrbitControls, onlineAttribution,
-                Row(onlineSaveButton, onlineEditButton, onlineDetailButton), onlineDownloadFeedback);
+            var selected = Column(onlineSkinTitle, onlineModelInfo,
+                Row(onlineSaveButton, onlineEditButton, onlineDetailButton),
+                stageFrame, Row(onlinePreviewMode, onlineExpandPreview, onlineOuter, onlineRetryPreview),
+                onlineOrbitControls, onlineAttribution, onlineDownloadFeedback);
             onlineDetailPanel = Card(selected);
             ((Border)onlineDetailPanel).SetResourceReference(StyleProperty, "FeaturePanel");
             root.Children.Add(MainWindow.PageColumns(Card(results), onlineDetailPanel, 320, 13));

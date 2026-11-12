@@ -61,6 +61,19 @@ jobs:
             throw "WPF layout selftest exit $($run.ExitCode)"
           }
 
+      - name: Check the single EXE starts and renders
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Get-ChildItem -LiteralPath 'dist' -Filter '*-WPF-OneFile-Windows-x64.exe' -File |
+            Select-Object -First 1
+          if (!$exe) { throw 'OneFile EXE missing from dist' }
+          $run = Start-Process -FilePath $exe.FullName -ArgumentList '--ui-layout-selftest' -PassThru -WindowStyle Hidden
+          if (-not $run.WaitForExit(60000)) { $run.Kill(); throw 'OneFile WPF layout selftest timeout' }
+          $run.Refresh()
+          if ($run.ExitCode -ne 0) { throw "OneFile WPF layout selftest exit $($run.ExitCode)" }
+
       - name: Upload WPF layout screenshots
         uses: actions/upload-artifact@v4
         with:
