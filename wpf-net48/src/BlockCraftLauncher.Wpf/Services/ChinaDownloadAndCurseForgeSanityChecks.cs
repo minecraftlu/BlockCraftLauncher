@@ -103,6 +103,54 @@ namespace BlockCraftLauncher.Wpf.Services
                 Require(!CurseForgeMirrorClient.MaySendOwnerKey(untrusted),
                     "不应向任何非授权主机转发用户私有 API Key");
 
+            // HMCL-style online query parameters must be sent to the source,
+            // not faked by filtering only a few labels on the current page.
+            string online = CurseForgeMirrorClient.BuildSearchPath(
+                "sodium", "1.20.1", "Fabric", 1, 2);
+            Require(online.Contains("gameId=432") &&
+                online.Contains("classId=6") &&
+                online.Contains("gameVersion=1.20.1") &&
+                online.Contains("modLoaderType=4") &&
+                online.Contains("sortField=6") &&
+                online.Contains("index=40") &&
+                online.Contains("pageSize=20"),
+                "在线版本/加载器/排序/翻页要调用 CurseForge API");
+            Require(CurseForgeMirrorClient.BuildSearchPath(
+                "灯光 & Sodium", "", "", 0, 0).IndexOf(
+                    "searchFilter=%e7%81%af%e5%85%89%20%26%20Sodium",
+                    StringComparison.OrdinalIgnoreCase) >= 0,
+                "中文、空格和特殊符号必须 URL 编码");
+            bool invalidSearch = false;
+            try { CurseForgeMirrorClient.BuildSearchPath("", "", "Fabric", 0, 0); }
+            catch (ArgumentException) { invalidSearch = true; }
+            Require(invalidSearch, "官方要求加载器筛选必须搭配游戏版本");
+            invalidSearch = false;
+            try { CurseForgeMirrorClient.BuildSearchPath("", "", "", 0, 500); }
+            catch (ArgumentOutOfRangeException) { invalidSearch = true; }
+            Require(invalidSearch, "CurseForge 最大只能访问前 10000 项，超出需拒绝");
+            var profile = new GameProfile { BaseVersion = "1.20.1", Loader = "fabric" };
+            var compatibleFiles = CurseForgeMirrorClient.ParseCompatibleFiles(new object[]
+            {
+                new System.Collections.Generic.Dictionary<string, object> {
+                    { "id", 124L }, { "displayName", "Safe Fabric release" },
+                    { "fileName", "safe-1.20.1.jar" },
+                    { "fileDate", "2026-11-12T12:30:00Z" },
+                    { "modLoaderType", 4 }, { "releaseType", 1 },
+                    { "gameVersions", new object[] { "1.20.1" } }
+                },
+                new System.Collections.Generic.Dictionary<string, object> {
+                    { "id", 125L }, { "displayName", "Incompatible Forge" },
+                    { "fileName", "other-1.20.1.jar" },
+                    { "modLoaderType", 1 },
+                    { "gameVersions", new object[] { "1.20.1" } }
+                }
+            }, profile);
+            Require(compatibleFiles.Count == 1 &&
+                compatibleFiles[0].FileId == 124 &&
+                compatibleFiles[0].DisplayName.Contains("Fabric") &&
+                compatibleFiles[0].DateLabel.Contains("正式版"),
+                "选择文件时只显示与当前 Minecraft/Fabric 兼容的文件");
+
             const string json = @"[
               {
                 ""id"": 123, ""name"": ""Example Mod"", ""summary"": ""A sample mod with images"",

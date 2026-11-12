@@ -39,6 +39,15 @@ namespace BlockCraftLauncher.Wpf.Services
         public override string ToString() => Name + " — " + Summary;
     }
 
+    public sealed class CurseForgeFileOption
+    {
+        public long FileId { get; set; }
+        public string FileName { get; set; }
+        public string DisplayName { get; set; }
+        public string DateLabel { get; set; }
+        public override string ToString() => DisplayName + "  ·  " + DateLabel;
+    }
+
     /// <summary>
     /// Official owner-local CurseForge API when the owner sets a private key.
     /// Optional MCIM remains available only without a configured private key.
@@ -298,12 +307,43 @@ namespace BlockCraftLauncher.Wpf.Services
             return hits;
         }
 
-        public async Task<IReadOnlyList<CurseForgeHit>> SearchAsync(string query, CancellationToken ct)
+        // HMCL-inspired server-side filtering. CurseForge modLoaderType is
+        // accepted only when gameVersion is also provided, per official API.
+        internal static string BuildSearchPath(string query, string gameVersion,
+            string loader, int sort, int page)
         {
-            if ((query ?? "").Length > 150) throw new ArgumentException("搜索关键词过长");
-            var url = "/mods/search?gameId=432&classId=6&index=0&pageSize=20&searchFilter="
-                + Uri.EscapeDataString(query ?? "");
-            var entries = await ApiGetAsync(url, ct);
+            query = (query ?? "").Trim();
+            gameVersion = (gameVersion ?? "").Trim();
+            loader = (loader ?? "").Trim();
+            if (query.Length > 150) throw new ArgumentException("搜索关键词过长");
+            if (page < 0 || page > 499)
+                throw new ArgumentOutOfRangeException(nameof(page), "CurseForge 最多支持前 10000 条搜索结果");
+            if (gameVersion.Length > 0 && !Regex.IsMatch(gameVersion, @"^[a-zA-Z0-9._-]{1,64}$"))
+                throw new ArgumentException("Minecraft 版本号格式无效");
+            if (loader.Length > 0 && gameVersion.Length == 0)
+                throw new ArgumentException("按加载器筛选需要先选择 Minecraft 游戏版本");
+            if (sort < 0 || sort > 3) throw new ArgumentOutOfRangeException(nameof(sort));
+            string path = "/mods/search?gameId=432&classId=6&index=" + (page * 20) +
+                "&pageSize=20&searchFilter=" + Uri.EscapeDataString(query);
+            if (gameVersion.Length > 0)
+            {
+                path += "&gameVersion=" + Uri.EscapeDataString(gameVersion);
+                if (loader.Length > 0) path += "&modLoaderType=" + LoaderCode(loader);
+            }
+            // 13 relevance, 6 total downloads, 3 recently updated, 4 name.
+            int field = sort == 1 ? 6 : sort == 2 ? 3 : sort == 3 ? 4 : query.Length > 0 ? 13 : 2;
+            return path + "&sortField=" + field +
+                "&sortOrder=" + (sort == 3 ? "asc" : "desc");
+        }
+
+        public Task<IReadOnlyList<CurseForgeHit>> SearchAsync(string query, CancellationToken ct) =>
+            SearchAsync(query, "", "", 0, 0, ct);
+
+        public async Task<IReadOnlyList<CurseForgeHit>> SearchAsync(string query,
+            string gameVersion, string loader, int sort, int page, CancellationToken ct)
+        {
+            var entries = await ApiGetAsync(
+                BuildSearchPath(query, gameVersion, loader, sort, page), ct);
             return ParseSearch(entries);
         }
 
@@ -318,7 +358,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 default: throw new InvalidOperationException("当前实例未使用受支持的模组加载器");
             }
         }
-        bool Compatible(Dictionary<string, object> file, GameProfile profile)
+        static bool Compatible(Dictionary<string, object> file, GameProfile profile)
         {
             if (file.TryGetValue("isAvailable", out var isAvailable) && isAvailable is bool available && !available) return false;
             if (file.TryGetValue("isServerPack", out var isServerPack) && isServerPack is bool server && server) return false;
@@ -331,16 +371,49 @@ namespace BlockCraftLauncher.Wpf.Services
             return true;
         }
 
-        async Task<Dictionary<string, object>> CompatibleFileAsync(long project, GameProfile profile, CancellationToken ct)
+        async Task<object[]> CompatibleFilesRawAsync(long project, GameProfile profile, CancellationToken ct)
         {
+            if (profile == null) throw new ArgumentNullException(nameof(profile));
+            if (project < 1) throw new ArgumentOutOfRangeException(nameof(project));
             string version = profile.BaseVersion ?? "";
             if (!Regex.IsMatch(version, @"^[A-Za-z0-9._-]{1,64}$"))
                 throw new InvalidDataException("Minecraft 版本号无效");
             int loader = LoaderCode(profile.Loader);
             var url = "/mods/" + project + "/files?gameVersion=" + Uri.EscapeDataString(version)
                 + "&modLoaderType=" + loader + "&pageSize=50&index=0";
-            var files = await ApiGetAsync(url, ct) as object[];
-            var selected = files?.Select(Dict).Where(x => x != null && Compatible(x, profile))
+            return await ApiGetAsync(url, ct) as object[] ??
+                throw new InvalidDataException("CurseForge 文件列表格式异常");
+        }
+
+        internal static IReadOnlyList<CurseForgeFileOption> ParseCompatibleFiles(
+            object[] raw, GameProfile profile)
+        {
+            if (raw == null || raw.Length > 50 || profile == null)
+                throw new InvalidDataException("模组版本列表格式异常");
+            return raw.Select(Dict).Where(x => x != null && Compatible(x, profile))
+                .OrderByDescending(x => Text(x, "fileDate"))
+                .Take(40)
+                .Select(x => new CurseForgeFileOption
+                {
+                    FileId = Id(x, "id"),
+                    FileName = Text(x, "fileName"),
+                    DisplayName = Truncated(Text(x, "displayName"), 95).Length > 0 ?
+                        Truncated(Text(x, "displayName"), 95) :
+                        Truncated(Text(x, "fileName"), 95),
+                    DateLabel = Truncated(Text(x, "fileDate"), 10) + "  ·  " +
+                        (Text(x, "releaseType") == "1" ? "正式版" :
+                         Text(x, "releaseType") == "2" ? "Beta" : "Alpha")
+                }).ToList();
+        }
+
+        public async Task<IReadOnlyList<CurseForgeFileOption>> ListCompatibleFilesAsync(
+            long project, GameProfile profile, CancellationToken ct) =>
+            ParseCompatibleFiles(await CompatibleFilesRawAsync(project, profile, ct), profile);
+
+        async Task<Dictionary<string, object>> CompatibleFileAsync(long project, GameProfile profile, CancellationToken ct)
+        {
+            var files = await CompatibleFilesRawAsync(project, profile, ct);
+            var selected = files.Select(Dict).Where(x => x != null && Compatible(x, profile))
                 .OrderByDescending(x => Text(x, "fileDate")).FirstOrDefault();
             if (selected == null) throw new IOException("项目 " + project + " 没有兼容当前版本/加载器的文件");
             return selected;
@@ -486,12 +559,24 @@ namespace BlockCraftLauncher.Wpf.Services
         }
 
         public async Task<IReadOnlyList<string>> InstallAsync(long project, GameProfile profile,
-            IProgress<string> progress, CancellationToken ct)
+            IProgress<string> progress, CancellationToken ct, long? selectedFileId = null)
         {
             RequireEnabled();
             if (profile == null || string.IsNullOrWhiteSpace(profile.Directory))
                 throw new InvalidOperationException("请先选择游戏实例");
-            var compatible = await CompatibleFileAsync(project, profile, ct);
+            Dictionary<string, object> compatible;
+            if (selectedFileId.HasValue)
+            {
+                if (selectedFileId.Value < 1)
+                    throw new ArgumentOutOfRangeException(nameof(selectedFileId));
+                compatible = Dict(await ApiGetAsync("/mods/" + project + "/files/" +
+                    selectedFileId.Value, ct));
+                if (compatible == null || Id(compatible, "id") != selectedFileId.Value ||
+                    !Compatible(compatible, profile))
+                    throw new InvalidDataException("选择的 CurseForge 文件与当前实例不兼容");
+            }
+            else
+                compatible = await CompatibleFileAsync(project, profile, ct);
             var plan = new List<Planned>();
             await Visit(project, compatible, profile, new HashSet<long>(), plan, 0, ct);
             var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
