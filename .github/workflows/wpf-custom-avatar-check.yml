@@ -1,0 +1,61 @@
+name: WPF avatar and account UI regression
+
+on:
+  push:
+    branches:
+      - main
+      - feature/custom-local-avatar
+    paths:
+      - '.github/workflows/wpf-custom-avatar-check.yml'
+      - 'wpf-net48/src/BlockCraftLauncher.Wpf/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/wpf-custom-avatar-check.yml'
+      - 'wpf-net48/src/BlockCraftLauncher.Wpf/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-net48:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: microsoft/setup-msbuild@v2
+      - name: Restore and compile WPF .NET Framework 4.8
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          msbuild BlockCraftLauncher-WPF.sln -restore -t:Build -p:Configuration=Release -p:Platform="Any CPU" -p:PlatformTarget=x64 -p:Prefer32Bit=false -v:minimal
+          if ($LASTEXITCODE -ne 0) { throw "WPF build failed: $LASTEXITCODE" }
+      - name: Offline avatar and skin regression
+        shell: pwsh
+        run: |
+          $exe = 'wpf-net48/src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe'
+          if (-not (Test-Path -LiteralPath $exe)) { throw 'WPF launcher EXE missing' }
+          $process = Start-Process -FilePath $exe -ArgumentList '--skin-selftest' -PassThru
+          if (-not $process.WaitForExit(120000)) {
+            $process.Kill()
+            throw 'Avatar/skin offline regression timed out'
+          }
+          if ($process.ExitCode -ne 0) {
+            throw "Avatar/skin offline regression failed: $($process.ExitCode)"
+          }
+      - name: Offline main-window startup smoke test
+        shell: pwsh
+        run: |
+          $exe = 'wpf-net48/src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe'
+          $process = Start-Process -FilePath $exe -ArgumentList '--smoke-test' -PassThru
+          if (-not $process.WaitForExit(120000)) {
+            $process.Kill()
+            throw 'Main window smoke test timed out'
+          }
+          if ($process.ExitCode -ne 0) {
+            throw "Main window smoke test failed: $($process.ExitCode)"
+          }

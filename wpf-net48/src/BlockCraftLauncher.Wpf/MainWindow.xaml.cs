@@ -13,6 +13,7 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Ellipse = System.Windows.Shapes.Ellipse;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using BlockCraftLauncher.Wpf.Models;
@@ -29,6 +30,7 @@ namespace BlockCraftLauncher.Wpf
         SkinStudioView skinStudio;
 
         readonly SettingsStore store = new SettingsStore();
+        readonly List<Ellipse> avatarVisuals = new List<Ellipse>();
         readonly LauncherConfig settings;
         readonly LauncherAutoUpdateService autoUpdater;
         readonly CancellationTokenSource updateCancellation = new CancellationTokenSource();
@@ -588,6 +590,7 @@ namespace BlockCraftLauncher.Wpf
             serverFinderSearching = false;
             ClearDetails();
             detailTrigger = null;
+            avatarVisuals.Clear();
             currentPage = page;
             var section = SectionFor(page);
             if (section != NavigationSection.Settings) settingsPages = null;
@@ -795,19 +798,83 @@ namespace BlockCraftLauncher.Wpf
             grid.Children.Add(element);
         }
 
+        Ellipse AvatarVisual(double diameter)
+        {
+            var avatar = new Ellipse
+            {
+                Width = diameter, Height = diameter, StrokeThickness = 2,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 12, 0),
+                Fill = new ImageBrush(CustomAvatarService.LoadOrDefault(store.FilePath))
+                {
+                    Stretch = Stretch.UniformToFill
+                }
+            };
+            avatar.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "BorderBrushTheme");
+            AutomationProperties.SetName(avatar, "启动器玩家头像");
+            avatarVisuals.Add(avatar);
+            return avatar;
+        }
+
+        void RefreshAvatarVisuals()
+        {
+            var source = CustomAvatarService.LoadOrDefault(store.FilePath);
+            foreach (var avatar in avatarVisuals)
+                avatar.Fill = new ImageBrush(source) { Stretch = Stretch.UniformToFill };
+        }
+
+        void ChooseCustomAvatar()
+        {
+            var dialog = new OpenFileDialog
+            {
+                Title = "选择启动器头像",
+                Filter = "图片文件 (*.png;*.jpg;*.jpeg)|*.png;*.jpg;*.jpeg",
+                Multiselect = false, CheckFileExists = true, RestoreDirectory = true
+            };
+            if (dialog.ShowDialog(this) != true) return;
+            try
+            {
+                CustomAvatarService.SaveImage(store.FilePath, dialog.FileName);
+                RefreshAvatarVisuals();
+                Status("自定义头像已保存，下次启动仍会显示。");
+            }
+            catch (Exception error) { ShowError("头像保存失败", error); }
+        }
+
+        void ResetCustomAvatar()
+        {
+            try
+            {
+                CustomAvatarService.Reset(store.FilePath);
+                RefreshAvatarVisuals();
+                Status("已恢复默认头像。");
+            }
+            catch (Exception error) { ShowError("恢复默认头像失败", error); }
+        }
+
         UIElement BuildLaunchPane()
         {
             var account = Col(Txt("玩家账号", 16, true));
             string identity = settings.AccountMode == "offline" ? settings.OfflineName :
                 settings.AccountMode == "microsoft" ? settings.AccountName : "未登录";
-            account.Children.Add(Txt(string.IsNullOrWhiteSpace(identity) ? "未登录" : identity, 18, true));
-            account.Children.Add(Txt(settings.AccountMode == "microsoft" ? "微软正版账号" :
-                settings.AccountMode == "offline" ? "离线玩家" : "选择一种登录方式", 12, false, true));
+            var accountIdentity = Col(
+                Txt(string.IsNullOrWhiteSpace(identity) ? "未登录" : identity, 18, true),
+                Txt(settings.AccountMode == "microsoft" ? "微软正版账号" :
+                    settings.AccountMode == "offline" ? "离线玩家" : "选择一种登录方式", 12, false, true));
+            var avatarAndIdentity = new StackPanel
+            {
+                Orientation = Orientation.Horizontal, Margin = new Thickness(0, 5, 0, 7)
+            };
+            avatarAndIdentity.Children.Add(AvatarVisual(58));
+            avatarAndIdentity.Children.Add(accountIdentity);
+            account.Children.Add(avatarAndIdentity);
             account.Children.Add(Row(
                 Btn("正版登录", async () => await LoginMicrosoftAsync(), settings.AccountMode == "microsoft"),
                 Btn("离线登录", EditOfflineAccount, settings.AccountMode == "offline")));
             if (settings.AccountMode != "signed_out")
                 account.Children.Add(Btn("退出账号", async () => await SignOutAsync()));
+            account.Children.Add(Row(Btn("更换头像", ChooseCustomAvatar),
+                Btn("恢复默认头像", ResetCustomAvatar)));
 
             homeLaunchLabel = Txt("启动游戏", 19, true);
             homeVersionCaption = Txt("", 11);
@@ -3742,6 +3809,12 @@ namespace BlockCraftLauncher.Wpf
                 ApplyTheme();
             };
             SettingRow(appearance, "界面主题", settingsTheme);
+            var avatarOptions = Row(AvatarVisual(72), Col(
+                Txt("仅改变 BlockCraft Launcher 显示的头像，不影响微软正版账号或 Minecraft 皮肤。", 12, false, true),
+                Row(Btn("选择图片", ChooseCustomAvatar, true),
+                    Btn("恢复默认头像", ResetCustomAvatar))));
+            SettingRow(appearance, "玩家头像", avatarOptions,
+                "支持 PNG / JPG / JPEG，最大 12 MB；自动居中裁剪为圆形预览，保存在本机。");
 
             zoomValue = Txt(settings.Zoom + "%", 13, true);
             zoomValue.VerticalAlignment = VerticalAlignment.Center;
