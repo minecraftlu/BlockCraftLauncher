@@ -1832,17 +1832,17 @@ namespace BlockCraftLauncher.Wpf
             try
             {
                 Directory.CreateDirectory(SkinEditorDocument.LocalLibrary);
-                var items = Directory.GetFiles(SkinEditorDocument.LocalLibrary, "*.png",
-                        SearchOption.TopDirectoryOnly)
-                    .Where(path => !System.IO.Path.GetFileName(path).StartsWith(
-                        ".blockcraft-", StringComparison.OrdinalIgnoreCase))
-                    .OrderByDescending(File.GetLastWriteTimeUtc)
-                    .Take(250)
-                    .Select(path => new SavedSkin {
-                        Name = System.IO.Path.GetFileNameWithoutExtension(path),
-                        Path = path }).ToList();
-                savedSkins.ItemsSource = items;
-                if (items.Count > 0) savedSkins.SelectedIndex = 0;
+                string previousEditor = (savedSkins.SelectedItem as SavedSkin)?.Path;
+                string previousLibrary = (libraryEntries.SelectedItem as LocalSkinLibrary.Entry)?.Path;
+                var items = LocalSkinLibrary.List();
+                var saved = items.Select(item => new SavedSkin { Name = item.Name, Path = item.Path }).ToList();
+                savedSkins.ItemsSource = saved;
+                if (saved.Count > 0)
+                    savedSkins.SelectedItem = saved.FirstOrDefault(x => x.Path == previousEditor) ?? saved[0];
+                libraryEntries.ItemsSource = items;
+                if (items.Count > 0)
+                    libraryEntries.SelectedItem = items.FirstOrDefault(x => x.Path == previousLibrary) ?? items[0];
+                else RefreshLibraryPreview();
             }
             catch (Exception ex)
             {
@@ -1858,9 +1858,8 @@ namespace BlockCraftLauncher.Wpf
             // ordinary local PNGs; the PNG decoder still validates contents.
             try
             {
-                var attributes = File.GetAttributes(selectedSkin.Path);
-                if ((attributes & FileAttributes.ReparsePoint) != 0)
-                    throw new InvalidDataException("皮肤库不支持通过符号链接打开皮肤");
+                LocalSkinLibrary.ValidatePath(selectedSkin.Path);
+                armModel.SelectedIndex = LocalSkinLibrary.ReadModel(selectedSkin.Path) ? 1 : 0;
                 OpenFile(selectedSkin.Path);
             }
             catch (Exception ex)
