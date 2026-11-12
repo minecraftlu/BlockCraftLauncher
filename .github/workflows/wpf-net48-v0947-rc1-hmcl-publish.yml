@@ -683,7 +683,7 @@ jobs:
           - 如遇官方 API 下载 401/403 或其他错误，请仅提供不含密钥的截图/日志。
           - 问题反馈：https://github.com/minecraftlu/BlockCraftLauncher/issues
           '@
-        $notes | Set-Content -LiteralPath 'dist/RELEASE-NOTES-RC.txt' -Encoding UTF8
+          $notes | Set-Content -LiteralPath 'dist/RELEASE-NOTES-RC.txt' -Encoding UTF8
           & gh release create $tag @files --repo '${{ github.repository }}' --target '${{ github.sha }}' --title 'BlockCraft Launcher v0.9.47 RC1 (CurseForge Preview)' --notes-file 'dist/RELEASE-NOTES-RC.txt' --prerelease --latest=false
           if ($LASTEXITCODE -ne 0) { throw 'Publishing RC prerelease failed' }
           $published = & gh release view $tag --repo '${{ github.repository }}' --json tagName,isPrerelease,assets | ConvertFrom-Json
