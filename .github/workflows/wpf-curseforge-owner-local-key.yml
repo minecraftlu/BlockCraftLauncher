@@ -54,3 +54,13 @@ jobs:
           $run.Refresh()
           if ($run.ExitCode -ne 0) { throw "WPF layout selftest exit $($run.ExitCode)" }
           Write-Host 'PASS: CurseForge UI layout stable'
+
+      - name: Upload owner-local CurseForge test builds (no private API key included)
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlockCraft-CurseForge-OwnerLocal-TEST-Windows-x64
+          path: |
+            wpf-net48/dist/*-WPF-OneFile-Windows-x64.exe
+            wpf-net48/dist/*-WPF-net48-Windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
