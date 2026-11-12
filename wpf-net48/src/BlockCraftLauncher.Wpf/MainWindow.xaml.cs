@@ -914,6 +914,8 @@ namespace BlockCraftLauncher.Wpf
                 if (account.Content is StackPanel previousControls)
                     avatarVisuals.RemoveAll(avatar => previousControls.Children.Contains(avatar));
                 var portrait = AvatarVisual(61);
+                portrait.HorizontalAlignment = HorizontalAlignment.Center;
+                portrait.Margin = new Thickness(0, 0, 0, 12);
                 portrait.Cursor = Cursors.Hand;
                 portrait.ToolTip = "点击更换启动器头像";
                 portrait.MouseLeftButtonUp += (sender, args) => ChooseCustomAvatar();
