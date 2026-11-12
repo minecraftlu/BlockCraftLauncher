@@ -3,6 +3,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -36,9 +40,9 @@ namespace BlockCraftLauncher.Wpf.Services
     }
 
     /// <summary>
-    /// Optional MCIM metadata mirror for CurseForge Minecraft mods.
-    /// No borrowed or embedded CurseForge API key. Only downloads provider-
-    /// issued HTTPS URLs with a real SHA-1 and explicit user confirmation.
+    /// Official owner-local CurseForge API when the owner sets a private key.
+    /// Optional MCIM remains available only without a configured private key.
+    /// NEVER embed, log, cache, mirror or distribute the owner's key.
     /// </summary>
     public sealed class CurseForgeMirrorClient : IDisposable
     {
@@ -46,12 +50,55 @@ namespace BlockCraftLauncher.Wpf.Services
         const int MaxDependencies = 32;
         readonly LauncherConfig config;
         readonly NetworkDownloader net;
+        readonly string officialKey;
+        readonly HttpClient official;
         readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = 12 * 1024 * 1024 };
+
+        // Owner-only configuration. A public EXE cannot protect an embedded
+        // developer key: it is intentionally not present in source or builds.
+        const string OwnerKeyVariable = "BLOCKCRAFT_CURSEFORGE_API_KEY";
+        internal static bool HasLocalOfficialKey => ReadOwnerKey() != null;
+        static string ReadOwnerKey()
+        {
+            string key = Environment.GetEnvironmentVariable(OwnerKeyVariable);
+            if (string.IsNullOrWhiteSpace(key))
+                key = Environment.GetEnvironmentVariable(
+                    OwnerKeyVariable, EnvironmentVariableTarget.User);
+            if (string.IsNullOrWhiteSpace(key)) return null;
+            key = key.Trim();
+            if (key.Length > 512 || key.IndexOfAny(new[] { '\r', '\n', '\0' }) >= 0)
+                throw new InvalidOperationException("本地 CurseForge API Key 格式无效");
+            return key;
+        }
+
+        // The private header can ONLY go to these exact official endpoints,
+        // never to MCIM, Modrinth, arbitrary redirects or image URLs.
+        internal static bool MaySendOwnerKey(string url)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+                uri.Scheme != Uri.UriSchemeHttps || !uri.IsDefaultPort ||
+                uri.UserInfo.Length > 0 || uri.Fragment.Length > 0)
+                return false;
+            return string.Equals(uri.Host, "api.curseforge.com",
+                    StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(uri.Host, "edge.forgecdn.net",
+                    StringComparison.OrdinalIgnoreCase);
+        }
 
         public CurseForgeMirrorClient(LauncherConfig settings)
         {
-            config = settings;
+            config = settings ?? throw new ArgumentNullException(nameof(settings));
             net = new NetworkDownloader(settings);
+            officialKey = ReadOwnerKey();
+            if (officialKey != null)
+            {
+                official = new HttpClient(
+                    NetworkDownloader.CreateHttpHandler(settings, allowRedirects: false))
+                {
+                    Timeout = Timeout.InfiniteTimeSpan
+                };
+                official.DefaultRequestHeaders.UserAgent.ParseAdd("BlockCraftLauncher-CurseForge/1.0");
+            }
         }
         static Dictionary<string, object> Dict(object obj) => obj as Dictionary<string, object>;
         static string Text(IDictionary<string, object> d, string key) =>
@@ -64,13 +111,65 @@ namespace BlockCraftLauncher.Wpf.Services
         }
         void RequireEnabled()
         {
-            if (!config.McimEnabled)
-                throw new InvalidOperationException("请先在设置中选择启用 MCIM；非官方镜像可能有访问或分发限制。");
+            if (officialKey == null && !config.McimEnabled)
+                throw new InvalidOperationException(
+                    "请在本机配置私有 CurseForge API Key，或在设置中主动启用 MCIM。");
+        }
+
+        async Task<object> OfficialGetAsync(string path, CancellationToken ct)
+        {
+            // Only our own, carefully constructed /mods/* endpoints can
+            // receive this key; no HTTP redirect is followed automatically.
+            if (path == null || !path.StartsWith("/mods/", StringComparison.Ordinal))
+                throw new InvalidOperationException("CurseForge 官方接口路径无效");
+            string url = "https://api.curseforge.com/v1" + path;
+            if (!MaySendOwnerKey(url))
+                throw new InvalidOperationException("拒绝向非官方地址发送 API Key");
+
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                ct.ThrowIfCancellationRequested();
+                using (var request = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    request.Headers.TryAddWithoutValidation("x-api-key", officialKey);
+                    try
+                    {
+                        using (var response = await NetworkDownloader.SendWithHeaderTimeoutAsync(
+                            official, request, TimeSpan.FromSeconds(12), ct).ConfigureAwait(false))
+                        using (var memory = new MemoryStream())
+                        {
+                            if (response.StatusCode == HttpStatusCode.Unauthorized ||
+                                response.StatusCode == HttpStatusCode.Forbidden)
+                                throw new InvalidOperationException(
+                                    "CurseForge 官方 API 拒绝本机密钥（401/403）。请检查批准状态或申请更换密钥。");
+                            if (!response.IsSuccessStatusCode)
+                                throw new IOException("CurseForge 官方 API 暂不可用（HTTP " +
+                                    (int)response.StatusCode + "）");
+                            await NetworkDownloader.CopyBodyAsync(
+                                response, memory, 12 * 1024 * 1024, 0,
+                                response.Content.Headers.ContentLength, null,
+                                TimeSpan.FromSeconds(25), ct).ConfigureAwait(false);
+                            var envelope = Dict(json.DeserializeObject(
+                                Encoding.UTF8.GetString(memory.ToArray()).TrimStart('\uFEFF')));
+                            if (envelope == null || !envelope.TryGetValue("data", out var result))
+                                throw new InvalidDataException("CurseForge 官方 API 返回了无效数据");
+                            return result;
+                        }
+                    }
+                    catch (IOException) when (attempt == 0)
+                    {
+                        await Task.Delay(550, ct).ConfigureAwait(false);
+                    }
+                }
+            }
+            throw new IOException("CurseForge 官方 API 多次连接失败");
         }
 
         async Task<object> ApiGetAsync(string path, CancellationToken ct)
         {
             RequireEnabled();
+            if (officialKey != null)
+                return await OfficialGetAsync(path, ct).ConfigureAwait(false);
             string url = Api + path;
             return await net.GetMetadataWithFallbackAsync(url, "official", body =>
             {
@@ -78,7 +177,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 if (envelope == null || !envelope.TryGetValue("data", out var result))
                     throw new InvalidDataException("MCIM 镜像返回了无效数据");
                 return result;
-            }, ct);
+            }, ct).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -271,6 +370,87 @@ namespace BlockCraftLauncher.Wpf.Services
                 "edge.forgecdn.net", "mediafilez.forgecdn.net", "media.forgecdn.net" }.Contains(host);
         }
 
+        // Official CDN downloads require the same owner key (since July 2026).
+        // Disable automatic redirects so x-api-key can NEVER be forwarded to
+        // a third-party destination. Redirects to approved CDN URLs are
+        // followed manually and only the official edge host receives a key.
+        async Task DownloadFromOfficialCdnAsync(string url, string path, string sha1,
+            CancellationToken ct)
+        {
+            const long cap = 200L * 1024 * 1024;
+            string partial = path + ".blockcraft-official.part";
+            Exception last = null;
+            try
+            {
+                for (int attempt = 0; attempt < Math.Min(3, Math.Max(1, config.DownloadRetries)); attempt++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    try
+                    {
+                        string current = url;
+                        for (int redirects = 0; redirects < 5; redirects++)
+                        {
+                            if (!AllowedDownload(current))
+                                throw new InvalidDataException("CurseForge 文件来源不是允许的官方 CDN");
+                            var uri = new Uri(current);
+                            using (var request = new HttpRequestMessage(HttpMethod.Get, uri))
+                            {
+                                if (string.Equals(uri.Host, "edge.forgecdn.net",
+                                    StringComparison.OrdinalIgnoreCase) && MaySendOwnerKey(current))
+                                    request.Headers.TryAddWithoutValidation("x-api-key", officialKey);
+                                using (var response = await NetworkDownloader.SendWithHeaderTimeoutAsync(
+                                    official, request, TimeSpan.FromSeconds(12), ct).ConfigureAwait(false))
+                                {
+                                    int status = (int)response.StatusCode;
+                                    if (status == 301 || status == 302 || status == 303 ||
+                                        status == 307 || status == 308)
+                                    {
+                                        var next = response.Headers.Location ??
+                                            throw new IOException("CurseForge CDN 重定向缺少目标");
+                                        current = (next.IsAbsoluteUri ? next :
+                                            new Uri(uri, next)).AbsoluteUri;
+                                        continue;
+                                    }
+                                    if (status == 401 || status == 403)
+                                        throw new InvalidOperationException(
+                                            "CurseForge CDN 拒绝密钥或文件禁止第三方下载（HTTP " +
+                                            status + "）");
+                                    if (!response.IsSuccessStatusCode)
+                                        throw new IOException("CurseForge CDN 下载失败（HTTP " + status + "）");
+                                    using (var output = new FileStream(partial, FileMode.Create,
+                                        FileAccess.Write, FileShare.None, 128 * 1024, true))
+                                        await NetworkDownloader.CopyBodyAsync(response, output,
+                                            cap, 0, response.Content.Headers.ContentLength,
+                                            null, TimeSpan.FromSeconds(25), ct).ConfigureAwait(false);
+                                }
+                            }
+                            using (var file = File.OpenRead(partial))
+                            using (var sha = SHA1.Create())
+                            {
+                                string actual = BitConverter.ToString(sha.ComputeHash(file)).Replace("-", "");
+                                if (!string.Equals(actual, sha1, StringComparison.OrdinalIgnoreCase))
+                                    throw new InvalidDataException("CurseForge 官方 CDN 下载 SHA-1 校验失败");
+                            }
+                            File.Move(partial, path);
+                            return;
+                        }
+                        throw new IOException("CurseForge CDN 重定向次数过多");
+                    }
+                    catch (IOException ex) when (attempt + 1 < Math.Min(3, Math.Max(1, config.DownloadRetries)))
+                    {
+                        last = ex;
+                        if (File.Exists(partial)) File.Delete(partial);
+                        await Task.Delay(400 * (attempt + 1), ct).ConfigureAwait(false);
+                    }
+                }
+                throw last ?? new IOException("CurseForge CDN 下载失败");
+            }
+            finally
+            {
+                if (File.Exists(partial)) File.Delete(partial);
+            }
+        }
+
         async Task Visit(long project, Dictionary<string, object> picked, GameProfile profile,
             HashSet<long> seen, List<Planned> results, int depth, CancellationToken ct)
         {
@@ -333,7 +513,10 @@ namespace BlockCraftLauncher.Wpf.Services
                     if (File.Exists(dest)) throw new IOException("模组文件已存在，拒绝覆盖：" + item.Name);
                     progress?.Report("下载 CurseForge 资源 " + (i + 1) + "/" + plan.Count + "：" + item.Name);
                     string stageFile = Path.Combine(stage, item.Name);
-                    await net.DownloadVerifiedAsync(item.Url, stageFile, item.Sha1, ct);
+                    if (officialKey != null)
+                        await DownloadFromOfficialCdnAsync(item.Url, stageFile, item.Sha1, ct);
+                    else
+                        await net.DownloadVerifiedAsync(item.Url, stageFile, item.Sha1, ct);
                     if (new FileInfo(stageFile).Length > 200L * 1024 * 1024)
                         throw new InvalidDataException("下载文件超过大小限制");
                     using (var jar = ZipFile.OpenRead(stageFile))
@@ -360,6 +543,10 @@ namespace BlockCraftLauncher.Wpf.Services
             finally { if (Directory.Exists(stage)) Directory.Delete(stage, true); }
         }
 
-        public void Dispose() => net.Dispose();
+        public void Dispose()
+        {
+            official?.Dispose();
+            net.Dispose();
+        }
     }
 }
