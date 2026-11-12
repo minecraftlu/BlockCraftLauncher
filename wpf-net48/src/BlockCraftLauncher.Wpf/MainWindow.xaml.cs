@@ -1581,6 +1581,11 @@ namespace BlockCraftLauncher.Wpf
                 sidebarButtons.ContainsKey("设置") || sidebarButtons.ContainsKey("皮肤 DIY"))
                 throw new InvalidOperationException("游戏版本卡片与侧边导航不完整");
 
+            Navigate("手动安装");
+            if (!sidebarButtons.ContainsKey("手动安装") || PageHost.Content == null)
+                throw new InvalidOperationException("PCL 手动安装包入口不存在");
+            ArrangeLayoutProbe(960, 600, "17-manual-install");
+
             preferredModSource = ModSource.Modrinth;
             Navigate("资源中心");
             if (resourceList == null || resourceList.ItemTemplate == null ||
