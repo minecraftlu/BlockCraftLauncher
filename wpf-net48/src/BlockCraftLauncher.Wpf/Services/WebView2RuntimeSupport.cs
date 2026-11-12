@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Windows;
+using MessageBox = BlockCraftLauncher.Wpf.LauncherDialog;
 using Microsoft.Web.WebView2.Core;
 
 namespace BlockCraftLauncher.Wpf.Services
