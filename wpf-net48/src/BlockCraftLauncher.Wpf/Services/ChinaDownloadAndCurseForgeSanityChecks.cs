@@ -116,9 +116,9 @@ namespace BlockCraftLauncher.Wpf.Services
                 online.Contains("pageSize=20"),
                 "在线版本/加载器/排序/翻页要调用 CurseForge API");
             Require(CurseForgeMirrorClient.BuildSearchPath(
-                "灯光 & Sodium", "", "", 0, 0).Contains(
+                "灯光 & Sodium", "", "", 0, 0).IndexOf(
                     "searchFilter=%e7%81%af%e5%85%89%20%26%20Sodium",
-                    StringComparison.OrdinalIgnoreCase),
+                    StringComparison.OrdinalIgnoreCase) >= 0,
                 "中文、空格和特殊符号必须 URL 编码");
             bool invalidSearch = false;
             try { CurseForgeMirrorClient.BuildSearchPath("", "", "Fabric", 0, 0); }
