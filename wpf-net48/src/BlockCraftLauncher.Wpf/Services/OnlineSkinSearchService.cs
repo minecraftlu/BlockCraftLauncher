@@ -667,6 +667,7 @@ namespace BlockCraftLauncher.Wpf.Services
             string stagingInput = Path.Combine(Path.GetTempPath(),
                 "BlockCraft-Skin-Import-" + Guid.NewGuid().ToString("N") + ".png");
             string noteStage = stage + ".source.txt";
+            string modelStage = stage + ".model.txt";
             string committed = null;
             try
             {
@@ -675,6 +676,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 normalized.LoadPng(stagingInput, skin.SlimArms);
                 normalized.SavePng(stage);
                 File.WriteAllText(noteStage, SkinSourceNote(skin), Encoding.UTF8);
+                File.WriteAllText(modelStage, normalized.SlimArms ? "slim" : "classic", Encoding.ASCII);
                 ct.ThrowIfCancellationRequested();
                 // File.Move is non-overwriting, preventing race conditions and
                 // accidental user data loss even with parallel/retried jobs.
@@ -700,19 +702,22 @@ namespace BlockCraftLauncher.Wpf.Services
                     throw new IOException("无法取得唯一的本地皮肤文件名");
                 ct.ThrowIfCancellationRequested();
                 File.Move(noteStage, committed + ".source.txt");
+                File.Move(modelStage, committed + ".model.txt");
                 return committed;
             }
             catch
             {
                 if (committed != null)
                 {
-                    try { File.Delete(committed); } catch (IOException) { }
+                    foreach (string saved in new[] { committed, committed + ".source.txt",
+                        committed + ".model.txt" })
+                        try { if (File.Exists(saved)) File.Delete(saved); } catch (IOException) { }
                 }
                 throw;
             }
             finally
             {
-                foreach (string temporary in new[] { stage, noteStage, stagingInput })
+                foreach (string temporary in new[] { stage, noteStage, modelStage, stagingInput })
                 {
                     try { if (File.Exists(temporary)) File.Delete(temporary); }
                     catch (IOException) { }
