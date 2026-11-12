@@ -1,0 +1,66 @@
+name: CurseForge owner-local API key Windows CI (no secrets)
+
+on:
+  push:
+    branches:
+      - feature/curseforge-local-owner-key
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.repository == 'minecraftlu/BlockCraftLauncher'
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: microsoft/setup-msbuild@v2
+      - name: Static regression checks
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($script in @('check_project.py', 'check_phase2.py', 'check_pcl_downloads.py', 'check_pcl_unified_ui.py', 'check_windows_packaging.py')) {
+            python "tests/$script"
+            if ($LASTEXITCODE -ne 0) { throw "Failed $script" }
+          }
+      - name: Compile complete WPF and single EXE (no publish)
+        shell: cmd
+        working-directory: wpf-net48
+        run: call build\build-windows.bat
+      - name: Offline CurseForge metadata and private-header confinement regression
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $run = Start-Process -FilePath $exe -ArgumentList '--download-selftest' -PassThru
+          if (-not $run.WaitForExit(60000)) { $run.Kill(); throw 'Download/CursedForge offline selftests timeout' }
+          $run.Refresh()
+          if ($run.ExitCode -ne 0) { throw "Download/CurseForge selftests exit $($run.ExitCode)" }
+          Write-Host 'PASS: official API key destinations validated, MCIM cannot receive private key'
+      - name: WPF GUI and CurseForge results regression
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $run = Start-Process -FilePath $exe -ArgumentList '--ui-layout-selftest' -PassThru
+          if (-not $run.WaitForExit(60000)) { $run.Kill(); throw 'WPF layout selftest timeout' }
+          $run.Refresh()
+          if ($run.ExitCode -ne 0) { throw "WPF layout selftest exit $($run.ExitCode)" }
+          Write-Host 'PASS: CurseForge UI layout stable'
+
+      - name: Upload owner-local CurseForge test builds (no private API key included)
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlockCraft-CurseForge-OwnerLocal-TEST-Windows-x64
+          path: |
+            wpf-net48/dist/*-WPF-OneFile-Windows-x64.exe
+            wpf-net48/dist/*-WPF-net48-Windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
