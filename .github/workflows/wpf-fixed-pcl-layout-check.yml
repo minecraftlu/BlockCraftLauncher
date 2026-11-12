@@ -35,6 +35,8 @@ jobs:
       - name: Smoke tests on WPF and OneFile
         shell: pwsh
         working-directory: wpf-net48
+        env:
+          BLOCKCRAFT_UI_CAPTURE_DIR: ${{ runner.temp }}/blockcraft-pcl-captures
         run: |
           $ErrorActionPreference = 'Stop'
           $wpf = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
@@ -54,3 +56,10 @@ jobs:
               Write-Host "PASS: $binary $argument"
             }
           }
+      - name: Upload fixed 960x600 UI screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlockCraftLauncher-fixed-pcl-layout-check
+          path: ${{ runner.temp }}/blockcraft-pcl-captures/*.png
+          retention-days: 3
+          if-no-files-found: error
