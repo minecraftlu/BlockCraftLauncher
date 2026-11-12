@@ -445,6 +445,199 @@ namespace BlockCraftLauncher.Wpf
         }
 
 
+
+        void GoLibrary()
+        {
+            if (openLibrary != null) openLibrary();
+            else ShowLibraryPage();
+        }
+
+        internal void ShowLibraryPage()
+        {
+            libraryMode = true;
+            downloadMode = false;
+            if (editorPage != null) editorPage.Visibility = Visibility.Collapsed;
+            if (downloadPage != null) downloadPage.Visibility = Visibility.Collapsed;
+            if (libraryPage != null) libraryPage.Visibility = Visibility.Visible;
+            draftTimer.Stop();
+            SaveRecoveryDraft();
+            CancelOnlineRequests();
+            WatchOnlineDownload(null);
+            RefreshLibrary();
+        }
+
+        UIElement BuildLibraryPage()
+        {
+            var top = Card(Column(
+                Label("我的皮肤库", 18, true),
+                Label("从已下载或 DIY 保存的皮肤中选择，预览后直接应用到 Minecraft Java 正版账号，无需先导入编辑器。"),
+                Row(ActionButton("刷新皮肤库", RefreshLibrary),
+                    ActionButton("打开皮肤文件夹", OpenSkinLibrary),
+                    ActionButton("下载更多皮肤", () => openDownloads?.Invoke()))));
+            libraryEntries.MinHeight = 290;
+            libraryEntries.MaxHeight = 440;
+            libraryEntries.SelectionChanged += (sender, args) => RefreshLibraryPreview();
+            var list = Card(Column(Label("已保存的皮肤", 16, true), libraryEntries,
+                Label("文件仅保存在本地，不会自动同步账号。")));
+
+            libraryArms.ItemsSource = new[] { "Steve · 经典宽臂", "Alex · 纤细手臂" };
+            libraryArms.SelectedIndex = 0;
+            libraryArms.MaxWidth = 240;
+            StyleSearch(libraryArms);
+            libraryArms.SelectionChanged += (sender, args) =>
+            {
+                if (!updatingLibraryModel && librarySelectedSkin != null)
+                    RefreshLibraryPreview(false);
+            };
+            library3D.Height = 318;
+            libraryUseButton = ActionButton("使用此皮肤（正版）", async () => await ApplyLibrarySkinAsync(), true);
+            libraryEditButton = ActionButton("导入 DIY 编辑", EditSelectedLibrary);
+            libraryUseButton.IsEnabled = libraryEditButton.IsEnabled = false;
+            var preview = Card(Column(libraryTitle, Label("手臂模型"), libraryArms,
+                library3D,
+                Row(ActionButton("正面", library3D.ShowFront),
+                    ActionButton("背面", library3D.ShowBack),
+                    ActionButton("复位视角", library3D.ResetView)),
+                Row(libraryUseButton, libraryEditButton), libraryStatus,
+                Label("离线账号：原版 Minecraft 不能直接读取本地 PNG。需要兼容的皮肤模组才能在游戏中显示，不会自动安装第三方模组。")));
+            return Column(top, MainWindow.PageColumns(list, preview, 315, 13));
+        }
+
+        void RefreshLibraryPreview(bool useSavedModel = true)
+        {
+            librarySelectedSkin = libraryEntries.SelectedItem as LocalSkinLibrary.Entry;
+            libraryPreviewDocument = null;
+            libraryUseButton.IsEnabled = libraryEditButton.IsEnabled = false;
+            if (librarySelectedSkin == null)
+            {
+                libraryTitle.Text = "选择一张已保存的皮肤";
+                libraryStatus.Text = "皮肤库为空或尚未选择皮肤，请先下载或保存皮肤。";
+                library3D.SetSkin(null, false, true);
+                return;
+            }
+            try
+            {
+                bool slim = useSavedModel ? librarySelectedSkin.Slim : libraryArms.SelectedIndex == 1;
+                var candidate = LocalSkinLibrary.Load(librarySelectedSkin.Path, slim);
+                libraryPreviewDocument = candidate;
+                updatingLibraryModel = true;
+                libraryArms.SelectedIndex = candidate.SlimArms ? 1 : 0;
+                updatingLibraryModel = false;
+                libraryTitle.Text = librarySelectedSkin.Name;
+                library3D.SetSkin(candidate.TextureImage(), candidate.SlimArms, true);
+                libraryUseButton.IsEnabled = libraryEditButton.IsEnabled = true;
+                libraryStatus.Text = "已选择：" + librarySelectedSkin.Name +
+                    " · " + (candidate.SlimArms ? "Alex" : "Steve") +
+                    (librarySelectedSkin.HasAttribution ? " · 含来源与版权说明" : "") +
+                    "\n点击“使用此皮肤”会先确认，再上传到当前 Minecraft Java 正版账号。";
+            }
+            catch (Exception ex)
+            {
+                updatingLibraryModel = false;
+                library3D.SetSkin(null, false, true);
+                libraryStatus.Text = "无法预览皮肤：" + ex.GetBaseException().Message;
+            }
+        }
+
+        void EditSelectedLibrary()
+        {
+            var entry = libraryEntries.SelectedItem as LocalSkinLibrary.Entry;
+            if (entry == null || !ConfirmDiscard()) return;
+            try
+            {
+                var candidate = LocalSkinLibrary.Load(entry.Path, libraryArms.SelectedIndex == 1);
+                armModel.SelectedIndex = candidate.SlimArms ? 1 : 0;
+                OpenFile(entry.Path);
+                openEditor?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                libraryStatus.Text = "无法导入 DIY：" + ex.GetBaseException().Message;
+            }
+        }
+
+        async Task ApplyEditorLibrarySkinAsync()
+        {
+            if (!(savedSkins.SelectedItem is SavedSkin item)) return;
+            await ApplySavedSkinAsync(item.Path, item.Name, LocalSkinLibrary.ReadModel(item.Path));
+        }
+
+        async Task ApplyLibrarySkinAsync()
+        {
+            var item = libraryEntries.SelectedItem as LocalSkinLibrary.Entry;
+            if (item == null || libraryPreviewDocument == null) return;
+            await ApplySavedSkinAsync(item.Path, item.Name, libraryArms.SelectedIndex == 1);
+        }
+
+        async Task ApplySavedSkinAsync(string path, string name, bool slim)
+        {
+            if (uploading) return;
+            if (uploadToMicrosoft == null || string.IsNullOrWhiteSpace(accountName?.Invoke()))
+            {
+                MessageBox.Show(Window.GetWindow(this),
+                    "请先登录拥有 Minecraft Java 的微软正版账号，才能将已保存的皮肤应用到游戏角色。\n\n" +
+                    "离线账号的原版 Minecraft 不能直接读取启动器的本地 PNG，需要兼容的皮肤模组。\n" +
+                    "皮肤库文件和 DIY 草稿不会改变。",
+                    "皮肤使用方式", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            SkinEditorDocument chosen;
+            try { chosen = LocalSkinLibrary.Load(path, slim); }
+            catch (Exception ex)
+            {
+                MessageBox.Show(Window.GetWindow(this), ex.GetBaseException().Message,
+                    "皮肤文件无效", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+            string username = accountName();
+            if (MessageBox.Show(Window.GetWindow(this),
+                "确定使用皮肤“" + name + "”吗？\n" +
+                "目标正版账号：" + username + "\n" +
+                "手臂模型：" + (chosen.SlimArms ? "Alex 纤细手臂" : "Steve 经典宽臂") +
+                "\n\n确认后会向 Minecraft 官方服务上传此皮肤，替换当前正版账号的皮肤。" +
+                "\n如皮肤来自公开图库，请遵守原作者的使用许可。",
+                "确认使用本地皮肤", MessageBoxButton.YesNo,
+                MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+
+            uploading = true;
+            libraryUseButton.IsEnabled = false;
+            libraryStatus.Text = "正在向 Minecraft 官方上传所选皮肤...";
+            try
+            {
+                // Use a separate validated document; never overwrite the DIY
+                // draft or send a raw unverified file to the account service.
+                await uploadToMicrosoft(chosen.ExportPngBytes(), chosen.SlimArms);
+                try { LocalSkinLibrary.WriteModel(path, chosen.SlimArms); }
+                catch (Exception error) when (error is IOException || error is UnauthorizedAccessException)
+                { /* Remote upload succeeded; local model preference is optional. */ }
+                libraryStatus.Text = "Minecraft 官方已确认使用皮肤：" + name +
+                    "\n账号：" + username + " · " + (chosen.SlimArms ? "Alex" : "Steve");
+                info.Text = libraryStatus.Text;
+            }
+            catch (Exception ex)
+            {
+                libraryStatus.Text = "应用失败。皮肤库中的文件保持不变。";
+                MessageBox.Show(Window.GetWindow(this), ex.GetBaseException().Message,
+                    "Minecraft 正版皮肤上传失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                uploading = false;
+                libraryUseButton.IsEnabled = libraryPreviewDocument != null;
+            }
+        }
+
+        internal void VerifyLibraryLayout()
+        {
+            if (!libraryMode || downloadMode || libraryPage == null ||
+                libraryPage.Visibility != Visibility.Visible ||
+                editorPage.Visibility != Visibility.Collapsed ||
+                downloadPage.Visibility != Visibility.Collapsed ||
+                libraryEntries == null || libraryArms.Items.Count != 2 ||
+                libraryUseButton == null || library3D == null)
+                throw new InvalidOperationException("我的皮肤库页面或直接使用控件未正常初始化");
+        }
+
         // PCL-style information flow: filter bar -> image + metadata results ->
         // selected preview/detail -> download/apply, similar to mod search.
         UIElement BuildOnlineSearch()
