@@ -2337,7 +2337,8 @@ namespace BlockCraftLauncher.Wpf
                 await InstallCurseForgeAsync(hit, chosen.FileId);
             }, true);
             selectedInstall.IsEnabled = false;
-            var loadVersions = Btn("查看可安装版本", async () =>
+            Button loadVersions = null;
+            loadVersions = Btn("查看可安装版本", async () =>
             {
                 var profile = activeProfile;
                 if (profile == null)
