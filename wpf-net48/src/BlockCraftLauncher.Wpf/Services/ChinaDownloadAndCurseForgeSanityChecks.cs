@@ -81,6 +81,28 @@ namespace BlockCraftLauncher.Wpf.Services
             }
             finally { Directory.Delete(scratch, true); }
 
+            // Private developer credentials must never reach MCIM, a mirror,
+            // an arbitrary redirect, or a lookalike domain. These assertions
+            // run OFFLINE and do not require the owner's real key.
+            Require(CurseForgeMirrorClient.MaySendOwnerKey(
+                "https://api.curseforge.com/v1/mods/search?gameId=432") &&
+                CurseForgeMirrorClient.MaySendOwnerKey(
+                "https://edge.forgecdn.net/files/123/4/example.jar"),
+                "仅官方 CurseForge API 和官方边缘 CDN 可以接收用户私有 Key");
+            foreach (string untrusted in new[] {
+                "https://mod.mcimirror.top/curseforge/v1/mods/search",
+                "https://api.curseforge.com.evil.example/v1/mods/search",
+                "https://edge.forgecdn.net.evil.example/files/123/4/x.jar",
+                "https://mediafilez.forgecdn.net/files/123/4/x.jar",
+                "http://api.curseforge.com/v1/mods/search",
+                "https://user:password@api.curseforge.com/v1/mods/search",
+                "https://api.curseforge.com:8443/v1/mods/search",
+                "https://api.curseforge.com/v1/mods/search#fragment",
+                "https://evil.example/download"
+            })
+                Require(!CurseForgeMirrorClient.MaySendOwnerKey(untrusted),
+                    "不应向任何非授权主机转发用户私有 API Key");
+
             const string json = @"[
               {
                 ""id"": 123, ""name"": ""Example Mod"", ""summary"": ""A sample mod with images"",
