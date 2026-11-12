@@ -4,19 +4,20 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Style="{StaticResource {x:Type Window}}"
         Title="BlockCraft Launcher · Minecraft Java 启动器"
-        Width="960" Height="600" MinWidth="760" MinHeight="480"
+        Width="960" Height="600" MinWidth="640" MinHeight="420" MaxWidth="960" MaxHeight="600"
+        ResizeMode="CanMinimize"
         WindowStyle="None" WindowStartupLocation="CenterScreen"
         Icon="Assets/blockcraft_icon.ico"
         UseLayoutRounding="True" SnapsToDevicePixels="True">
   <shell:WindowChrome.WindowChrome>
-    <shell:WindowChrome CaptionHeight="44" ResizeBorderThickness="5"
+    <shell:WindowChrome CaptionHeight="46" ResizeBorderThickness="0"
                         GlassFrameThickness="0" CornerRadius="6" UseAeroCaptionButtons="False"/>
   </shell:WindowChrome.WindowChrome>
   <Grid>
     <Grid.RowDefinitions>
-      <RowDefinition Height="48"/>
+      <RowDefinition Height="46"/>
       <RowDefinition Height="*"/>
-      <RowDefinition Height="27"/>
+      <RowDefinition Height="26"/>
     </Grid.RowDefinitions>
 
     <Border Background="{DynamicResource TitleBarBrush}">
@@ -89,8 +90,8 @@
                   AutomationProperties.Name="最小化" Click="MinimizeButton_Click">
             <TextBlock Style="{StaticResource HeaderGlyph}" Margin="0" Text="&#xE921;"/>
           </Button>
-          <Button x:Name="MaximizeButton" Style="{StaticResource CaptionButton}"
-                  ToolTip="最大化 / 还原" AutomationProperties.Name="最大化或还原"
+          <Button x:Name="MaximizeButton" Style="{StaticResource CaptionButton}" Visibility="Collapsed"
+                  IsEnabled="False" ToolTip="已锁定窗口尺寸" AutomationProperties.Name="窗口尺寸已锁定"
                   Click="MaximizeButton_Click">
             <TextBlock x:Name="MaximizeGlyph" Style="{StaticResource HeaderGlyph}" Margin="0" Text="&#xE922;"/>
           </Button>
@@ -126,7 +127,7 @@
         </Border>
         <ScrollViewer x:Name="PageScroll" Grid.Column="1"
                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                      Padding="18,14,18,8">
+                      Padding="16,14,16,8">
           <Grid>
             <ContentControl x:Name="PageHost" HorizontalContentAlignment="Stretch"
                             VerticalContentAlignment="Top"/>
