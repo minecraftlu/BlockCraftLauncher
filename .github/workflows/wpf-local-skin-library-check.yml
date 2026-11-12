@@ -1,0 +1,44 @@
+name: WPF local skin library regression (preview)
+
+on:
+  push:
+    branches:
+      - feature/v0950-built-in-skin-library-apply
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-net48:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: microsoft/setup-msbuild@v2
+      - name: Restore, build, package ZIP and OneFile
+        shell: cmd
+        working-directory: wpf-net48
+        run: call build\build-windows.bat
+      - name: Skin library and account-safe offline checks
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $one = (Resolve-Path 'dist/BlockCraftLauncher-v0.9.49-WPF-OneFile-Windows-x64.exe').Path
+          foreach ($binary in @($exe, $one)) {
+            foreach ($arg in @('--skin-selftest', '--auth-selftest', '--smoke-test', '--ui-layout-selftest')) {
+              $p = Start-Process -FilePath $binary -ArgumentList $arg -PassThru
+              if (-not $p.WaitForExit(120000)) {
+                $p.Kill()
+                throw "Timed out: $binary $arg"
+              }
+              if ($p.ExitCode -ne 0) {
+                throw "Failed: $binary $arg exit $($p.ExitCode)"
+              }
+              Write-Host "PASS: $binary $arg"
+            }
+          }
