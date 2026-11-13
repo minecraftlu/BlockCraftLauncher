@@ -6,13 +6,18 @@ main=(base/'MainWindow.xaml.cs').read_text('utf8')
 for symbol in (
     'BuildDownloadCenter', 'DownloadTaskCenter', 'versionCategory', 'MinecraftVersionCatalog',
     'LoadVersionsAsync', 'InstallSelectedVersionAsync', 'resourceMatchVersion', 'resourceSort',
-    'resourcePage', 'BuildModpacks', 'BuildCurseForge', 'BuildResources("resourcepack")',
+    'resourcePage', 'BuildModpacks', 'BuildModDownloadPage', 'BuildResources("resourcepack")',
     'settingsNetworkMode', 'settingsDownloadThreads', 'settingsDownloadRetries',
-    'downloads.Enqueue("整合包"', 'downloads.Enqueue("CurseForge"',
+    'downloads.Enqueue("整合包"', 'QueueCurseForgeInstall',
     'downloads.Enqueue("Modrinth"', '下载管理', '资源包',
     'YL57xq9U', 'AANobbMI', 'https://optifine.net/downloads',
 ):
     assert symbol in main, symbol
+mod_downloads=(base/'MainWindow.ModDownloads.cs').read_text('utf8')
+for symbol in ('SearchPageAsync', 'ListCompatibleFilesAsync', 'ListModFilesAsync',
+               'QueueCurseForgeInstall', 'modDetailsHost', 'ModSource.CurseForge'):
+    assert symbol in mod_downloads, symbol
+assert 'Navigate("CurseForge")' not in main + mod_downloads
 download=(base/'Services/NetworkDownloader.cs').read_text('utf8')
 for symbol in ('RangeHeaderValue', 'ContentRange', 'SHA1.Create()', 'RetryAfterMs',
                'MaxConnectionsPerServer', 'MirrorMojangUri', 'HttpCompletionOption.ResponseHeadersRead',

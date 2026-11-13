@@ -115,6 +115,8 @@ namespace BlockCraftLauncher.Wpf.Services
                 online.Contains("index=40") &&
                 online.Contains("pageSize=20"),
                 "在线版本/加载器/排序/翻页要调用 CurseForge API");
+            Require(CurseForgeMirrorClient.BuildSearchPath("sodium", "1.20.1", "Fabric",
+                0, 3, 411).Contains("categoryId=411"), "CurseForge 分类在服务端筛选");
             Require(CurseForgeMirrorClient.BuildSearchPath(
                 "灯光 & Sodium", "", "", 0, 0).IndexOf(
                     "searchFilter=%e7%81%af%e5%85%89%20%26%20Sodium",
@@ -146,9 +148,9 @@ namespace BlockCraftLauncher.Wpf.Services
                 }
             }, profile);
             Require(compatibleFiles.Count == 1 &&
-                compatibleFiles[0].FileId == 124 &&
+                compatibleFiles[0].VersionId == "124" &&
                 compatibleFiles[0].DisplayName.Contains("Fabric") &&
-                compatibleFiles[0].DateLabel.Contains("正式版"),
+                compatibleFiles[0].Release == "正式版",
                 "选择文件时只显示与当前 Minecraft/Fabric 兼容的文件");
 
             const string json = @"[
@@ -191,7 +193,7 @@ namespace BlockCraftLauncher.Wpf.Services
             Require(hits[0].Screenshots.Count == 1 &&
                 hits[0].Screenshots[0].ImageUrl.EndsWith("/full.png"),
                 "仅显示来自安全 CDN 的原作者截图");
-            Require(hits[0].AuthorLabel == "Creator" &&
+            Require(hits[0].Author == "Creator" &&
                 hits[0].VersionsLabel.Contains("1.21.1") &&
                 hits[0].DownloadsLabel.Contains("万"),
                 "卡片展示作者、近期版本和下载量");

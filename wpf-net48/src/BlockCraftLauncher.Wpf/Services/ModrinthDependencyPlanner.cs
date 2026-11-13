@@ -114,19 +114,9 @@ namespace BlockCraftLauncher.Wpf.Services
             return result;
         }
 
-        async Task<Dictionary<string, object>> FindVersion(string projectId, string explicitVersion,
-            CancellationToken ct)
+        async Task<IReadOnlyList<Dictionary<string, object>>> GetCompatibleVersionsAsync(
+            string projectId, CancellationToken ct)
         {
-            if (!string.IsNullOrWhiteSpace(explicitVersion))
-            {
-                var version = await FetchVersionById(explicitVersion, ct);
-                if (!string.IsNullOrEmpty(projectId) &&
-                    !string.Equals(Field(version, "project_id"), projectId, StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidDataException("必需依赖的项目 ID 与固定版本不匹配");
-                if (!Compatible(version))
-                    throw new InvalidDataException("必需依赖的固定版本与 Minecraft / 加载器不兼容");
-                return version;
-            }
             if (!ValidId(projectId)) throw new InvalidDataException("Modrinth 项目 ID 不合法");
             // Ask Modrinth to filter BEFORE fetching a project's version list.
             // Popular open-source mods can have thousands of old versions; an
@@ -141,16 +131,62 @@ namespace BlockCraftLauncher.Wpf.Services
             var rows = json.DeserializeObject(data ?? "") as object[];
             if (rows == null || rows.Length > 500)
                 throw new InvalidDataException("Modrinth 兼容版本列表无效或过长");
-            var matching = rows.OfType<Dictionary<string, object>>().FirstOrDefault(v =>
+            return rows.OfType<Dictionary<string, object>>()
+                .Where(version => string.Equals(Field(version, "project_id"), projectId,
+                    StringComparison.OrdinalIgnoreCase) && ValidId(Field(version, "id")) && Compatible(version))
+                .ToArray();
+        }
+
+        async Task<Dictionary<string, object>> FindVersion(string projectId, string explicitVersion,
+            CancellationToken ct)
+        {
+            if (!string.IsNullOrWhiteSpace(explicitVersion))
             {
-                if (!string.Equals(Field(v, "project_id"), projectId,
-                    StringComparison.OrdinalIgnoreCase) || !Compatible(v)) return false;
-                try { ResolveFile(v); return true; }
-                catch (InvalidDataException) { return false; }
-            });
+                var version = await FetchVersionById(explicitVersion, ct);
+                if (!string.Equals(Field(version, "project_id"), projectId, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("Modrinth 文件与所选项目不匹配。");
+                if (!Compatible(version))
+                    throw new InvalidDataException("Modrinth 文件与当前 Minecraft 版本或加载器不兼容。");
+                return version;
+            }
+            var versions = await GetCompatibleVersionsAsync(projectId, ct);
+            var matching = versions.FirstOrDefault(version => TryResolveFile(version, out _));
             if (matching == null)
                 throw new InvalidDataException("模组或必需依赖没有兼容当前 Minecraft 版本和加载器的版本：" + projectId);
             return matching;
+        }
+
+        bool TryResolveFile(Dictionary<string, object> version, out PlannedModrinthFile file)
+        {
+            try { file = ResolveFile(version); return true; }
+            catch (InvalidDataException) { file = null; return false; }
+        }
+
+        internal async Task<IReadOnlyList<ModDownloadFile>> ListFilesAsync(string projectId,
+            string gameVersion, string modLoader, CancellationToken ct)
+        {
+            SetTarget(projectId, gameVersion, modLoader);
+            var versions = await GetCompatibleVersionsAsync(projectId, ct);
+            var files = new List<ModDownloadFile>();
+            foreach (var version in versions)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (!TryResolveFile(version, out var file)) continue;
+                string date = Field(version, "date_published");
+                string release = Field(version, "version_type");
+                files.Add(new ModDownloadFile
+                {
+                    VersionId = file.VersionId,
+                    DisplayName = string.IsNullOrWhiteSpace(file.Title) ? file.Filename : file.Title,
+                    FileName = file.Filename,
+                    Published = date.Length > 10 ? date.Substring(0, 10) : date,
+                    Release = release == "release" ? "正式版" : release == "beta" ? "Beta" : "Alpha",
+                    RequiredDependencies = (Array(version, "dependencies") ?? System.Array.Empty<object>())
+                        .OfType<Dictionary<string, object>>()
+                        .Count(dep => Field(dep, "dependency_type") == "required")
+                });
+            }
+            return files;
         }
 
         PlannedModrinthFile ResolveFile(Dictionary<string, object> version)
@@ -254,21 +290,26 @@ namespace BlockCraftLauncher.Wpf.Services
         }
 
         public async Task<IReadOnlyList<PlannedModrinthFile>> PlanAsync(string rootProjectId,
-            string gameVersion, string modLoader, CancellationToken ct)
+            string gameVersion, string modLoader, CancellationToken ct, string versionId = null)
         {
             if (ordered.Count != 0 || selected.Count != 0)
                 throw new InvalidOperationException("每份安装计划只能使用一次");
+            SetTarget(rootProjectId, gameVersion, modLoader);
+            await Visit(rootProjectId, versionId, 0, ct);
+            return ordered.AsReadOnly();
+        }
+
+        void SetTarget(string rootProjectId, string gameVersion, string modLoader)
+        {
             if (!ValidId(rootProjectId) || string.IsNullOrWhiteSpace(gameVersion) ||
                 gameVersion.Length > 64 || gameVersion.Contains("/") ||
                 string.IsNullOrWhiteSpace(modLoader) ||
                 string.Equals(modLoader, "vanilla", StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException("请为模组选择有效的 Minecraft 版本和 Fabric/Forge/NeoForge/Quilt 实例");
             minecraftVersion = gameVersion.Trim();
-            loader = modLoader.Trim().ToLowerInvariant();
-            if (!new[] { "fabric", "forge", "neoforge", "quilt" }.Contains(loader))
+            loader = ModDownloadTarget.Loader(modLoader)?.ToLowerInvariant();
+            if (loader == null)
                 throw new ArgumentException("此 Minecraft 模组加载器暂不支持自动安装");
-            await Visit(rootProjectId, null, 0, ct);
-            return ordered.AsReadOnly();
         }
     }
 }

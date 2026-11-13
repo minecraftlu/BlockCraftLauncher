@@ -109,14 +109,6 @@ namespace BlockCraftLauncher.Wpf
         int packPage;
         CancellationTokenSource packSearchCancellation;
         ListBox modUpgradeResults;
-        TextBox cfSearchQuery, cfVersionFilter;
-        ListBox cfSearchResults;
-        ComboBox cfCategoryFilter, cfSortMode, cfLoaderFilter;
-        Button cfPrevButton, cfNextButton;
-        int cfPage;
-        readonly List<CurseForgeHit> cfLoadedHits = new List<CurseForgeHit>();
-        TextBlock cfSearchStatus;
-        CancellationTokenSource cfSearchCancellation;
         CheckBox settingsMcim;
         GameProfile activeProfile;
         string currentPage = "首页";
@@ -205,6 +197,10 @@ namespace BlockCraftLauncher.Wpf
                 gameProcessTimer.Stop();
                 updateCancellation.Cancel();
                 localModIconLoad?.Cancel();
+                CancelAndDetach(ref resourceSearchCancellation);
+                CancelAndDetach(ref modCategoryCancellation);
+                CancelAndDetach(ref modFileCancellation);
+                CancelAndDetach(ref modDependencyCancellation);
                 gameProcesses.Dispose(); // Does not terminate the Minecraft game.
             };
         }
@@ -357,7 +353,7 @@ namespace BlockCraftLauncher.Wpf
                 case "存档管理": return "存档";
                 case "游戏版本": return "原版游戏";
                 case "下载管理": return "下载任务";
-                case "资源中心": return "模组";
+                case "资源中心": return "模组下载";
                 case "光影引擎": return "光影包";
                 case "皮肤 DIY": return "皮肤 DIY";
                 case "皮肤下载": return "皮肤";
@@ -383,7 +379,6 @@ namespace BlockCraftLauncher.Wpf
                 case "个性化": return "\uE790";
                 case "资源包": return "\uE8A7";
                 case "整合包": return "\uE8F1";
-                case "CurseForge": return "\uE753";
                 case "皮肤 DIY": return "\uE70F";
                 case "皮肤下载": return "\uE8B7";
                 case "多人联机":
@@ -416,7 +411,6 @@ namespace BlockCraftLauncher.Wpf
                 case "光影引擎":
                 case "资源包":
                 case "整合包":
-                case "CurseForge":
                     return NavigationSection.Download;
                 case "多人联机":
                 case "查找服务器":
@@ -448,7 +442,7 @@ namespace BlockCraftLauncher.Wpf
                     break;
                 case NavigationSection.Download:
                     AddNavSection("游戏", "游戏版本");
-                    AddNavSection("社区资源", "资源中心", "皮肤下载", "整合包", "资源包", "光影引擎", "CurseForge");
+                    AddNavSection("社区资源", "资源中心", "皮肤下载", "整合包", "资源包", "光影引擎");
                     AddNavSection("任务", "下载管理");
                     break;
                 case NavigationSection.Multiplayer:
@@ -584,7 +578,10 @@ namespace BlockCraftLauncher.Wpf
         {
             CancelAndDetach(ref localModIconLoad);
             CancelAndDetach(ref resourceSearchCancellation);
-            CancelAndDetach(ref cfSearchCancellation);
+            CancelAndDetach(ref modCategoryCancellation);
+            CancelAndDetach(ref modFileCancellation);
+            CancelAndDetach(ref modDependencyCancellation);
+            modDetailsHost = null;
             CancelAndDetach(ref packSearchCancellation);
             CancelAndDetach(ref serverFinderCancellation);
             serverFinderSearching = false;
@@ -620,7 +617,6 @@ namespace BlockCraftLauncher.Wpf
                 case "光影引擎": PageHost.Content = BuildResources("shader"); break;
                 case "资源包": PageHost.Content = BuildResources("resourcepack"); break;
                 case "整合包": PageHost.Content = BuildModpacks(); break;
-                case "CurseForge": PageHost.Content = BuildCurseForge(); break;
                 case "皮肤下载":
                     GetSkinStudio().ShowDownloadPage(true);
                     PageHost.Content = skinStudio;
@@ -1298,7 +1294,6 @@ namespace BlockCraftLauncher.Wpf
                 FindResource("DownloadItemTemplate") == null ||
                 FindResource("ServerItemTemplate") == null ||
                 FindResource("LocalResourceItemTemplate") == null ||
-                FindResource("CurseForgeItemTemplate") == null ||
                 FindResource("SearchPanel") == null ||
                 FindResource("ResultsPanel") == null ||
                 FindResource("SearchTextBox") == null ||
@@ -1346,6 +1341,7 @@ namespace BlockCraftLauncher.Wpf
                 sidebarButtons.ContainsKey("设置") || sidebarButtons.ContainsKey("皮肤 DIY"))
                 throw new InvalidOperationException("游戏版本卡片与侧边导航不完整");
 
+            preferredModSource = ModSource.Modrinth;
             Navigate("资源中心");
             if (resourceList == null || resourceList.ItemTemplate == null ||
                 resourceQuery == null || resourceSort == null ||
@@ -1388,14 +1384,45 @@ namespace BlockCraftLauncher.Wpf
                 resourceMatchVersion == null || resourceQuery.ActualWidth < 140 ||
                 Math.Abs(resourceQuery.ActualWidth - resourceSource.ActualWidth) > 2)
                 throw new InvalidOperationException("资源列表或窄窗口筛选网格布局错误");
-            var selection = resourceList.SelectedItem as ResourceHit;
-            ShowResourceDetails(selection);
-            if (DetailHost.Content == null || PageHost.Visibility != Visibility.Collapsed)
-                throw new InvalidOperationException("资源详情未在当前窗口显示");
-            BackButton_Click(this, new RoutedEventArgs());
-            if (DetailHost.Content != null || PageHost.Visibility != Visibility.Visible ||
-                resourceList.SelectedItem != selection || resourceQuery.Text != "示例筛选")
-                throw new InvalidOperationException("从详情返回时丢失了搜索条件或选中项目");
+            var unifiedPage = PageHost.Content;
+            if (modDetailsHost.Content == null || DetailHost.Content != null ||
+                PageHost.Visibility != Visibility.Visible || resourceQuery.Text != "示例筛选" ||
+                !ReferenceEquals(modTarget.SelectedItem, sampleProfile) || sidebarButtons.ContainsKey("CurseForge"))
+                throw new InvalidOperationException("模组详情或目标实例未显示在统一下载页。");
+
+            resourceSource.SelectedIndex = (int)ModSource.CurseForge;
+            if (resourceResults.Count != 0 || !ReferenceEquals(PageHost.Content, unifiedPage) ||
+                resourceQuery.Text != "示例筛选" || !(resourceCategory.SelectedItem is CurseForgeCategory))
+                throw new InvalidOperationException("切换 CurseForge 时离开了模组下载页或丢失关键词。");
+
+            sampleProfile.Loader = "fabric";
+            resourceResults.Add(new CurseForgeHit
+            {
+                Id = 123, ProjectId = "123", Kind = "mod", Source = "CurseForge",
+                Name = "CurseForge 详情自检", Description = "示例项目",
+                CategoryLabel = "Technology", VersionsLabel = "1.21.1", DownloadsLabel = "5 万次下载"
+            });
+            resourceList.SelectedIndex = 0;
+            var modPanel = (modDetailsHost.Content as Border)?.Child as StackPanel;
+            if (modPanel == null || !modPanel.Children.OfType<ListBox>().Any(list =>
+                    AutomationProperties.GetName(list) == "兼容的模组文件") ||
+                DetailHost.Content != null || !ReferenceEquals(PageHost.Content, unifiedPage))
+                throw new InvalidOperationException("CurseForge 文件选择未显示在同一页面。");
+            ArrangeLayoutProbe(1280, 780, "03-mod-download-curseforge");
+            ArrangeLayoutProbe(850, 560, "03-mod-download-curseforge-narrow");
+            modTarget.SelectedItem = null;
+            modPanel = (modDetailsHost.Content as Border)?.Child as StackPanel;
+            var fileActions = modPanel?.Children.OfType<WrapPanel>().LastOrDefault();
+            var actionNames = fileActions?.Children.OfType<Button>().Select(AutomationProperties.GetName).ToArray();
+            if (actionNames == null || !actionNames.Contains("另存为 JAR") || actionNames.Contains("安装所选版本"))
+                throw new InvalidOperationException("未选实例时应支持 CurseForge 文件另存为。");
+            modTarget.SelectedItem = sampleProfile;
+            resourceSource.SelectedIndex = (int)ModSource.GitHub;
+            if (resourceCategory.IsEnabled || resourceLoader.IsEnabled || resourceResults.Count > 0 ||
+                !ReferenceEquals(PageHost.Content, unifiedPage))
+                throw new InvalidOperationException("GitHub 筛选状态与统一模组页面不匹配。");
+            sampleProfile.Loader = "vanilla";
+            preferredModSource = null;
 
             Navigate("光影引擎");
             Navigate("资源包");
@@ -1436,13 +1463,15 @@ namespace BlockCraftLauncher.Wpf
             finishedCancellation.Dispose();
             localModIconLoad = finishedCancellation;
             resourceSearchCancellation = finishedCancellation;
-            cfSearchCancellation = finishedCancellation;
+            modCategoryCancellation = finishedCancellation;
+            modFileCancellation = finishedCancellation;
+            modDependencyCancellation = finishedCancellation;
             packSearchCancellation = finishedCancellation;
             serverFinderCancellation = finishedCancellation;
             Navigate("局域网");
             if (localModIconLoad != null ||
                 resourceSearchCancellation != null ||
-                cfSearchCancellation != null ||
+                modCategoryCancellation != null || modFileCancellation != null || modDependencyCancellation != null ||
                 packSearchCancellation != null ||
                 serverFinderCancellation != null)
                 throw new InvalidOperationException(
@@ -1467,50 +1496,6 @@ namespace BlockCraftLauncher.Wpf
             skinStudio.VerifyOfflineLayout();
             ArrangeLayoutProbe(1080, 680, "04-skin");
             skinStudio.Verify3DRenderedPixels();
-
-            // The optional MCIM page is built locally without calling its
-            // service. Verify the complete visual search path and then restore
-            // the user's consent setting before leaving the page.
-            bool previousMcim = settings.McimEnabled;
-            try
-            {
-                settings.McimEnabled = true;
-                Navigate("CurseForge");
-                if (cfSearchResults == null || cfSearchResults.ItemTemplate == null ||
-                    cfSearchQuery == null || cfVersionFilter == null ||
-                    cfCategoryFilter == null || cfSortMode == null ||
-                    cfLoaderFilter == null || cfPrevButton == null ||
-                    cfNextButton == null || cfSearchStatus == null)
-                    throw new InvalidOperationException("CurseForge 图文搜索筛选控件未加载");
-                cfLoadedHits.Clear();
-                cfLoadedHits.Add(new CurseForgeHit
-                {
-                    Id = 123, Name = "离线图文自检", Summary = "UI only",
-                    CategoryLabel = "Technology", VersionsLabel = "近期版本：1.21.1",
-                    DownloadCount = 50000, DownloadsLabel = "5 万次下载"
-                });
-                ApplyCurseForgeFilters();
-                if (cfSearchResults.Items.Count != 1)
-                    throw new InvalidOperationException("CurseForge 本页结果绑定失效");
-                cfSearchResults.SelectedIndex = 0;
-                ShowCurseForgeDetails();
-                if (DetailHost.Content == null)
-                    throw new InvalidOperationException("CurseForge 图文详情未显示");
-                BackButton_Click(this, new RoutedEventArgs());
-                cfVersionFilter.Text = "1.20.1";
-                cfLoaderFilter.SelectedIndex = 1;
-                string searchPath = CurseForgeMirrorClient.BuildSearchPath(
-                    "sodium", cfVersionFilter.Text,
-                    Convert.ToString(cfLoaderFilter.SelectedItem), 1, 1);
-                if (!searchPath.Contains("gameVersion=1.20.1") ||
-                    !searchPath.Contains("modLoaderType=4") ||
-                    !searchPath.Contains("sortField=6") ||
-                    !searchPath.Contains("index=20"))
-                    throw new InvalidOperationException("CurseForge 在线版本/加载器/排序和翻页未生效");
-                cfLoaderFilter.SelectedIndex = 0;
-                cfVersionFilter.Text = "";
-            }
-            finally { settings.McimEnabled = previousMcim; }
 
             Navigate("启动器更新");
             if (PageHost.Content == null || PostponeUpdateButton.Visibility != Visibility.Collapsed)
@@ -1791,31 +1776,17 @@ namespace BlockCraftLauncher.Wpf
             resourceType = type;
             resourceResults.Clear();
             resourcePage = 0;
+            resourceHasMore = false;
+            resourceSearchFilters = null;
             bool isMod = type == "mod";
-            string title = isMod ? "搜索模组" : type == "shader" ? "搜索光影包" : "搜索资源包";
-            resourceQuery = new TextBox();
+            string title = isMod ? "模组下载" : type == "shader" ? "搜索光影包" : "搜索资源包";
+            resourceQuery = new TextBox { MaxLength = 150 };
             resourceVersion = new ComboBox
             {
                 IsEditable = true, IsTextSearchEnabled = true,
                 ItemsSource = (new[] { "全部版本", activeProfile?.BaseVersion,
                     "1.21.11", "1.21.10", "1.21.8", "1.21.1", "1.20.1", "1.19.4" })
                     .Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().ToArray(),
-                SelectedIndex = 0
-            };
-            resourceSource = new ComboBox
-            {
-                ItemsSource = isMod ? new[] { "Modrinth", "CurseForge（官方 API / MCIM）", "GitHub 开源项目（Releases）" } : new[] { "Modrinth" },
-                SelectedIndex = 0, IsEnabled = isMod
-            };
-            resourceCategory = new ComboBox
-            {
-                ItemsSource = new[] { "全部类型", "性能优化", "科技", "冒险", "装饰",
-                    "实用工具", "世界生成", "生物", "支持库", "玩法", "装备", "存储", "管理" },
-                SelectedIndex = 0
-            };
-            resourceLoader = new ComboBox
-            {
-                ItemsSource = new[] { "全部加载器", "Fabric", "Forge", "NeoForge", "Quilt" },
                 SelectedIndex = 0
             };
             resourceSort = new ComboBox
@@ -1825,80 +1796,58 @@ namespace BlockCraftLauncher.Wpf
             };
             resourceMatchVersion = new CheckBox
             {
-                Content = "仅显示与当前版本兼容的项目",
-                IsEnabled = activeProfile != null,
-                ToolTip = "使用当前游戏版本；搜索模组时同时匹配加载器。"
+                Content = isMod ? "按目标实例筛选" : "仅显示与当前游戏版本兼容的项目",
+                IsEnabled = activeProfile != null
             };
-            ApplySearchInputStyle(resourceQuery, "输入名称或关键词，留空可浏览推荐项目");
-            ApplySearchInputStyle(resourceVersion, "可选择或输入 Minecraft 游戏版本");
-            ApplySearchInputStyle(resourceSource, "选择搜索来源");
-            ApplySearchInputStyle(resourceCategory, "筛选模组类型");
-            ApplySearchInputStyle(resourceLoader, "筛选模组加载器");
+            ApplySearchInputStyle(resourceQuery, "输入模组名或关键词，留空浏览推荐项目");
+            ApplySearchInputStyle(resourceVersion, "选择或输入 Minecraft 游戏版本");
             ApplySearchInputStyle(resourceSort, "设置结果排序");
-            async Task SearchFirstPage()
-            {
-                resourcePage = 0;
-                await SearchResourcesAsync();
-            }
             resourceQuery.KeyDown += async (sender, args) =>
             {
-                if (args.Key != System.Windows.Input.Key.Enter) return;
+                if (args.Key != System.Windows.Input.Key.Enter || !resourceSearchButton.IsEnabled) return;
                 args.Handled = true;
-                await SearchFirstPage();
+                await SearchResourcesAsync();
             };
 
-            resourceSearchButton = Btn("搜索", async () => await SearchFirstPage(), true);
+            resourceSearchButton = Btn("搜索", async () => await SearchResourcesAsync(), true);
             resourceSearchButton.MinWidth = 120;
-            var clear = Btn("重置条件", () =>
+            var clear = Btn("重置筛选", () =>
             {
-                resourceSearchCancellation?.Cancel();
-                resourceSearchCancellation = null;
-                resourceSearchButton.IsEnabled = true;
                 resourceQuery.Clear();
                 resourceVersion.SelectedIndex = 0;
-                resourceSource.SelectedIndex = 0;
-                resourceCategory.SelectedIndex = 0;
-                resourceLoader.SelectedIndex = 0;
                 resourceSort.SelectedIndex = 0;
+                if (isMod)
+                {
+                    resourceCategory.SelectedIndex = 0;
+                    resourceLoader.SelectedIndex = 0;
+                }
                 resourceMatchVersion.IsChecked = false;
-                resourcePage = 0;
-                resourceResults.Clear();
-                resourceCounter.Text = "点击“搜索”查看项目。";
-                resourcePrevButton.IsEnabled = resourceNextButton.IsEnabled = false;
+                ResetResourceResults();
             });
-            var form = isMod ? SearchFields(("名称", resourceQuery), ("来源", resourceSource),
-                    ("版本", resourceVersion), ("类型", resourceCategory),
-                    ("加载器", resourceLoader), ("排序", resourceSort))
-                : SearchFields(("名称", resourceQuery), ("来源", resourceSource),
-                    ("版本", resourceVersion), ("排序", resourceSort));
-            var root = Col(SearchCard(Col(Txt(title, 16, true), form,
-                resourceMatchVersion, Row(resourceSearchButton, clear))));
 
             resourceList = new ListBox
             {
-                ItemsSource = resourceResults, ItemTemplate = (DataTemplate)FindResource("ResourceItemTemplate"),
-                MinHeight = 132, MaxHeight = 372
+                ItemsSource = resourceResults,
+                ItemTemplate = (DataTemplate)FindResource("ResourceItemTemplate"),
+                MinHeight = 132, MaxHeight = 390
             };
-            resourceCounter = Txt("点击“搜索”查看项目。", 12, false, true);
-            resourcePrevButton = Btn("上一页", async () =>
-            {
-                if (resourcePage <= 0) return;
-                resourcePage--;
-                await SearchResourcesAsync();
-            });
-            resourceNextButton = Btn("下一页", async () =>
-            {
-                resourcePage++;
-                await SearchResourcesAsync();
-            });
+            resourceCounter = Txt("输入关键词或直接搜索。", 12, false, true);
+            resourcePrevButton = Btn("上一页", async () => await SearchResourcesAsync(resourcePage - 1));
+            resourceNextButton = Btn("下一页", async () => await SearchResourcesAsync(resourcePage + 1));
             resourcePrevButton.IsEnabled = resourceNextButton.IsEnabled = false;
+
+            var actions = Row(resourceSearchButton, clear);
+            if (isMod) return BuildModDownloadPage(title, actions);
+
+            var root = Col(SearchCard(Col(Txt(title, 16, true),
+                SearchFields(("名称", resourceQuery), ("版本", resourceVersion), ("排序", resourceSort)),
+                resourceMatchVersion, actions)));
             void Open() => ShowResourceDetails(resourceList.SelectedItem as ResourceHit);
             var details = Btn("查看详情", Open);
             var install = Btn("安装到当前版本", async () => await InstallResourceAsync(), true);
             WireResultActions(resourceList, Open, details, install);
             root.Children.Add(ProjectResults(resourceCounter, resourceList, Row(install, details),
                 resourcePrevButton, resourceNextButton));
-
             if (type == "shader")
                 root.Children.Add(Card(Col(Txt("光影组件", 16, true),
                     Txt("按当前版本安装 Iris 或 Sodium，也可前往 OptiFine 官网。", 12, false, true),
@@ -1945,126 +1894,6 @@ namespace BlockCraftLauncher.Wpf
             catch (Exception ex) { ShowError("打开 OptiFine 官方网站失败", ex); }
         }
 
-        async Task SearchResourcesAsync()
-        {
-            // An opt-in alternate provider remains a separate workflow. We
-            // never promise merged results when CurseForge is not enabled.
-            if (resourceSource?.SelectedIndex == 1)
-            {
-                string query = resourceQuery.Text;
-                string version = resourceMatchVersion.IsChecked == true
-                    ? activeProfile?.BaseVersion : resourceVersion.Text;
-                Navigate("CurseForge");
-                if (settings.McimEnabled || CurseForgeMirrorClient.HasLocalOfficialKey)
-                {
-                    cfSearchQuery.Text = query;
-                    if (!string.IsNullOrWhiteSpace(version) && !version.StartsWith("全部", StringComparison.Ordinal))
-                        cfVersionFilter.Text = version;
-                    await SearchCurseForgeAsync();
-                }
-                return;
-            }
-
-            bool searchGitHub = resourceType == "mod" &&
-                resourceSource?.SelectedIndex == 2;
-            CancelAndDetach(ref resourceSearchCancellation);
-            using (var request = new CancellationTokenSource(TimeSpan.FromSeconds(35)))
-            {
-                resourceSearchCancellation = request;
-                if (resourceSearchButton != null) resourceSearchButton.IsEnabled = false;
-                if (resourceCounter != null)
-                    resourceCounter.Text = searchGitHub
-                        ? "正在搜索具有明确开源许可证的 GitHub 仓库..."
-                        : "正在向 Modrinth 搜索项目...";
-                Status(searchGitHub ? "正在搜索 GitHub 开源模组仓库..."
-                    : "正在搜索 Modrinth...");
-                try
-                {
-                    string sort = new[] { "relevance", "downloads", "updated", "newest" }
-                        [Math.Max(0, Math.Min(3, resourceSort?.SelectedIndex ?? 0))];
-                    bool compatible = resourceMatchVersion?.IsChecked == true && activeProfile != null;
-                    string selectedVersion = resourceVersion?.Text?.Trim();
-                    string gameVersion = compatible ? activeProfile.BaseVersion :
-                        string.IsNullOrWhiteSpace(selectedVersion) ||
-                        selectedVersion.StartsWith("全部", StringComparison.Ordinal) ?
-                        null : selectedVersion;
-                    string loader = resourceType != "mod" ? null :
-                        compatible ? activeProfile.Loader : resourceLoader.SelectedIndex > 0
-                            ? (resourceLoader.SelectedItem as string)?.ToLowerInvariant() : null;
-                    string category = null;
-                    if (resourceType == "mod" && resourceCategory != null &&
-                        resourceCategory.SelectedIndex > 0)
-                    {
-                        string[] categories = { null, "optimization", "technology",
-                            "adventure", "decoration", "utility", "worldgen", "mobs",
-                            "library", "gameplay", "equipment", "storage", "management" };
-                        category = categories[Math.Min(resourceCategory.SelectedIndex,
-                            categories.Length - 1)];
-                    }
-                    ModrinthSearchPage result;
-                    if (searchGitHub)
-                    {
-                        using (var client = new GitHubOpenSourceModClient(settings))
-                            result = await client.SearchAsync(resourceQuery.Text,
-                                resourcePage, request.Token);
-                    }
-                    else
-                    {
-                        using (var client = new ModrinthClient(settings))
-                            result = await client.SearchPageAsync(resourceQuery.Text,
-                                resourceType, request.Token, gameVersion, loader, sort,
-                                resourcePage * 20, category);
-                    }
-                    if (request.IsCancellationRequested ||
-                        !ReferenceEquals(resourceSearchCancellation, request))
-                        return;
-                    resourceResults.Clear();
-                    foreach (var item in result.Hits) resourceResults.Add(item);
-                    int total = Math.Min(2000, result.TotalHits);
-                    int pageSize = searchGitHub ? 40 : 20;
-                    string provider = searchGitHub ? "GitHub 开源仓库" : "Modrinth";
-                    if (resourceCounter != null)
-                        resourceCounter.Text = result.Hits.Count == 0
-                            ? "当前页没有符合条件的开源项目；请尝试其他关键词或翻页"
-                            : provider + "  ·  第 " + (resourcePage + 1) +
-                              " 页  ·  " + result.Hits.Count + " 项" +
-                              (searchGitHub ? "（安装前核对版本、加载器及 SHA-256）" :
-                                  "  ·  共 " + result.TotalHits + " 项");
-                    if (resourcePrevButton != null)
-                        resourcePrevButton.IsEnabled = resourcePage > 0;
-                    if (resourceNextButton != null)
-                        resourceNextButton.IsEnabled = searchGitHub
-                            ? (resourcePage + 1) * pageSize < total && resourcePage < 50
-                            : result.Hits.Count == 20 &&
-                              (resourcePage + 1) * 20 < total;
-                    Status(provider + " 第 " + (resourcePage + 1) + " 页，"
-                        + result.Hits.Count + " 个结果");
-                }
-                catch (OperationCanceledException)
-                {
-                    if (ReferenceEquals(resourceSearchCancellation, request) &&
-                        resourceCounter != null)
-                        resourceCounter.Text = "搜索已取消或超时，请重试";
-                }
-                catch (Exception ex)
-                {
-                    if (!ReferenceEquals(resourceSearchCancellation, request)) return;
-                    if (resourceCounter != null)
-                        resourceCounter.Text = "搜索失败，请调整关键词或网络设置";
-                    ShowError(searchGitHub ? "GitHub 开源模组搜索失败（可能有 API 限流）"
-                        : "Modrinth 搜索失败", ex);
-                }
-                finally
-                {
-                    if (ReferenceEquals(resourceSearchCancellation, request))
-                    {
-                        resourceSearchCancellation = null;
-                        if (resourceSearchButton != null)
-                            resourceSearchButton.IsEnabled = true;
-                    }
-                }
-            }
-        }
         void ShowResourceDetails(ResourceHit hit)
         {
             if (hit == null) return;
@@ -2114,58 +1943,56 @@ namespace BlockCraftLauncher.Wpf
                     if (isPack) await InstallSelectedModpackAsync(hit);
                     else await InstallResourceAsync(hit);
                 }, true),
-                Btn(hit.Source == "GitHub" ? "打开 GitHub 项目页" : "打开 Modrinth 项目页", () =>
-                {
-                    if (hit.Source == "GitHub")
-                    {
-                        string repository = hit.ProjectId ?? "";
-                        var parts = repository.Split('/');
-                        if (parts.Length != 2 || parts[0].Length < 1 || parts[0].Length > 39 ||
-                            parts[1].Length < 1 || parts[1].Length > 100 ||
-                            parts.Any(value => value.Any(c =>
-                                !char.IsLetterOrDigit(c) && c != '-' && c != '_' && c != '.')))
-                        {
-                            MessageBox.Show(this, "GitHub 项目路径无效，无法打开。", "开源模组");
-                            return;
-                        }
-                        try
-                        {
-                            Process.Start(new ProcessStartInfo(
-                                "https://github.com/" + repository) { UseShellExecute = true });
-                        }
-                        catch (Exception ex) { ShowError("打开 GitHub 项目页失败", ex); }
-                        return;
-                    }
-                    if (string.IsNullOrWhiteSpace(hit.ProjectId) ||
-                        hit.ProjectId.Length > 64 ||
-                        hit.ProjectId.Any(c => !char.IsLetterOrDigit(c) && c != '-' && c != '_'))
-                    {
-                        MessageBox.Show(this, "项目 ID 无效，无法打开项目页。", "项目详情");
-                        return;
-                    }
-                    string path = hit.Kind == "shader" ? "shader" :
-                        hit.Kind == "resourcepack" ? "resourcepack" : isPack ? "modpack" : "mod";
-                    try
-                    {
-                        Process.Start(new ProcessStartInfo(
-                            "https://modrinth.com/" + path + "/" + Uri.EscapeDataString(hit.ProjectId))
-                            { UseShellExecute = true });
-                    }
-                    catch (Exception ex) { ShowError("打开 Modrinth 项目页失败", ex); }
-                }));
+                Btn("项目主页", () => OpenResourceProject(hit)));
             project.Children.Add(actions);
             ShowDetails(hit.Name, Col(Card(project), overview));
         }
 
-        async Task InstallResourceAsync(ResourceHit hit = null)
+        void OpenResourceProject(ResourceHit hit)
+        {
+            string url;
+            if (hit is CurseForgeHit curseForge)
+                url = curseForge.OfficialUrl;
+            else if (hit.Source == "GitHub")
+            {
+                string repository = hit.ProjectId ?? "";
+                var parts = repository.Split('/');
+                url = parts.Length == 2 && parts[0].Length > 0 && parts[0].Length <= 39 &&
+                    parts[1].Length > 0 && parts[1].Length <= 100 &&
+                    parts.All(part => part.All(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' || c == '.'))
+                    ? "https://github.com/" + repository : null;
+            }
+            else
+            {
+                string project = hit.ProjectId ?? "";
+                string kind = hit.Kind == "shader" || hit.Kind == "resourcepack" || hit.Kind == "modpack"
+                    ? hit.Kind : "mod";
+                url = project.Length > 0 && project.Length <= 64 &&
+                    project.All(c => char.IsLetterOrDigit(c) || c == '-' || c == '_')
+                    ? "https://modrinth.com/" + kind + "/" + Uri.EscapeDataString(project) : null;
+            }
+            if (url == null)
+            {
+                Status("此项目没有可打开的主页地址。");
+                return;
+            }
+            try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
+            catch (Exception ex) { ShowError("打开项目主页失败", ex); }
+        }
+
+        async Task InstallResourceAsync(ResourceHit hit = null, GameProfile target = null, string versionId = null)
         {
             hit = hit ?? resourceList?.SelectedItem as ResourceHit;
-            var profile = activeProfile;
+            var profile = target ?? activeProfile;
             if (profile == null || hit == null) { MessageBox.Show("请先选择实例和资源。"); return; }
-            if (hit.Kind == "mod" && (string.IsNullOrWhiteSpace(profile.Loader) ||
-                string.Equals(profile.Loader, "vanilla", StringComparison.OrdinalIgnoreCase) || profile.Loader == "原版"))
+            if (hit.Kind == "mod" && ModDownloadTarget.Loader(profile.Loader) == null)
             {
                 Status("安装模组前，请选择已安装 Fabric、Forge、NeoForge 或 Quilt 的版本。");
+                return;
+            }
+            if (hit is CurseForgeHit curseForge)
+            {
+                QueueCurseForgeInstall(curseForge, profile, versionId);
                 return;
             }
             if (hit.Source == "GitHub")
@@ -2198,7 +2025,7 @@ namespace BlockCraftLauncher.Wpf
                 using (var client = new ModrinthClient(settings))
                 {
                     var file = hit.Kind == "mod"
-                        ? await client.DownloadModWithDependenciesAsync(hit, profile, token, bytes, progress)
+                        ? await client.DownloadModWithDependenciesAsync(hit, profile, token, bytes, progress, versionId)
                         : await client.DownloadLatestAsync(hit, profile, token, bytes);
                     progress.Report("已安装到：" + file);
                     Status("资源下载完成：" + hit.Name);
@@ -2207,361 +2034,6 @@ namespace BlockCraftLauncher.Wpf
             Status("已将资源加入任务列表：" + hit.Name);
             await Task.CompletedTask;
         }
-        UIElement BuildCurseForge()
-        {
-            cfLoadedHits.Clear();
-            cfPage = 0;
-            if (!settings.McimEnabled && !CurseForgeMirrorClient.HasLocalOfficialKey)
-                return Col(SearchCard(Col(
-                        Txt("搜索 CurseForge 模组", 16, true),
-                        Txt("启用 MCIM 社区镜像后，可搜索模组并查看项目图标和截图。", 12, false, true),
-                        Row(Btn("启用 CurseForge 搜索", () =>
-                        {
-                            if (MessageBox.Show(this,
-                                "MCIM 是第三方社区镜像，缓存资料可能滞后。\n" +
-                                "安装时仍会校验版本、文件哈希及允许分发的链接。\n\n" +
-                                "是否启用 CurseForge 搜索？",
-                                "启用社区模组来源",
-                                MessageBoxButton.YesNo, MessageBoxImage.Question)
-                                != MessageBoxResult.Yes) return;
-                            settings.McimEnabled = true;
-                            try { store.Save(settings); }
-                            catch (Exception ex)
-                            {
-                                settings.McimEnabled = false;
-                                ShowError("保存社区资源设置失败", ex);
-                                return;
-                            }
-                            Navigate("CurseForge");
-                            Status("已启用 CurseForge 图文搜索。");
-                        }, true), Btn("下载设置", () => Navigate("下载设置"))))));
-
-            cfSearchQuery = new TextBox();
-            ApplySearchInputStyle(cfSearchQuery, "输入模组名称、作者或关键词；留空浏览热门模组");
-            cfSearchQuery.KeyDown += async (sender, args) =>
-            {
-                if (args.Key == System.Windows.Input.Key.Enter)
-                {
-                    args.Handled = true;
-                    await SearchCurseForgeAsync();
-                }
-            };
-            cfVersionFilter = new TextBox();
-            ApplySearchInputStyle(cfVersionFilter, "在线筛选 Minecraft 版本，例如 1.21.1");
-            cfLoaderFilter = new ComboBox
-            {
-                ItemsSource = new[] { "全部加载器", "Fabric", "Forge", "NeoForge", "Quilt" },
-                SelectedIndex = 0
-            };
-            ApplySearchInputStyle(cfLoaderFilter, "选择加载器前需填写游戏版本");
-            cfCategoryFilter = new ComboBox
-            {
-                ItemsSource = new[] { "全部分类" }, SelectedIndex = 0
-            };
-            ApplySearchInputStyle(cfCategoryFilter, "当前页已有项目的分类");
-            cfCategoryFilter.SelectionChanged += (sender, args) => ApplyCurseForgeFilters();
-            cfSortMode = new ComboBox
-            {
-                ItemsSource = new[] { "相关度", "最多下载", "最近更新", "按名称" },
-                SelectedIndex = 0
-            };
-            ApplySearchInputStyle(cfSortMode, "选择后点击搜索，排序作用于所有在线结果");
-
-            cfSearchStatus = Txt("点击“搜索”查看项目。", 12, false, true);
-            cfSearchResults = new ListBox
-            {
-                MinHeight = 132, MaxHeight = 372,
-                ItemTemplate = (DataTemplate)FindResource("CurseForgeItemTemplate")
-            };
-            var search = Btn("搜索", async () => await SearchCurseForgeAsync(), true);
-            search.MinWidth = 120;
-            var reset = Btn("重置条件", () =>
-            {
-                cfSearchCancellation?.Cancel();
-                cfSearchQuery.Clear();
-                cfVersionFilter.Clear();
-                cfLoaderFilter.SelectedIndex = 0;
-                cfPage = 0;
-                cfLoadedHits.Clear();
-                if (cfPrevButton != null) cfPrevButton.IsEnabled = false;
-                if (cfNextButton != null) cfNextButton.IsEnabled = false;
-                cfCategoryFilter.ItemsSource = new[] { "全部分类" };
-                cfCategoryFilter.SelectedIndex = 0;
-                cfSortMode.SelectedIndex = 0;
-                ApplyCurseForgeFilters();
-            });
-            var details = Btn("查看详情与截图", ShowCurseForgeDetails);
-            var install = Btn("安装到当前版本", async () => await InstallCurseForgeAsync(), true);
-            WireResultActions(cfSearchResults, ShowCurseForgeDetails, details, install);
-            cfPrevButton = Btn("上一页", async () =>
-            {
-                if (cfPage > 0) await SearchCurseForgeAsync(cfPage - 1);
-            });
-            cfNextButton = Btn("下一页", async () =>
-            {
-                if (cfPage < 499) await SearchCurseForgeAsync(cfPage + 1);
-            });
-            cfPrevButton.IsEnabled = false;
-            cfNextButton.IsEnabled = false;
-            return Col(
-                SearchCard(Col(Txt("搜索 CurseForge 模组", 16, true),
-                    SearchFields(("名称", cfSearchQuery), ("类型", cfCategoryFilter),
-                        ("版本", cfVersionFilter), ("加载器", cfLoaderFilter),
-                        ("排序", cfSortMode)),
-                    Txt(CurseForgeMirrorClient.HasLocalOfficialKey
-                        ? "来源：CurseForge 官方 API。按游戏版本、加载器和排序在线检索；类型筛选当前页。密钥仅保存在本机。"
-                        : "来源为可选 MCIM。版本、加载器和排序重新在线检索；类型筛选当前页。", 12, false, true),
-                    Row(search, reset))),
-                ProjectResults(cfSearchStatus, cfSearchResults,
-                    Row(install, details, cfPrevButton, cfNextButton)));
-        }
-
-        void ApplyCurseForgeFilters()
-        {
-            if (cfSearchResults == null || currentPage != "CurseForge") return;
-            string category = Convert.ToString(cfCategoryFilter?.SelectedItem) ?? "全部分类";
-            IEnumerable<CurseForgeHit> filtered = cfLoadedHits;
-            if (category != "全部分类")
-                filtered = filtered.Where(hit =>
-                    (hit.CategoryLabel ?? "").Split(new[] { " · " },
-                        StringSplitOptions.RemoveEmptyEntries).Any(value =>
-                            string.Equals(value, category, StringComparison.OrdinalIgnoreCase)));
-            // Server-side ordering and game version filters were applied by
-            // CurseForge already. Never discard a valid project merely because
-            // only its three most recent game versions were shown in the card.
-            var visible = filtered.ToList();
-            cfSearchResults.ItemsSource = visible;
-            if (cfSearchStatus != null)
-                cfSearchStatus.Text = cfLoadedHits.Count == 0 ?
-                    "暂无项目。试试更换关键词。" :
-                    visible.Count == 0 ? "已加载项目中没有匹配项。" :
-                    "第 " + (cfPage + 1) + " 页 · 显示 " + visible.Count +
-                    " / " + cfLoadedHits.Count + " 个模组";
-        }
-
-        void ShowCurseForgeDetails()
-        {
-            var hit = cfSearchResults?.SelectedItem as CurseForgeHit;
-            if (hit == null) return;
-            var overview = Col(Txt(hit.Name, 20, true),
-                Txt(hit.AuthorLabel + "  ·  " + hit.DownloadsLabel + "  ·  " + hit.CategoryLabel, 12, false, true),
-                Txt(hit.Summary, 13),
-                Txt(hit.VersionsLabel, 12, false, true));
-
-            if (hit.IconUrl != null)
-            {
-                var cover = new Image { Width = 90, Height = 90,
-                    HorizontalAlignment = HorizontalAlignment.Left,
-                    Stretch = Stretch.UniformToFill, Margin = new Thickness(0, 0, 0, 12) };
-                cover.SetBinding(Image.SourceProperty, new Binding("IconUrl")
-                { Source = hit, Mode = BindingMode.OneWay });
-                overview.Children.Insert(0, cover);
-            }
-
-            var gallery = new WrapPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Margin = new Thickness(0, 0, 0, 14)
-            };
-            foreach (var shot in hit.Screenshots ?? Array.Empty<CurseForgeScreenshot>())
-            {
-                var tile = Col();
-                tile.Width = 264;
-                tile.Margin = new Thickness(0, 0, 12, 12);
-                var picture = new Image
-                {
-                    Width = 250, Height = 154, Stretch = Stretch.UniformToFill,
-                    HorizontalAlignment = HorizontalAlignment.Left,
-                    RenderTransformOrigin = new Point(0.5, 0.5),
-                    ToolTip = shot.Title
-                };
-                picture.SetBinding(Image.SourceProperty,
-                    new Binding("ThumbnailUrl") { Source = shot, Mode = BindingMode.OneWay });
-                var frame = new Border { Child = picture,
-                    BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6) };
-                frame.SetResourceReference(Border.BorderBrushProperty, "BorderBrushTheme");
-                tile.Children.Add(frame);
-                if (!string.IsNullOrWhiteSpace(shot.Title))
-                    tile.Children.Add(Txt(shot.Title, 11, false, true));
-                gallery.Children.Add(tile);
-            }
-            // HMCL-style file chooser: ask CurseForge for actual files
-            // compatible with the selected Minecraft instance, not just
-            // versions guessed from project search metadata.
-            var filePicker = new ComboBox
-            {
-                MinWidth = 310, MaxWidth = 720, IsEnabled = false
-            };
-            ApplySearchInputStyle(filePicker, "选择要安装的实际文件版本");
-            var fileStatus = Txt(activeProfile == null
-                ? "请先在启动页面选择游戏实例。" :
-                "当前实例：" + activeProfile.Name + " · " +
-                activeProfile.BaseVersion + " · " + activeProfile.Loader, 12, false, true);
-            var selectedInstall = Btn("安装所选版本", async () =>
-            {
-                var chosen = filePicker.SelectedItem as CurseForgeFileOption;
-                if (chosen == null) return;
-                await InstallCurseForgeAsync(hit, chosen.FileId);
-            }, true);
-            selectedInstall.IsEnabled = false;
-            Button loadVersions = null;
-            loadVersions = Btn("查看可安装版本", async () =>
-            {
-                var profile = activeProfile;
-                if (profile == null)
-                {
-                    fileStatus.Text = "请先在启动页面选择游戏实例。";
-                    return;
-                }
-                loadVersions.IsEnabled = false;
-                selectedInstall.IsEnabled = false;
-                fileStatus.Text = "正在获取 " + profile.BaseVersion + " / " +
-                    profile.Loader + " 的兼容版本...";
-                try
-                {
-                    using (var ct = new CancellationTokenSource(TimeSpan.FromSeconds(40)))
-                    using (var client = new CurseForgeMirrorClient(settings))
-                    {
-                        var files = await client.ListCompatibleFilesAsync(hit.Id, profile, ct.Token);
-                        if (currentPage != "CurseForge" ||
-                            !ReferenceEquals(profile, activeProfile) ||
-                            DetailHost.Content == null) return;
-                        filePicker.ItemsSource = files;
-                        filePicker.IsEnabled = files.Count > 0;
-                        filePicker.SelectedIndex = files.Count > 0 ? 0 : -1;
-                        selectedInstall.IsEnabled = files.Count > 0;
-                        fileStatus.Text = files.Count > 0
-                            ? "已找到 " + files.Count + " 个兼容文件（正式/Beta/Alpha），选择后加入下载队列。"
-                            : "该项目没有匹配当前 Minecraft 版本和加载器的文件。";
-                    }
-                }
-                catch (Exception ex)
-                {
-                    if (currentPage == "CurseForge" && DetailHost.Content != null)
-                        fileStatus.Text = "加载兼容文件失败：" + ex.GetBaseException().Message;
-                }
-                finally { loadVersions.IsEnabled = true; }
-            });
-            var actions = Row(Btn("自动选择最新兼容版", async () =>
-                await InstallCurseForgeAsync(hit), true));
-            if (!string.IsNullOrEmpty(hit.OfficialUrl))
-                actions.Children.Add(Btn("打开 CurseForge 项目页", () =>
-                {
-                    try { Process.Start(new ProcessStartInfo(hit.OfficialUrl) { UseShellExecute = true }); }
-                    catch (Exception ex) { ShowError("打开 CurseForge 项目页失败", ex); }
-                }));
-            overview.Children.Add(actions);
-            overview.Children.Add(Card(Col(
-                Txt("版本选择与安装", 16, true),
-                fileStatus, filePicker,
-                Row(loadVersions, selectedInstall),
-                Txt("仅列出当前游戏实例兼容的 JAR 文件；必要依赖会自动处理，已有模组不会覆盖。", 12, false, true))));
-            ShowDetails(hit.Name, Col(Card(overview),
-                Card(Col(Txt("项目截图", 16, true), gallery.Children.Count == 0
-                    ? (UIElement)Txt("作者暂未提供截图。", 12, false, true) : gallery))));
-        }
-
-        async Task SearchCurseForgeAsync(int requestedPage = 0)
-        {
-            if (requestedPage < 0 || requestedPage > 499) return;
-            var query = (cfSearchQuery?.Text ?? "").Trim();
-            var version = (cfVersionFilter?.Text ?? "").Trim();
-            var loader = cfLoaderFilter?.SelectedIndex > 0 ?
-                Convert.ToString(cfLoaderFilter.SelectedItem) : "";
-            var sort = Math.Max(0, cfSortMode?.SelectedIndex ?? 0);
-            var results = cfSearchResults;
-            var label = cfSearchStatus;
-            if (results == null || (!settings.McimEnabled &&
-                !CurseForgeMirrorClient.HasLocalOfficialKey)) return;
-
-            CancelAndDetach(ref cfSearchCancellation);
-            var cancellation = new CancellationTokenSource();
-            cfSearchCancellation = cancellation;
-            if (label != null) label.Text = "正在向 CurseForge 请求第 " +
-                (requestedPage + 1) + " 页...";
-            if (cfPrevButton != null) cfPrevButton.IsEnabled = false;
-            if (cfNextButton != null) cfNextButton.IsEnabled = false;
-            try
-            {
-                Status(CurseForgeMirrorClient.HasLocalOfficialKey
-                    ? "正在通过官方 API 查询 CurseForge..." : "正在通过 MCIM 查询 CurseForge...");
-                IReadOnlyList<CurseForgeHit> found;
-                using (var client = new CurseForgeMirrorClient(settings))
-                    found = await client.SearchAsync(query, version, loader, sort,
-                        requestedPage, cancellation.Token);
-                if (cancellation.IsCancellationRequested ||
-                    currentPage != "CurseForge" || results != cfSearchResults) return;
-                if (found.Count == 0 && requestedPage > 0)
-                {
-                    if (label != null) label.Text = "已到最后一页，没有更多模组。";
-                    return;
-                }
-                cfPage = requestedPage;
-                cfLoadedHits.Clear();
-                cfLoadedHits.AddRange(found);
-                if (cfCategoryFilter != null)
-                {
-                    var categories = found.SelectMany(hit =>
-                        (hit.CategoryLabel ?? "").Split(new[] { " · " },
-                            StringSplitOptions.RemoveEmptyEntries))
-                        .Distinct(StringComparer.CurrentCultureIgnoreCase)
-                        .OrderBy(value => value, StringComparer.CurrentCultureIgnoreCase);
-                    cfCategoryFilter.ItemsSource = new[] { "全部分类" }
-                        .Concat(categories).ToArray();
-                    cfCategoryFilter.SelectedIndex = 0;
-                }
-                ApplyCurseForgeFilters();
-                Status("CurseForge 第 " + (cfPage + 1) + " 页已加载 " +
-                    found.Count + " 个图文项目");
-            }
-            catch (OperationCanceledException) { /* Search or page switch cancelled. */ }
-            catch (Exception ex)
-            {
-                if (!cancellation.IsCancellationRequested)
-                {
-                    if (label != null) label.Text = CurseForgeMirrorClient.HasLocalOfficialKey
-                        ? "搜索失败：请检查本机 CurseForge API Key 和官方服务状态。"
-                        : "搜索失败：可以稍后重试或检查 MCIM 设置。";
-                    ShowError("CurseForge 查询失败", ex);
-                }
-            }
-            finally
-            {
-                if (cfSearchCancellation == cancellation)
-                {
-                    cfSearchCancellation = null;
-                    if (cfPrevButton != null) cfPrevButton.IsEnabled = cfPage > 0;
-                    if (cfNextButton != null)
-                        cfNextButton.IsEnabled = cfPage < 499 && cfLoadedHits.Count == 20;
-                }
-                cancellation.Dispose();
-            }
-        }
-
-        async Task InstallCurseForgeAsync(CurseForgeHit hit = null, long? selectedFileId = null)
-        {
-            hit = hit ?? cfSearchResults?.SelectedItem as CurseForgeHit;
-            var profile = activeProfile;
-            if (hit == null || profile == null) { MessageBox.Show("请先选择模组和游戏实例"); return; }
-            if (MessageBox.Show("将为 " + profile.Name + " 下载 " + hit.Name +
-                (selectedFileId.HasValue ? "（选择文件 " + selectedFileId.Value + "）" : "") +
-                " 及必要依赖。仅从允许的镜像/官方 CDN 下载，不覆盖已有文件。\n\n继续？",
-                "CurseForge 安装确认", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-
-            downloads.Enqueue("CurseForge", hit.Name + " → " + profile.Name, async (token, progress, bytes) =>
-            {
-                using (var client = new CurseForgeMirrorClient(settings))
-                {
-                    var files = await client.InstallAsync(hit.Id, profile, progress, token,
-                        selectedFileId);
-                    progress.Report("CurseForge 安装完成：" + files.Count + " 个文件");
-                    Status("CurseForge 已安装：" + hit.Name);
-                }
-            });
-            Status("已将 CurseForge 模组加入任务队列：" + hit.Name);
-            await Task.CompletedTask;
-        }
-
         UIElement BuildModpacks()
         {
             packPage = 0;
@@ -2797,6 +2269,7 @@ namespace BlockCraftLauncher.Wpf
                     Btn("启用", () => ToggleLocalResource(true)),
                     Btn("停用", () => ToggleLocalResource(false)),
                     Btn("刷新列表", async () => await RefreshLocalResourceListAsync()),
+                    Btn("下载模组", () => Navigate("资源中心")),
                     Btn("打开游戏目录", OpenGameFolder))));
             modUpgradeResults = new ListBox { MinHeight = 92, MaxHeight = 212 };
             var updates = Card(Col(Txt("Modrinth 更新", 16, true),
@@ -3893,7 +3366,7 @@ namespace BlockCraftLauncher.Wpf
                 }
             };
             SettingRow(network, "社区镜像", settingsMcim,
-                "仅在本机没有配置官方 API Key 时用于 CurseForge 搜索；也可作为 Modrinth 的备用来源。");
+                "在模组下载页提供独立的 MCIM 下载源，也可作为 Modrinth 的备用来源。");
             var probeText = Txt("", 12);
             var probeCard = Card(Col(Txt("线路检测结果", 16, true),
                 Txt("检测公开接口的连接和首包耗时。微软登录使用 Windows 系统网络。", 12, false, true),

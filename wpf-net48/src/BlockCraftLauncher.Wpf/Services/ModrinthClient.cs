@@ -13,7 +13,7 @@ using BlockCraftLauncher.Wpf.Models;
 
 namespace BlockCraftLauncher.Wpf.Services
 {
-    public sealed class ResourceHit
+    public class ResourceHit
     {
         public string ProjectId { get; set; }
         public string Name { get; set; }
@@ -29,10 +29,20 @@ namespace BlockCraftLauncher.Wpf.Services
         public string LoaderLabel { get; set; }
         public string VersionsLabel { get; set; }
         public string Source { get; set; } = "Modrinth";
-        public string SourceLabel => Source == "GitHub" ? "GitHub 开源" : "Modrinth";
-        public string IconDescription => Source == "GitHub"
-            ? "Github 开源项目作者头像（仅作来源识别，不代表模组官方图标）"
-            : "Modrinth 项目图标；无法获取时显示默认模组图标";
+        public string SourceLabel
+        {
+            get
+            {
+                switch (Source)
+                {
+                    case "GitHub": return "GitHub 开源";
+                    case "CurseForge": return "CurseForge 官方";
+                    case "MCIM": return "CurseForge · MCIM";
+                    default: return "Modrinth";
+                }
+            }
+        }
+        public string IconDescription => Source == "GitHub" ? "GitHub 项目作者头像" : SourceLabel + " 项目图标";
         public string KindLabel
         {
             get
@@ -40,7 +50,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 if (Source == "GitHub") return "社区开源仓库 · GitHub Releases";
                 switch (Kind)
                 {
-                    case "mod": return "模组 · Modrinth";
+                    case "mod": return "模组 · " + SourceLabel;
                     case "shader": return "光影包 · Modrinth";
                     case "resourcepack": return "资源包 · Modrinth";
                     case "modpack": return "整合包 · Modrinth";
@@ -277,6 +287,14 @@ namespace BlockCraftLauncher.Wpf.Services
                     .ToLowerInvariant();
         }
 
+        ModrinthDependencyPlanner CreateModPlanner() =>
+            new ModrinthDependencyPlanner((uri, token) => network.GetStringWithFallbackAsync(
+                uri, settings.McimEnabled ? settings.NetworkMode : "official", token));
+
+        internal Task<IReadOnlyList<ModDownloadFile>> ListModFilesAsync(ResourceHit hit,
+            GameProfile profile, CancellationToken ct) =>
+            CreateModPlanner().ListFilesAsync(hit.ProjectId, profile.BaseVersion, profile.Loader, ct);
+
         /// <summary>
         /// Download root mod and every transitive *required* Modrinth
         /// dependency in a bounded plan. Stage all files before publishing,
@@ -285,7 +303,7 @@ namespace BlockCraftLauncher.Wpf.Services
         /// </summary>
         public async Task<string> DownloadModWithDependenciesAsync(ResourceHit hit,
             GameProfile profile, CancellationToken ct, IProgress<DownloadBytes> progress = null,
-            IProgress<string> stage = null)
+            IProgress<string> stage = null, string versionId = null)
         {
             if (hit == null || hit.Kind != "mod" || profile == null)
                 throw new ArgumentException("请先选择模组和有效游戏实例");
@@ -300,10 +318,8 @@ namespace BlockCraftLauncher.Wpf.Services
             try
             {
                 stage?.Report("正在检查必需依赖、循环引用及版本兼容性...");
-                var planner = new ModrinthDependencyPlanner(
-                    (uri, token) => network.GetStringWithFallbackAsync(uri, settings.McimEnabled ? settings.NetworkMode : "official", token));
-                var plan = await planner.PlanAsync(hit.ProjectId,
-                    profile.BaseVersion, profile.Loader, ct);
+                var plan = await CreateModPlanner().PlanAsync(hit.ProjectId,
+                    profile.BaseVersion, profile.Loader, ct, versionId);
                 if (plan.Count == 0)
                     throw new InvalidDataException("Modrinth 未返回可安装的资源");
                 // All metadata must pass validation BEFORE the first download.
