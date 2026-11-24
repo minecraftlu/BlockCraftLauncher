@@ -77,8 +77,8 @@ namespace BlockCraftLauncher.Wpf
                 Margin = new Thickness(28, 49, 0, 0), HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Top };
             grid.Children.Add(name);
-            var status = new TextBlock { Text = "正在准备启动器…", FontFamily = new FontFamily("Microsoft YaHei UI"),
-                FontSize = 13, Foreground = muted, Margin = new Thickness(30, 95, 0, 0),
+            var status = new TextBlock { Text = "正在打开启动器…", FontFamily = new FontFamily("Microsoft YaHei UI, Segoe UI"),
+                FontSize = 14, Foreground = muted, Margin = new Thickness(30, 95, 0, 0),
                 VerticalAlignment = VerticalAlignment.Top, HorizontalAlignment = HorizontalAlignment.Left };
             AutomationProperties.SetLiveSetting(status, AutomationLiveSetting.Polite);
             grid.Children.Add(status);

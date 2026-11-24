@@ -177,7 +177,11 @@ namespace BlockCraftLauncher.Wpf.Services
             throw new IOException("整合包文件下载失败：" + file.Path + "。" + last?.Message, last);
         }
 
-        public async Task<GameProfile> InstallAsync(string archivePath, IProgress<string> progress, CancellationToken ct)
+        public Task<GameProfile> InstallAsync(string archivePath, IProgress<string> progress, CancellationToken ct) =>
+            InstallAsync(archivePath, progress, ct, null);
+
+        internal async Task<GameProfile> InstallAsync(string archivePath, IProgress<string> progress, CancellationToken ct,
+            Action<GameProfile> register)
         {
             if (new FileInfo(archivePath).Length > MaxArchive) throw new InvalidDataException("整合包压缩文件过大");
             Parsed parsed;
@@ -242,6 +246,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 game.Name = string.IsNullOrWhiteSpace(info.Name) ? "Modrinth 整合包" : info.Name.Trim();
                 game.Directory = instance;
                 progress?.Report("整合包安装完成：" + game.Name);
+                register?.Invoke(game);
                 return game;
             }
             catch

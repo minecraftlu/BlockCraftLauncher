@@ -57,7 +57,7 @@ namespace BlockCraftLauncher.Wpf
         bool resourceHasMore;
         ComboBox modTarget;
         TextBlock modSourceStatus;
-        ContentControl modPageHeading, modDetailsHost;
+        ContentControl modDetailsHost;
         WrapPanel officialSourceActions;
         Button checkOfficialService, browseOfficialMods;
         bool modFiltersExpanded;
@@ -83,22 +83,12 @@ namespace BlockCraftLauncher.Wpf
         bool CanSearchResources() => SelectedModSource != ModSource.CurseForge ||
             (officialServiceCancellation == null && CurseForgeMirrorClient.HasOfficialAccess);
 
-        void SetModWorkspaceRoute(string page)
+        void SelectOfficialModSource()
         {
-            if (currentPage == page) return;
-            if (sidebarButtons.TryGetValue(currentPage, out var previous))
-            {
-                previous.SetResourceReference(StyleProperty, "SidebarItem");
-                AutomationProperties.SetItemStatus(previous, "");
-            }
-            currentPage = page;
-            if (sidebarButtons.TryGetValue(page, out var active))
-            {
-                active.SetResourceReference(StyleProperty, "SidebarItemActive");
-                AutomationProperties.SetItemStatus(active, "当前页面");
-            }
-            modPageHeading.Content = PageHeading(page == "CurseForge 官方" ? page : "模组下载", null);
-            RefreshPageActivity();
+            if (SelectedModSource != ModSource.CurseForge)
+                resourceSource.SelectedIndex = (int)ModSource.CurseForge;
+            else
+                _ = CheckOfficialServiceAsync();
         }
 
         void OpenOfficialModCatalog()
@@ -111,13 +101,12 @@ namespace BlockCraftLauncher.Wpf
             catch (Exception error) { ShowError("无法打开 CurseForge 官方网站", error); }
         }
 
-        UIElement BuildModDownloadPage(string title, WrapPanel actions)
+        UIElement BuildModDownloadPage(string title, Button resetFilters)
         {
             var sources = settings.McimEnabled
                 ? new[] { ModSource.Modrinth, ModSource.CurseForge, ModSource.GitHub, ModSource.Mcim }
                 : new[] { ModSource.Modrinth, ModSource.CurseForge, ModSource.GitHub };
-            var source = currentPage == "CurseForge 官方" ? ModSource.CurseForge :
-                preferredModSource ?? (CurseForgeMirrorClient.HasOfficialAccess ? ModSource.CurseForge : ModSource.Modrinth);
+            var source = preferredModSource ?? (CurseForgeMirrorClient.HasOfficialAccess ? ModSource.CurseForge : ModSource.Modrinth);
             resourceSource = new ComboBox
             {
                 ItemsSource = sources.Select(ModSourceName).ToArray(),
@@ -134,17 +123,15 @@ namespace BlockCraftLauncher.Wpf
                 ItemsSource = settings.Profiles,
                 SelectedItem = activeProfile ?? settings.Profiles.FirstOrDefault()
             };
-            ApplySearchInputStyle(resourceSource, "选择下载源");
-            ApplySearchInputStyle(resourceCategory, "筛选模组分类");
-            ApplySearchInputStyle(resourceLoader, "选择模组加载器");
-            ApplySearchInputStyle(modTarget, "选择要安装模组的实例");
-            modPageHeading = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                Content = PageHeading(currentPage == "CurseForge 官方" ? currentPage : title, null) };
+            ApplySearchInputStyle(resourceSource, "选择搜索模组的网站");
+            ApplySearchInputStyle(resourceCategory, "按模组分类筛选");
+            ApplySearchInputStyle(resourceLoader, "按模组加载器筛选");
+            ApplySearchInputStyle(modTarget, "选择安装模组的游戏实例");
             modSourceStatus = Txt("", 12, false, true);
             checkOfficialService = Btn("重新检测官方服务", async () => await CheckOfficialServiceAsync(refresh: true));
             browseOfficialMods = Btn("在官网浏览模组", OpenOfficialModCatalog);
             var downloadClient = Btn("下载 CurseForge 客户端", DownloadOfficialCurseForgeInstaller);
-            downloadClient.ToolTip = "选择保存位置，下载 CurseForge 官方 Windows 独立客户端安装程序。";
+            downloadClient.ToolTip = "保存 CurseForge 官方 Windows 安装包";
             officialSourceActions = Row(downloadClient, checkOfficialService, browseOfficialMods);
 
             modDetailsHost = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch };
@@ -167,7 +154,6 @@ namespace BlockCraftLauncher.Wpf
             var details = Btn("查看文件", Open);
             WireResultActions(resourceList, Open, details);
 
-            actions.Children.Remove(resourceSearchButton);
             var searchBar = new DockPanel { LastChildFill = true };
             resourceSearchButton.MinWidth = 84;
             resourceSearchButton.Margin = new Thickness(8, 0, 0, 0);
@@ -188,31 +174,29 @@ namespace BlockCraftLauncher.Wpf
 
             var filters = new Expander
             {
-                Header = "版本、加载器与分类",
+                Header = "筛选条件",
                 IsExpanded = modFiltersExpanded,
                 Margin = new Thickness(0, 8, 0, 0),
                 Content = Col(SearchFields(("游戏版本", resourceVersion), ("加载器", resourceLoader),
-                    ("分类", resourceCategory), ("排序", resourceSort)), Row(resourceMatchVersion), actions)
+                    ("分类", resourceCategory), ("排序", resourceSort)), Row(resourceMatchVersion, resetFilters))
             };
             filters.SetResourceReference(Control.ForegroundProperty, "TextBrush");
             filters.Expanded += (sender, args) => modFiltersExpanded = true;
             filters.Collapsed += (sender, args) => modFiltersExpanded = false;
             var search = SearchCard(Col(searchBar,
-                SearchFields(("下载源", resourceSource), ("安装到实例", modTarget)),
+                SearchFields(("来源", resourceSource), ("目标实例", modTarget)),
                 modSourceStatus, officialSourceActions, filters));
             var results = ProjectResults(resourceCounter, resourceList, Row(details),
                 resourcePrevButton, resourceNextButton);
             var content = PageColumns(results, modDetailsHost, 292);
             RefreshModSource();
             RefreshModDetails();
-            return Col(modPageHeading, search, content);
+            return Col(PageHeading(title, null), search, content);
         }
 
         void RefreshModSource()
         {
             var source = SelectedModSource;
-            if (currentPage == "CurseForge 官方" && source != ModSource.CurseForge)
-                SetModWorkspaceRoute("资源中心");
             preferredModSource = source;
             CancelAndDetach(ref officialServiceCancellation);
             CancelAndDetach(ref modCategoryCancellation);
@@ -248,21 +232,17 @@ namespace BlockCraftLauncher.Wpf
             checkOfficialService.IsEnabled = !checking;
             string hint;
             if (checking)
-                hint = "正在检查启动器发布的 CurseForge 官方服务配置…";
+                hint = "正在连接 CurseForge 官方服务…";
             else if (official && !available)
-                hint = "当前无法取得 CurseForge 官方模组服务，稍后可重新检测。仍可下载官方客户端或浏览官网。";
-            else if (official)
-                hint = "模组来自 CurseForge 官方 API。选择项目后可查看兼容文件，在此安装作者允许分发的版本。";
-            else if (source == ModSource.Mcim)
-                hint = "当前使用 MCIM 镜像获取 CurseForge 模组。";
+                hint = "暂时无法连接 CurseForge。请重新检测，或在官网查看模组。";
             else if (source == ModSource.GitHub)
-                hint = "GitHub 按关键词搜索。安装时核对目标实例和 Releases 文件。";
+                hint = "按名称搜索仓库，安装时匹配兼容的 Release 文件。";
             else hint = "";
             if (available && modTarget.Items.Count == 0)
-                hint += (hint.Length == 0 ? "" : " ") + "安装模组前，请先创建带模组加载器的游戏实例。";
+                hint += (hint.Length == 0 ? "" : " ") + "请先创建游戏实例，再安装模组。";
             modSourceStatus.Text = hint;
             modSourceStatus.Visibility = hint.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-            if (!available) resourceCounter.Text = checking ? "正在检测官方模组服务…" : "官方模组服务暂不可用。";
+            if (!available) resourceCounter.Text = "暂无搜索结果";
         }
 
         async Task CheckOfficialServiceAsync(bool refresh = false)
@@ -296,7 +276,7 @@ namespace BlockCraftLauncher.Wpf
             UpdateResourcePaging();
             if (!CanSearchResources()) return;
             if (resourceResults.Count == 0 && resourceSearchCancellation == null)
-                resourceCounter.Text = "输入关键词或直接搜索。";
+                resourceCounter.Text = "留空搜索可浏览推荐项目。";
             if (modCategoryCancellation == null && !modCategories.ContainsKey(ModSource.CurseForge))
                 _ = LoadModCategoriesAsync(ModSource.CurseForge);
         }
@@ -336,7 +316,7 @@ namespace BlockCraftLauncher.Wpf
                 catch (Exception ex)
                 {
                     if (ReferenceEquals(modCategoryCancellation, request))
-                        resourceCategory.ToolTip = "分类加载失败：" + ex.Message + "。切换下载源后可重试。";
+                        resourceCategory.ToolTip = "分类加载失败：" + ex.Message + "。切换来源可重试。";
                 }
                 finally
                 {
@@ -352,7 +332,7 @@ namespace BlockCraftLauncher.Wpf
             resourceHasMore = false;
             resourceSearchFilters = null;
             resourceResults.Clear();
-            resourceCounter.Text = "输入关键词或直接搜索。";
+            resourceCounter.Text = CanSearchResources() ? "留空搜索可浏览推荐项目。" : "暂无搜索结果";
             UpdateResourcePaging();
         }
 
@@ -472,8 +452,8 @@ namespace BlockCraftLauncher.Wpf
             var hit = resourceList.SelectedItem as ResourceHit;
             if (hit == null)
             {
-                modDetailsHost.Content = Card(Col(Txt("项目文件", 16, true),
-                    Txt("从搜索结果选择一个模组，查看兼容版本与依赖。", 13, false, true)));
+                modDetailsHost.Content = Card(Col(Txt("模组文件", 16, true),
+                    Txt("选择模组，查看可安装的版本和前置。", 13, false, true)));
                 return;
             }
 
@@ -518,7 +498,8 @@ namespace BlockCraftLauncher.Wpf
                 if (curseForge.Screenshots.Count > 0) details.Children.Add(ModGallery(curseForge));
                 if (!curseForge.DistributionAllowed)
                 {
-                    details.Children.Add(Txt("作者限制第三方分发，当前文件无法在启动器内安装。", 12, false, true));
+                    details.Children.Add(Txt(curseForge.OfficialUrl == null ? "作者已关闭第三方分发。" :
+                        "作者已关闭第三方分发，请前往项目主页下载。", 12, false, true));
                     return;
                 }
             }
@@ -527,7 +508,7 @@ namespace BlockCraftLauncher.Wpf
                 !string.IsNullOrWhiteSpace(profile.BaseVersion) && !string.IsNullOrWhiteSpace(profile.Directory);
             if (!canInstall)
             {
-                details.Children.Add(Txt("安装需选择带模组加载器的实例。", 12, false, true));
+                details.Children.Add(Txt("请选择已安装模组加载器的实例。", 12, false, true));
                 if (hit is CurseForgeHit) BuildModFileChooser(details, hit, null);
                 return;
             }
@@ -577,7 +558,7 @@ namespace BlockCraftLauncher.Wpf
             };
             ScrollViewer.SetHorizontalScrollBarVisibility(picker, ScrollBarVisibility.Disabled);
             AutomationProperties.SetName(picker, "兼容的模组文件");
-            var status = Txt("兼容文件版本", 12, false, true);
+            var status = Txt("可用版本", 12, false, true);
             var loadingFiles = new ProgressBar { Height = 3, Visibility = Visibility.Collapsed };
             AutomationProperties.SetName(loadingFiles, "正在读取模组文件");
             var dependencyStatus = Txt("", 12, false, true);
@@ -622,8 +603,8 @@ namespace BlockCraftLauncher.Wpf
                 if (install != null) install.IsEnabled = file != null;
                 if (save != null) save.IsEnabled = file != null;
                 dependencyStatus.Text = file == null || profile == null ? file?.FileName ?? "" : file.FileName + " · " +
-                    (file.RequiredDependencies == 0 ? "必需前置 0 项" :
-                        "自动安装 " + file.RequiredDependencies + " 项直接前置及其必需依赖");
+                    (file.RequiredDependencies == 0 ? "无需前置" :
+                        "含 " + file.RequiredDependencies + " 项必需前置，将一并安装");
                 dependencyStatus.Visibility = file == null ? Visibility.Collapsed : Visibility.Visible;
                 if (IsLoaded && hit.Source == "CurseForge" &&
                     file is CurseForgeDownloadFile detailsFile && detailsFile.RequiredProjects.Count > 0)
@@ -666,8 +647,8 @@ namespace BlockCraftLauncher.Wpf
                             if (loadedIds.Add(row.VersionId)) files.Add(row);
                         page++;
                         if (picker.SelectedIndex < 0 && files.Count > 0) picker.SelectedIndex = 0;
-                        status.Text = files.Count > 0 ? "兼容文件 · 已载入 " + files.Count + " 个" :
-                            hasMore ? "本页没有兼容文件，可继续加载。" : "当前 Minecraft 版本和加载器没有兼容文件。";
+                        status.Text = files.Count > 0 ? "兼容文件（" + files.Count + "）" :
+                            hasMore ? "本页没有兼容文件，可继续加载。" : "未找到与当前游戏版本和加载器兼容的文件。";
                         more.Visibility = hasMore ? Visibility.Visible : Visibility.Collapsed;
                         more.Content = "更多版本";
                     }
@@ -740,8 +721,8 @@ namespace BlockCraftLauncher.Wpf
 
             var required = file.RequiredProjects.Select(id => curseForgeDependencyNames.TryGetValue(id, out string name)
                 ? name : "项目 #" + id);
-            status.Text = file.FileName + "\n必需前置 · " + string.Join("、", required) +
-                (install ? "\n安装时会同时处理这些前置。" : "");
+            status.Text = file.FileName + "\n" + (install ? "将一并安装：" : "必需前置：") +
+                string.Join("、", required);
         }
 
         void QueueCurseForgeSave(CurseForgeHit hit, ModDownloadFile file)

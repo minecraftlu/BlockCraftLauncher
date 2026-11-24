@@ -56,11 +56,11 @@ assert "onlineAutoLoaded" not in studio, "online catalogs must not auto-connect 
 
 assert "OnlineSkinSearchService.RunOfflineSelfTest()" in app
 assert "dpplugins.com" in docs and "Mojang" in docs
-# Online skin search is a distinct Download navigation page, while DIY remains in More.
+# Skin discovery and saved skins share one sidebar entry; the editor remains separate.
 main = (SRC / "MainWindow.xaml.cs").read_text("utf8")
 downloads_nav = main.split("case NavigationSection.Download:", 1)[1].split("break;", 1)[0]
 more_nav = main.split("case NavigationSection.More:", 1)[1].split("break;", 1)[0]
-assert '"皮肤下载"' in downloads_nav and '"皮肤 DIY"' not in downloads_nav
+assert '"皮肤下载"' in downloads_nav and '"皮肤库"' not in downloads_nav and '"皮肤 DIY"' not in downloads_nav
 assert '"皮肤 DIY"' in more_nav and '"皮肤下载"' not in more_nav
 assert 'case "皮肤下载":' in main and 'case "皮肤 DIY":' in main
 assert "GetSkinStudio().ShowDownloadPage(true)" in main

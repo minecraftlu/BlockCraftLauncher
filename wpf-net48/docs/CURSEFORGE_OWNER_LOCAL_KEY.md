@@ -2,12 +2,14 @@
 
 ## 下载官方 Windows 客户端
 
-打开「下载 → CurseForge 官方」，点击「下载 CurseForge 客户端」，选择保存位置。你可以在「下载任务」查看进度、取消或重试。启动器从 Overwolf 官方地址下载独立安装程序，使用 Windows 验证数字签名及发行者 Overwolf Ltd，成功后将安装程序保存为 EXE。需要安装时，手动运行保存的文件。这项功能无需 CurseForge API 密钥。
+在 v0.9.57 中打开「下载 → 模组」，把「来源」切换为「CurseForge 官方」。点击「下载 CurseForge 客户端」，选择保存位置。你可以在「下载任务」查看进度、取消或重试。启动器从 Overwolf 官方地址下载独立安装程序，使用 Windows 验证数字签名及发行者 Overwolf Ltd，成功后将安装程序保存为 EXE。需要安装时，手动运行保存的文件。这项功能无需 CurseForge API 密钥。
 
 ## 直接安装 Minecraft Java 模组
 
-1. 打开「下载 → CurseForge 官方」，选择目标游戏实例，例如已安装 Fabric、Forge、NeoForge 或 Quilt 的版本。
-2. 输入项目名称并搜索。可用版本、加载器和分类缩小结果范围。
+BlockCraft 的公共 CurseForge 服务已启用，玩家可以直接搜索和安装模组，无需填写个人密钥。
+
+1. 打开「下载 → 模组」，在「来源」选「CurseForge 官方」，在「目标实例」选择已安装 Fabric、Forge、NeoForge 或 Quilt 的游戏版本。
+2. 输入项目名称并搜索。展开「筛选条件」可按游戏版本、加载器和分类缩小结果范围。
 3. 选中项目后查看兼容文件。点击「更多版本」可查找较早的发布。选中文件时，页面会列出必需前置。
 4. 点击「安装所选版本」。下载任务会先处理必需依赖，再将校验通过的 JAR 放入目标实例的 `mods` 目录。仅需取得文件时可选择「另存为 JAR」。
 
@@ -23,7 +25,7 @@
 {"serviceUrl": ""}
 ```
 
-在启动器的官方模组页面点「重新检测官方服务」即可重新读取配置。登记服务前，页面会说明官方搜索和安装暂不可用，仍可下载官方客户端或浏览官网。登记表的固定地址为[公开服务地址配置](https://raw.githubusercontent.com/minecraftlu/BlockCraftLauncher/curseforge-service-config/service.json)。
+选择「CurseForge 官方」时启动器会检测公开配置。若暂时无法连接，可点「重新检测官方服务」，也可下载官方客户端或浏览官网。[公开服务地址配置](https://raw.githubusercontent.com/minecraftlu/BlockCraftLauncher/curseforge-service-config/service.json)
 
 自行构建时也可以通过 MSBuild 属性 `BlockCraftCurseForgeServiceUrl` 指定自己的公开 HTTPS 源地址。本机联调可设置环境变量 `BLOCKCRAFT_CURSEFORGE_SERVICE_URL` 并重新启动。服务地址可以公开，API 密钥仅保存在提供服务的主机上。
 

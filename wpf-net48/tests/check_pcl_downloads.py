@@ -17,7 +17,9 @@ mod_downloads=(base/'MainWindow.ModDownloads.cs').read_text('utf8')
 for symbol in ('SearchPageAsync', 'ListCompatibleFilesAsync', 'ListModFilesAsync',
                'QueueCurseForgeInstall', 'modDetailsHost', 'ModSource.CurseForge'):
     assert symbol in mod_downloads, symbol
-assert 'case "CurseForge 官方":' in main and '"CurseForge 官方"' in main.split('case NavigationSection.Download:', 1)[1].split('break;', 1)[0]
+downloads_nav = main.split('case NavigationSection.Download:', 1)[1].split('break;', 1)[0]
+assert '"资源中心"' in downloads_nav and '"CurseForge 官方"' not in downloads_nav
+assert 'page == "CurseForge 官方"' in main and 'SelectOfficialModSource()' in main
 download=(base/'Services/NetworkDownloader.cs').read_text('utf8')
 for symbol in ('RangeHeaderValue', 'ContentRange', 'SHA1.Create()', 'RetryAfterMs',
                'MaxConnectionsPerServer', 'MirrorMojangUri', 'HttpCompletionOption.ResponseHeadersRead',
