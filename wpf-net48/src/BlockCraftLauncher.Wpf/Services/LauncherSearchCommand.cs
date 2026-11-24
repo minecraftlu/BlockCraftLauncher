@@ -38,7 +38,10 @@ namespace BlockCraftLauncher.Wpf.Services
             { "钠", "Sodium" }, { "鈉", "Sodium" }, { "sodium", "Sodium" },
             { "锂", "Lithium" }, { "鋰", "Lithium" }, { "lithium", "Lithium" },
             { "虹膜", "Iris" }, { "iris", "Iris" }, { "jei", "JEI" },
-            { "玉", "Jade" }, { "jade", "Jade" }, { "铷", "Rubidium" }, { "銣", "Rubidium" }
+            { "玉", "Jade" }, { "jade", "Jade" }, { "铷", "Rubidium" }, { "銣", "Rubidium" },
+            { "Fabric API", "Fabric API" }, { "JourneyMap", "JourneyMap" }, { "旅行地图", "JourneyMap" },
+            { "AppleSkin", "AppleSkin" }, { "苹果皮", "AppleSkin" }, { "Sodium Extra", "Sodium Extra" },
+            { "Just Enough Items", "Just Enough Items" }
         };
         static readonly char[] Edge = " \t:：,，()（）[]【】「」『』“”\"。！!.".ToCharArray();
         static Match Match(string s, string pattern) { return Regex.Match(s, pattern, Options); }
@@ -145,7 +148,9 @@ namespace BlockCraftLauncher.Wpf.Services
                 if (Match(words, @"[<>/\\:|?*]|(?:实例|当前实例|安装到|装到|\binstance\b)").Success || words.Length > 100)
                     return Invalid(c, out command, "请核对模组名称和目标实例。");
                 if (words.Length == 0 && c.Install) return Invalid(c, out command, "请写出要安装的模组名称。");
-                bool byDescription = Match(words, @"(?:提高|提升|优化|改善|降低|减少|增加|添加|增强|支持|能让|可以让|用来|适合|用于|能显示|能看到|(?:improv|reduc|boost|optimi)\w*\s+)").Success;
+                // A purpose clause is an instruction to choose a project. Titles such as “渲染优化” stay exact searches.
+                bool byDescription = Match(qualifiedText, @"(?:一个|一款|个|款)\s*(?:可以|能够|能|用于|用来|适合|提高|提升|优化|改善|降低|减少|增加|添加|增强|支持)[^“”「」\""]{1,60}?的\s*" + ModMarker +
+                    @"|\bmod\s+(?:that\s+(?:can\s+)?|to\s+|for\s+)(?:improv|reduc|boost|optimi|show|display|add|help)\w*\b").Success;
                 c.Kind = !hasAlias && words.Length != 0 && (recommendation || byDescription)
                     ? LauncherSearchKind.ModRecommendation : LauncherSearchKind.Mod;
                 c.Query = hasAlias ? ModAliases[words] : words;

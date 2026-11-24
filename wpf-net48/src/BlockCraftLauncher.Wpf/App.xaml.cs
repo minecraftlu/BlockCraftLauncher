@@ -82,6 +82,8 @@ namespace BlockCraftLauncher.Wpf
                 string.Equals(arg, "--qwen-download-selftest", StringComparison.OrdinalIgnoreCase));
             bool qwenLiveDownload = e.Args.Any(arg =>
                 string.Equals(arg, "--qwen-download-live-check", StringComparison.OrdinalIgnoreCase));
+            bool qwenLiveGame = e.Args.Any(arg =>
+                string.Equals(arg, "--qwen-game-live-check", StringComparison.OrdinalIgnoreCase));
             bool skinSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--skin-selftest", StringComparison.OrdinalIgnoreCase));
             bool serverSearchSelfTest = e.Args.Any(arg =>
@@ -92,7 +94,7 @@ namespace BlockCraftLauncher.Wpf
                 string.Equals(arg, "--public-network-selftest", StringComparison.OrdinalIgnoreCase));
             smokeTest = publicNetworkSelfTest || authSelfTest || downloadSelfTest || dependencySelfTest ||
                 saveRestoreSelfTest || instanceDetectionSelfTest || modrinthSearchSelfTest ||
-                downloadPageSelfTest || layoutSelfTest || qwenSearchSelfTest || qwenDownloadSelfTest || qwenLiveDownload || skinSelfTest ||
+                downloadPageSelfTest || layoutSelfTest || qwenSearchSelfTest || qwenDownloadSelfTest || qwenLiveDownload || qwenLiveGame || skinSelfTest ||
                 serverSearchSelfTest ||
                 relaunchWindowSelfTest ||
                 e.Args.Any(arg =>
@@ -296,20 +298,26 @@ namespace BlockCraftLauncher.Wpf
                 try
                 {
                     if (ordinaryStartup && !VerifyStartupComponents()) return;
-                    var window = qwenLiveDownload ? BlockCraftLauncher.Wpf.MainWindow.CreateQwenLiveDownloadWindow() : new MainWindow();
-                    window.SuppressAutomaticUpdateCheck = qwenSearchSelfTest || qwenDownloadSelfTest || qwenLiveDownload || relaunchWindowSelfTest ||
+                    bool publicQwenCheck = qwenLiveDownload || qwenLiveGame;
+                    var window = publicQwenCheck ? BlockCraftLauncher.Wpf.MainWindow.CreateQwenLiveDownloadWindow() : new MainWindow();
+                    window.SuppressAutomaticUpdateCheck = qwenSearchSelfTest || qwenDownloadSelfTest || publicQwenCheck || relaunchWindowSelfTest ||
                         directPreview || updateHandoff || rollback;
                     if (updateHandoff) window.BeginUpdateHandoff();
                     if (window.Content == null)
                         throw new InvalidOperationException("WPF 主窗口没有初始化内容");
                     if (smokeTest && !relaunchWindowSelfTest)
                     {
-                        if (qwenSearchSelfTest || qwenDownloadSelfTest || qwenLiveDownload)
+                        if (qwenSearchSelfTest || qwenDownloadSelfTest || publicQwenCheck)
                         {
                             window.ShowActivated = false;
                             window.ShowInTaskbar = false;
                             string result, reportName;
-                            if (qwenLiveDownload)
+                            if (qwenLiveGame)
+                            {
+                                result = await window.VerifyLiveQwenGameAsync();
+                                reportName = "qwen-live-game-check.txt";
+                            }
+                            else if (qwenLiveDownload)
                             {
                                 result = await window.VerifyLiveQwenDownloadAsync();
                                 reportName = "qwen-live-download-check.txt";

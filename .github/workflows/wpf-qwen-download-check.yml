@@ -148,17 +148,22 @@ jobs:
           $dir = Join-Path $env:RUNNER_TEMP 'blockcraft-v0959-ui/live-command'
           $null = New-Item -ItemType Directory -Force -Path $dir
           $env:BLOCKCRAFT_UI_CAPTURE_DIR = $dir
-          $process = Start-Process -FilePath $app -ArgumentList '--qwen-download-live-check' -PassThru -WindowStyle Hidden
-          try {
-            if (!$process.WaitForExit(300000)) { $process.Kill($true); throw 'Public catalog test timed out' }
-            $process.Refresh()
-            if ($process.ExitCode -ne 0) {
-              $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
-              if (Test-Path $log) { Get-Content $log -Encoding utf8 -Tail 32 }
-              throw "Public catalog test failed ($($process.ExitCode))"
-            }
-            Get-Content -LiteralPath (Join-Path $dir 'qwen-live-download-check.txt') -Encoding utf8 -ErrorAction Stop
-          } finally { $process.Dispose() }
+          foreach ($check in @(
+            @{ flag = '--qwen-download-live-check'; timeout = 300000; report = 'qwen-live-download-check.txt' },
+            @{ flag = '--qwen-game-live-check'; timeout = 480000; report = 'qwen-live-game-check.txt' }
+          )) {
+            $process = Start-Process -FilePath $app -ArgumentList $check.flag -PassThru -WindowStyle Hidden
+            try {
+              if (!$process.WaitForExit($check.timeout)) { $process.Kill($true); throw "$($check.flag) timed out" }
+              $process.Refresh()
+              if ($process.ExitCode -ne 0) {
+                $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+                if (Test-Path $log) { Get-Content $log -Encoding utf8 -Tail 32 }
+                throw "$($check.flag) failed ($($process.ExitCode))"
+              }
+              Get-Content -LiteralPath (Join-Path $dir $check.report) -Encoding utf8 -ErrorAction Stop
+            } finally { $process.Dispose() }
+          }
       - name: Exercise and capture the WPF and OneFile interfaces
         shell: pwsh
         working-directory: wpf-net48

@@ -46,7 +46,7 @@ class Check {
         Case("给实例生存安装钠", M, true, "Sodium", "", "", "生存");
         Case("下载模组 JEI 到实例「Creative Pack」", M, true, "JEI", "", "", "Creative Pack");
         Case("search mods JEI for instance Creative Pack", M, false, "JEI", "", "", "Creative Pack");
-        Case("从 CurseForge 搜索模组 苹果皮", M, false, "苹果皮", "", "", "", "CurseForge");
+        Case("从 CurseForge 搜索模组 苹果皮", M, false, "AppleSkin", "", "", "", "CurseForge");
         Case("搜索模组 Sodium from Modrinth", M, false, "Sodium", "", "", "", "Modrinth");
         Case("安装 1.21.1 Fabric 模组 钠", M, true, "Sodium", "1.21.1", "Fabric");
         Case("搜索模组 Sodium for Fabric", M, false, "Sodium", "", "Fabric");
@@ -54,7 +54,13 @@ class Check {
         Case("搜索模组 Forge Config API Port", M, false, "Forge Config API Port");
         Case("搜索模组 Minecraft Comes Alive", M, false, "Minecraft Comes Alive");
         Case("安装模组 Sodium Extra", M, true, "Sodium Extra");
+        Case("安装 Fabric API", M, true, "Fabric API");
+        Case("下载 JourneyMap", M, true, "JourneyMap");
+        Case("安装 JEI", M, true, "JEI");
+        Case("下载模组 优化大师", M, true, "优化大师");
+        Case("安装模组「提升帧率」", M, true, "提升帧率");
         Case("让千问帮我找个提高帧率的模组", R, false, "提高帧率");
+        Case("帮我找个能显示血量的模组", R, false, "能显示血量");
         Case("帮我推荐一个提升帧率的模组然后安装", R, true, "提升帧率");
         Reject("怎么下载模组", true);
         Reject("搜索 Minecraft 版本失败怎么办", true);

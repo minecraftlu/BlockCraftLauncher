@@ -30,7 +30,7 @@ namespace BlockCraftLauncher.OneFile
                 "--download-selftest", "--modrinth-search-selftest", "--public-network-selftest",
                 "--modrinth-deps-selftest", "--saves-restore-selftest",
                 "--instance-detection-selftest", "--auth-selftest",
-                "--skin-selftest", "--qwen-search-selftest", "--qwen-download-selftest", "--qwen-download-live-check"
+                "--skin-selftest", "--qwen-search-selftest", "--qwen-download-selftest", "--qwen-download-live-check", "--qwen-game-live-check"
             }.Any(flag => string.Equals(flag, args[0], StringComparison.OrdinalIgnoreCase))) ||
                 (args.Length >= 3 && args.Length <= 4 &&
                  args[0] == "--after-update" &&
