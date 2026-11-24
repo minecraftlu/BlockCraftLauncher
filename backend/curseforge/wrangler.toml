@@ -1,0 +1,11 @@
+name = "blockcraft-curseforge"
+main = "worker.mjs"
+compatibility_date = "2025-09-01"
+
+[[ratelimits]]
+name = "CLIENT_RATE_LIMIT"
+namespace_id = "51874"
+
+[ratelimits.simple]
+limit = 180
+period = 60

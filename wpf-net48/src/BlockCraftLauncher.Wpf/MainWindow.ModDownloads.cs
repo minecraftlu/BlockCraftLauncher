@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -49,14 +50,18 @@ namespace BlockCraftLauncher.Wpf
         readonly Dictionary<ModSource, IReadOnlyList<CurseForgeCategory>> modCategories =
             new Dictionary<ModSource, IReadOnlyList<CurseForgeCategory>>();
         readonly Dictionary<long, string> curseForgeDependencyNames = new Dictionary<long, string>();
+        readonly Func<bool, CurseForgeMirrorClient> openCurseForgeClient;
+        readonly Func<CancellationToken, bool, Task<bool>> discoverOfficialAccess;
         (ModSource Source, string Query, string Version, string Loader, int Sort, int Category)? resourceSearchFilters;
         ModSource? preferredModSource;
         bool resourceHasMore;
         ComboBox modTarget;
         TextBlock modSourceStatus;
-        ContentControl modDetailsHost;
+        ContentControl modPageHeading, modDetailsHost;
+        WrapPanel officialSourceActions;
+        Button checkOfficialService, browseOfficialMods;
         bool modFiltersExpanded;
-        CancellationTokenSource modCategoryCancellation, modFileCancellation, modDependencyCancellation;
+        CancellationTokenSource modCategoryCancellation, modFileCancellation, modDependencyCancellation, officialServiceCancellation;
 
         ModSource SelectedModSource => resourceType == "mod" && resourceSource?.SelectedIndex >= 0
             ? (ModSource)resourceSource.SelectedIndex : ModSource.Modrinth;
@@ -76,15 +81,43 @@ namespace BlockCraftLauncher.Wpf
         }
 
         bool CanSearchResources() => SelectedModSource != ModSource.CurseForge ||
-            CurseForgeMirrorClient.HasLocalOfficialKey;
+            (officialServiceCancellation == null && CurseForgeMirrorClient.HasOfficialAccess);
+
+        void SetModWorkspaceRoute(string page)
+        {
+            if (currentPage == page) return;
+            if (sidebarButtons.TryGetValue(currentPage, out var previous))
+            {
+                previous.SetResourceReference(StyleProperty, "SidebarItem");
+                AutomationProperties.SetItemStatus(previous, "");
+            }
+            currentPage = page;
+            if (sidebarButtons.TryGetValue(page, out var active))
+            {
+                active.SetResourceReference(StyleProperty, "SidebarItemActive");
+                AutomationProperties.SetItemStatus(active, "当前页面");
+            }
+            modPageHeading.Content = PageHeading(page == "CurseForge 官方" ? page : "模组下载", null);
+            RefreshPageActivity();
+        }
+
+        void OpenOfficialModCatalog()
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo("https://www.curseforge.com/minecraft/mc-mods")
+                    { UseShellExecute = true });
+            }
+            catch (Exception error) { ShowError("无法打开 CurseForge 官方网站", error); }
+        }
 
         UIElement BuildModDownloadPage(string title, WrapPanel actions)
         {
             var sources = settings.McimEnabled
                 ? new[] { ModSource.Modrinth, ModSource.CurseForge, ModSource.GitHub, ModSource.Mcim }
                 : new[] { ModSource.Modrinth, ModSource.CurseForge, ModSource.GitHub };
-            var source = preferredModSource ?? (CurseForgeMirrorClient.HasLocalOfficialKey
-                ? ModSource.CurseForge : ModSource.Modrinth);
+            var source = currentPage == "CurseForge 官方" ? ModSource.CurseForge :
+                preferredModSource ?? (CurseForgeMirrorClient.HasOfficialAccess ? ModSource.CurseForge : ModSource.Modrinth);
             resourceSource = new ComboBox
             {
                 ItemsSource = sources.Select(ModSourceName).ToArray(),
@@ -105,7 +138,14 @@ namespace BlockCraftLauncher.Wpf
             ApplySearchInputStyle(resourceCategory, "筛选模组分类");
             ApplySearchInputStyle(resourceLoader, "选择模组加载器");
             ApplySearchInputStyle(modTarget, "选择要安装模组的实例");
+            modPageHeading = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Content = PageHeading(currentPage == "CurseForge 官方" ? currentPage : title, null) };
             modSourceStatus = Txt("", 12, false, true);
+            checkOfficialService = Btn("重新检测官方服务", async () => await CheckOfficialServiceAsync(refresh: true));
+            browseOfficialMods = Btn("在官网浏览模组", OpenOfficialModCatalog);
+            var downloadClient = Btn("下载 CurseForge 客户端", DownloadOfficialCurseForgeInstaller);
+            downloadClient.ToolTip = "选择保存位置，下载 CurseForge 官方 Windows 独立客户端安装程序。";
+            officialSourceActions = Row(downloadClient, checkOfficialService, browseOfficialMods);
 
             modDetailsHost = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch };
             resourceList.SelectionChanged += (sender, args) => RefreshModDetails();
@@ -159,19 +199,22 @@ namespace BlockCraftLauncher.Wpf
             filters.Collapsed += (sender, args) => modFiltersExpanded = false;
             var search = SearchCard(Col(searchBar,
                 SearchFields(("下载源", resourceSource), ("安装到实例", modTarget)),
-                modSourceStatus, filters));
+                modSourceStatus, officialSourceActions, filters));
             var results = ProjectResults(resourceCounter, resourceList, Row(details),
                 resourcePrevButton, resourceNextButton);
             var content = PageColumns(results, modDetailsHost, 292);
             RefreshModSource();
             RefreshModDetails();
-            return Col(PageHeading(title, null), search, content);
+            return Col(modPageHeading, search, content);
         }
 
         void RefreshModSource()
         {
             var source = SelectedModSource;
+            if (currentPage == "CurseForge 官方" && source != ModSource.CurseForge)
+                SetModWorkspaceRoute("资源中心");
             preferredModSource = source;
+            CancelAndDetach(ref officialServiceCancellation);
             CancelAndDetach(ref modCategoryCancellation);
             ResetResourceResults();
             if (IsCurseForgeSource(source))
@@ -187,14 +230,75 @@ namespace BlockCraftLauncher.Wpf
                 resourceCategory.SelectedIndex = 0;
             }
 
-            string hint = source == ModSource.GitHub
-                ? "GitHub 按关键词搜索。安装时核对目标实例和 Releases 文件。"
-                : !CanSearchResources()
-                    ? "请配置本机环境变量 BLOCKCRAFT_CURSEFORGE_API_KEY，然后重新打开启动器。"
-                    : modTarget.Items.Count == 0 ? "安装模组前，请先创建带模组加载器的游戏实例。" : "";
+            ShowModSourceStatus();
+            RefreshModFilters();
+            if (source == ModSource.CurseForge && !CurseForgeMirrorClient.HasOfficialAccess)
+                _ = CheckOfficialServiceAsync();
+        }
+
+        void ShowModSourceStatus()
+        {
+            var source = SelectedModSource;
+            bool official = source == ModSource.CurseForge;
+            bool checking = official && officialServiceCancellation != null;
+            bool available = CanSearchResources();
+            officialSourceActions.Visibility = official ? Visibility.Visible : Visibility.Collapsed;
+            checkOfficialService.Visibility = browseOfficialMods.Visibility =
+                official && !available ? Visibility.Visible : Visibility.Collapsed;
+            checkOfficialService.IsEnabled = !checking;
+            string hint;
+            if (checking)
+                hint = "正在检查启动器发布的 CurseForge 官方服务配置…";
+            else if (official && !available)
+                hint = "当前无法取得 CurseForge 官方模组服务，稍后可重新检测。仍可下载官方客户端或浏览官网。";
+            else if (official)
+                hint = "模组来自 CurseForge 官方 API。选择项目后可查看兼容文件，在此安装作者允许分发的版本。";
+            else if (source == ModSource.Mcim)
+                hint = "当前使用 MCIM 镜像获取 CurseForge 模组。";
+            else if (source == ModSource.GitHub)
+                hint = "GitHub 按关键词搜索。安装时核对目标实例和 Releases 文件。";
+            else hint = "";
+            if (available && modTarget.Items.Count == 0)
+                hint += (hint.Length == 0 ? "" : " ") + "安装模组前，请先创建带模组加载器的游戏实例。";
             modSourceStatus.Text = hint;
             modSourceStatus.Visibility = hint.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-            RefreshModFilters();
+            if (!available) resourceCounter.Text = checking ? "正在检测官方模组服务…" : "官方模组服务暂不可用。";
+        }
+
+        async Task CheckOfficialServiceAsync(bool refresh = false)
+        {
+            if (!IsLoaded || updateCancellation.IsCancellationRequested || SelectedModSource != ModSource.CurseForge ||
+                officialServiceCancellation != null) return;
+            if (CurseForgeMirrorClient.HasOfficialAccess && checkOfficialService.Visibility != Visibility.Visible) return;
+            if (!CurseForgeMirrorClient.HasOfficialAccess)
+            {
+                using (var request = new CancellationTokenSource())
+                {
+                    officialServiceCancellation = request;
+                    ShowModSourceStatus();
+                    UpdateResourcePaging();
+                    try { await discoverOfficialAccess(request.Token, refresh); }
+                    catch (OperationCanceledException) when (request.IsCancellationRequested) { return; }
+                    catch (Exception error)
+                    {
+                        if (!request.IsCancellationRequested)
+                            Log("官方模组服务检测失败：" + error.GetType().Name);
+                    }
+                    finally
+                    {
+                        if (ReferenceEquals(officialServiceCancellation, request)) officialServiceCancellation = null;
+                    }
+                    if (request.IsCancellationRequested || updateCancellation.IsCancellationRequested ||
+                        SelectedModSource != ModSource.CurseForge) return;
+                }
+            }
+            ShowModSourceStatus();
+            UpdateResourcePaging();
+            if (!CanSearchResources()) return;
+            if (resourceResults.Count == 0 && resourceSearchCancellation == null)
+                resourceCounter.Text = "输入关键词或直接搜索。";
+            if (modCategoryCancellation == null && !modCategories.ContainsKey(ModSource.CurseForge))
+                _ = LoadModCategoriesAsync(ModSource.CurseForge);
         }
 
         void RefreshModFilters()
@@ -221,7 +325,7 @@ namespace BlockCraftLauncher.Wpf
                 try
                 {
                     IReadOnlyList<CurseForgeCategory> categories;
-                    using (var client = new CurseForgeMirrorClient(settings, source == ModSource.Mcim))
+                    using (var client = openCurseForgeClient(source == ModSource.Mcim))
                         categories = await client.GetCategoriesAsync(request.Token);
                     if (request.IsCancellationRequested ||
                         !ReferenceEquals(modCategoryCancellation, request)) return;
@@ -300,7 +404,7 @@ namespace BlockCraftLauncher.Wpf
                     bool hasMore;
                     if (IsCurseForgeSource(source))
                     {
-                        using (var client = new CurseForgeMirrorClient(settings, source == ModSource.Mcim))
+                        using (var client = openCurseForgeClient(source == ModSource.Mcim))
                         {
                             var result = await client.SearchPageAsync(query, version, loader,
                                 sort, page, category, request.Token);
@@ -543,7 +647,7 @@ namespace BlockCraftLauncher.Wpf
                         bool hasMore = false;
                         if (curseForge != null)
                         {
-                            using (var client = new CurseForgeMirrorClient(settings, hit.Source == "MCIM"))
+                            using (var client = openCurseForgeClient(hit.Source == "MCIM"))
                             {
                                 var result = await client.ListCompatibleFilesAsync(
                                     curseForge.Id, filter, page, request.Token);
@@ -616,7 +720,7 @@ namespace BlockCraftLauncher.Wpf
                     modDependencyCancellation = request;
                     try
                     {
-                        using (var client = new CurseForgeMirrorClient(settings))
+                        using (var client = openCurseForgeClient(false))
                         {
                             var names = await client.GetDependencyNamesAsync(missing, request.Token);
                             if (!ReferenceEquals(modDependencyCancellation, request)) return;
@@ -661,7 +765,7 @@ namespace BlockCraftLauncher.Wpf
             downloads.Enqueue(hit.SourceLabel, file.FileName, async (token, stage, bytes) =>
             {
                 stage.Report("正在下载所选文件…");
-                using (var client = new CurseForgeMirrorClient(settings, mirror))
+                using (var client = openCurseForgeClient(mirror))
                     await client.SaveFileAsync(hit.Id, fileId, path, bytes, token);
                 stage.Report("已保存到 " + path);
                 Status("已保存：" + file.FileName);
@@ -677,7 +781,7 @@ namespace BlockCraftLauncher.Wpf
             bool mirror = hit.Source == "MCIM";
             downloads.Enqueue(hit.SourceLabel, hit.Name + " → " + profile.Name, async (token, stage, bytes) =>
             {
-                using (var client = new CurseForgeMirrorClient(settings, mirror))
+                using (var client = openCurseForgeClient(mirror))
                 {
                     var installed = await client.InstallAsync(hit.Id, profile, stage, token, fileId, bytes);
                     stage.Report(installed.Count == 0 ? "所选文件和必需前置已安装。" :

@@ -134,7 +134,10 @@ namespace BlockCraftLauncher.Wpf
         CancellationTokenSource currentOperation;
         bool loadingVersions;
 
-        public MainWindow()
+        public MainWindow() : this(null) { }
+
+        internal MainWindow(Func<bool, CurseForgeMirrorClient> curseForgeFactory,
+            Func<CancellationToken, bool, Task<bool>> discoverCurseForgeAccess = null)
         {
             InitializeComponent();
             downloads.JobsChanged += OnDownloadJobsChanged;
@@ -143,6 +146,9 @@ namespace BlockCraftLauncher.Wpf
             // reduce the initial bounds once so the close button remains usable.
             ConfigureFixedLauncherWindow();
             settings = store.Load();
+            openCurseForgeClient = curseForgeFactory ?? (mirror => new CurseForgeMirrorClient(settings, mirror));
+            discoverOfficialAccess = discoverCurseForgeAccess ?? ((token, refresh) =>
+                CurseForgeMirrorClient.DiscoverOfficialAccessAsync(settings, token, refresh));
             autoUpdater = new LauncherAutoUpdateService(settings);
             minecraft = new MinecraftBackend(settings);
             modLoaders = new ModLoaderInstaller(settings);
@@ -190,6 +196,8 @@ namespace BlockCraftLauncher.Wpf
             {
                 SystemParameters.StaticPropertyChanged += SystemAppearanceChanged;
                 gameProcessTimer.Start();
+                if ((currentPage == "CurseForge 官方" || currentPage == "资源中心") && SelectedModSource == ModSource.CurseForge)
+                    _ = CheckOfficialServiceAsync();
                 if (!SuppressAutomaticUpdateCheck)
                     await CheckLauncherUpdatesAsync(false);
             };
@@ -220,6 +228,7 @@ namespace BlockCraftLauncher.Wpf
                 updateCancellation.Cancel();
                 localModIconLoad?.Cancel();
                 CancelAndDetach(ref resourceSearchCancellation);
+                CancelAndDetach(ref officialServiceCancellation);
                 CancelAndDetach(ref modCategoryCancellation);
                 CancelAndDetach(ref modFileCancellation);
                 CancelAndDetach(ref modDependencyCancellation);
@@ -434,6 +443,7 @@ namespace BlockCraftLauncher.Wpf
                 case "下载管理": return "\uE896";
                 case "下载任务": return "\uE896";
                 case "资源中心":
+                case "CurseForge 官方":
                 case "模组下载":
                 case "模组与资源":
                 case "模组更新": return "\uE8B7";
@@ -478,6 +488,7 @@ namespace BlockCraftLauncher.Wpf
                 case "手动安装":
                 case "下载管理":
                 case "资源中心":
+                case "CurseForge 官方":
                 case "皮肤下载":
                 case "皮肤库":
                 case "光影引擎":
@@ -514,7 +525,7 @@ namespace BlockCraftLauncher.Wpf
                     break;
                 case NavigationSection.Download:
                     AddNavSection("Minecraft", "游戏版本", "手动安装");
-                    AddNavSection("游戏内容", "资源中心", "整合包", "资源包", "光影引擎");
+                    AddNavSection("游戏内容", "资源中心", "CurseForge 官方", "整合包", "资源包", "光影引擎");
                     AddNavSection("玩家外观", "皮肤下载", "皮肤库");
                     AddNavSection("任务", "下载管理");
                     break;
@@ -674,8 +685,25 @@ namespace BlockCraftLauncher.Wpf
 
         void Navigate(string page)
         {
+            if ((page == "CurseForge 官方" || page == "资源中心") &&
+                (currentPage == "CurseForge 官方" || currentPage == "资源中心") &&
+                modDetailsHost != null && DetailHost.Content == null)
+            {
+                // Both sidebar entries use the same workspace. Keep typed filters,
+                // the target instance and existing results when the source is unchanged.
+                SetModWorkspaceRoute(page);
+                if (page == "CurseForge 官方")
+                {
+                    if (SelectedModSource != ModSource.CurseForge)
+                        resourceSource.SelectedIndex = (int)ModSource.CurseForge;
+                    else _ = CheckOfficialServiceAsync();
+                }
+                PageScroll.ScrollToTop();
+                return;
+            }
             CancelAndDetach(ref localModIconLoad);
             CancelAndDetach(ref resourceSearchCancellation);
+            CancelAndDetach(ref officialServiceCancellation);
             CancelAndDetach(ref modCategoryCancellation);
             CancelAndDetach(ref modFileCancellation);
             CancelAndDetach(ref modDependencyCancellation);
@@ -713,7 +741,8 @@ namespace BlockCraftLauncher.Wpf
                 case "游戏版本": PageHost.Content = BuildVersions(); break;
                 case "手动安装": PageHost.Content = BuildManualInstallPage(); break;
                 case "下载管理": PageHost.Content = BuildDownloadCenter(); break;
-                case "资源中心": PageHost.Content = BuildResources("mod"); break;
+                case "资源中心":
+                case "CurseForge 官方": PageHost.Content = BuildResources("mod"); break;
                 case "光影引擎": PageHost.Content = BuildResources("shader"); break;
                 case "资源包": PageHost.Content = BuildResources("resourcepack"); break;
                 case "整合包": PageHost.Content = BuildModpacks(); break;
@@ -1803,13 +1832,17 @@ namespace BlockCraftLauncher.Wpf
             var unifiedPage = PageHost.Content;
             if (modDetailsHost.Content == null || DetailHost.Content != null ||
                 PageHost.Visibility != Visibility.Visible || resourceQuery.Text != "示例筛选" ||
-                !ReferenceEquals(modTarget.SelectedItem, sampleProfile) || sidebarButtons.ContainsKey("CurseForge"))
+                !ReferenceEquals(modTarget.SelectedItem, sampleProfile) || !sidebarButtons.ContainsKey("CurseForge 官方"))
                 throw new InvalidOperationException("模组详情或目标实例未显示在统一下载页。");
 
-            resourceSource.SelectedIndex = (int)ModSource.CurseForge;
-            if (resourceResults.Count != 0 || !ReferenceEquals(PageHost.Content, unifiedPage) ||
+            sidebarButtons["CurseForge 官方"].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            if (currentPage != "CurseForge 官方" || SelectedModSource != ModSource.CurseForge ||
+                officialSourceActions.Visibility != Visibility.Visible ||
+                resourceSearchButton.IsEnabled != CurseForgeMirrorClient.HasOfficialAccess ||
+                (browseOfficialMods.Visibility == Visibility.Visible) == CurseForgeMirrorClient.HasOfficialAccess ||
+                resourceResults.Count != 0 || !ReferenceEquals(PageHost.Content, unifiedPage) ||
                 resourceQuery.Text != "示例筛选" || !(resourceCategory.SelectedItem is CurseForgeCategory))
-                throw new InvalidOperationException("切换 CurseForge 时离开了模组下载页或丢失关键词。");
+                throw new InvalidOperationException("CurseForge 官方入口、服务提示或搜索条件未正确保留。");
 
             sampleProfile.Loader = "fabric";
             resourceResults.Add(new CurseForgeHit
@@ -1834,7 +1867,8 @@ namespace BlockCraftLauncher.Wpf
                 throw new InvalidOperationException("未选实例时应支持 CurseForge 文件另存为。");
             modTarget.SelectedItem = sampleProfile;
             resourceSource.SelectedIndex = (int)ModSource.GitHub;
-            if (resourceCategory.IsEnabled || resourceLoader.IsEnabled || resourceResults.Count > 0 ||
+            if (currentPage != "资源中心" || officialSourceActions.Visibility != Visibility.Collapsed ||
+                resourceCategory.IsEnabled || resourceLoader.IsEnabled || resourceResults.Count > 0 ||
                 !ReferenceEquals(PageHost.Content, unifiedPage))
                 throw new InvalidOperationException("GitHub 筛选状态与统一模组页面不匹配。");
             sampleProfile.Loader = "vanilla";
@@ -2009,6 +2043,7 @@ namespace BlockCraftLauncher.Wpf
             Navigate("首页");
             if (currentPage != "首页" || PageHost.Content == null)
                 throw new InvalidOperationException("导航返回首页失败");
+            await VerifyCurseForgeQueueAsync();
         }
 
         void VerifyAutomaticRestartControls()
