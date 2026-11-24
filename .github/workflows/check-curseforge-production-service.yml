@@ -1,0 +1,42 @@
+name: Check the production CurseForge service
+on:
+  push:
+    branches: [check/curseforge-production-service]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-service:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check public readiness and download an author-enabled JAR
+        env:
+          SERVICE_URL: https://blockcraft-curseforge.2089915044.workers.dev
+        run: |
+          node --input-type=module <<'JS'
+          import { smoke } from './backend/curseforge/smoke.mjs';
+          const origin = process.env.SERVICE_URL;
+          const fetchChecked = async (url, options) => {
+            let response;
+            try {
+              response = await fetch(url, options);
+            } catch (err) {
+              console.log('Network error', err.cause?.code || err.name);
+              throw err;
+            }
+            console.log(new URL(url).pathname, 'HTTP', response.status);
+            if (new URL(url).pathname === '/health') {
+              const health = await response.clone().json().catch(() => null);
+              console.log('Health configured:', health?.configured === true ? 'true' : health?.configured === false ? 'false' : 'unknown');
+            }
+            return response;
+          };
+          console.log('Verified file:', await smoke(origin, undefined, fetchChecked));
+          JS
