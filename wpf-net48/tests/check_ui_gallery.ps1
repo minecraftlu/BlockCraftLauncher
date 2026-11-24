@@ -13,7 +13,7 @@ if ($onefile.Count -ne 1) { throw 'Expected a single freshly built Windows OneFi
 $pages = @('home', 'versions', 'version-settings', 'installed-mods', 'saves', 'game-download',
     'manual-install', 'mods', 'curseforge', 'resource-packs', 'shaders', 'modpacks', 'skins', 'skin-library',
     'tasks', 'servers', 'server-search', 'lan', 'start-settings', 'download-settings', 'appearance',
-    'updates', 'about', 'logs', 'skin-editor', 'resource-detail')
+    'updates', 'about', 'qwen-search', 'logs', 'skin-editor', 'resource-detail')
 
 function Test-RenderedImage([string]$File, [int]$Width = 0, [int]$Height = 0) {
     $bitmap = [Drawing.Bitmap]::new($File)

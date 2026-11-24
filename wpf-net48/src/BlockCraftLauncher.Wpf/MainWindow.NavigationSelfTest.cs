@@ -122,6 +122,9 @@ namespace BlockCraftLauncher.Wpf
 
                     Navigate("首页");
                     Visit("首页", "home");
+                    Visit("千问 AI 搜索", "qwen-search", FixtureButton(PageHost, "千问 AI 搜索"));
+                    VerifyFixtureSidebar("千问 AI 搜索");
+                    Visit("首页", "home", TopLaunchButton);
                     ClickFixtureAction(FixtureButton(PageHost, "CurseForge 官方"));
                     Arrange();
                     if (currentPage != "资源中心" || SelectedModSource != ModSource.CurseForge)
@@ -283,6 +286,8 @@ namespace BlockCraftLauncher.Wpf
                         throw new InvalidOperationException("切换设置分类后丢失更新偏好或更新状态。");
                     settingsAutoDownload.IsChecked = oldAutoDownload;
                     Visit("关于", "about", TopMoreButton);
+                    Side("千问 AI 搜索", "qwen-search");
+                    VerifyFixtureSidebar("千问 AI 搜索");
                     Side("运行日志", "logs");
                     Side("皮肤 DIY", "skin-editor");
                     Visit("首页", "home", TopLaunchButton);

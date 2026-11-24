@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 $panels = @(
     @('light-home.png', '启动'), @('curseforge-selected-file.png', '模组 · CurseForge 官方'),
-    @('dark-server-search.png', '服务器 · 发现'), @('light-skin-library.png', '皮肤管理 · 我的皮肤')
+    @('qwen-search-result.png', '千问 AI 搜索 · 离线示例'), @('dark-qwen-search.png', '千问 AI 搜索 · 深色界面')
 )
 $tileWidth = 525
 $tileHeight = 315

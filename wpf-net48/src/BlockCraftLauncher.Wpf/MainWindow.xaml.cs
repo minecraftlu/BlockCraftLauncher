@@ -225,6 +225,7 @@ namespace BlockCraftLauncher.Wpf
             };
             Closed += (sender, args) =>
             {
+                CloseQwenSearchPage();
                 SystemParameters.StaticPropertyChanged -= SystemAppearanceChanged;
                 downloads.JobsChanged -= OnDownloadJobsChanged;
                 gameProcessTimer.Stop();
@@ -457,6 +458,7 @@ namespace BlockCraftLauncher.Wpf
                 case "设置": return "\uE713";
                 case "启动设置": return "\uE713";
                 case "启动器更新设置": return "\uE777";
+                case "千问 AI 搜索": return "\uE721";
                 case "关于": return "\uE946";
                 case "运行日志": return "\uE9F9";
                 default: return "\uE946";
@@ -538,7 +540,7 @@ namespace BlockCraftLauncher.Wpf
                     AddNavSection("设置", "设置", "个性化", "下载设置", "更新设置");
                     break;
                 case NavigationSection.More:
-                    AddNavSection("玩家工具", "皮肤 DIY");
+                    AddNavSection("玩家工具", "千问 AI 搜索", "皮肤 DIY");
                     AddNavSection("启动器", "运行日志", "关于");
                     break;
             }
@@ -686,6 +688,7 @@ namespace BlockCraftLauncher.Wpf
 
         void Navigate(string page)
         {
+            if (currentPage == QwenSearchPage && page != currentPage) CloseQwenSearchPage();
             bool selectOfficialSource = page == "CurseForge 官方";
             if (selectOfficialSource) page = "资源中心";
             if (page == "启动器更新") page = "更新设置";
@@ -761,6 +764,7 @@ namespace BlockCraftLauncher.Wpf
                 case "个性化":
                 case "更新设置":
                     PageHost.Content = BuildSettings(page); break;
+                case "千问 AI 搜索": PageHost.Content = BuildQwenSearchPage(); break;
                 case "运行日志": PageHost.Content = BuildLogs(); break;
                 case "关于": PageHost.Content = BuildAbout(); break;
                 default: throw new ArgumentOutOfRangeException(nameof(page));
@@ -1230,8 +1234,8 @@ namespace BlockCraftLauncher.Wpf
             }
             var library = Card(Col(Txt("游戏下载", 16, true), Shortcut("安装游戏", "游戏版本"),
                 Shortcut("CurseForge 官方", "CurseForge 官方"), Shortcut("下载整合包", "整合包")));
-            var tools = Card(Col(Txt("常用工具", 16, true), Shortcut("管理皮肤", "皮肤库"),
-                Shortcut("服务器", "多人联机"), Shortcut("启动设置", "设置")));
+            var tools = Card(Col(Txt("常用工具", 16, true), Shortcut("千问 AI 搜索", "千问 AI 搜索"),
+                Shortcut("管理皮肤", "皮肤库"), Shortcut("服务器", "多人联机"), Shortcut("启动设置", "设置")));
             RefreshGameProcessStatus();
             return Col(overview, homeUpdateCard, PageColumns(library, tools, 255));
         }

@@ -76,6 +76,8 @@ namespace BlockCraftLauncher.Wpf
                 string.Equals(arg, "--download-ui-selftest", StringComparison.OrdinalIgnoreCase));
             bool layoutSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--ui-layout-selftest", StringComparison.OrdinalIgnoreCase));
+            bool qwenSearchSelfTest = e.Args.Any(arg =>
+                string.Equals(arg, "--qwen-search-selftest", StringComparison.OrdinalIgnoreCase));
             bool skinSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--skin-selftest", StringComparison.OrdinalIgnoreCase));
             bool serverSearchSelfTest = e.Args.Any(arg =>
@@ -86,14 +88,12 @@ namespace BlockCraftLauncher.Wpf
                 string.Equals(arg, "--public-network-selftest", StringComparison.OrdinalIgnoreCase));
             smokeTest = publicNetworkSelfTest || authSelfTest || downloadSelfTest || dependencySelfTest ||
                 saveRestoreSelfTest || instanceDetectionSelfTest || modrinthSearchSelfTest ||
-                downloadPageSelfTest || layoutSelfTest || skinSelfTest ||
+                downloadPageSelfTest || layoutSelfTest || qwenSearchSelfTest || skinSelfTest ||
                 serverSearchSelfTest ||
                 relaunchWindowSelfTest ||
                 e.Args.Any(arg =>
                 string.Equals(arg, "--smoke-test", StringComparison.OrdinalIgnoreCase));
-            // The CI probe must never open a browser, download Minecraft,
-            // touch account tokens, or display a GUI message. Both ordinary
-            // startup and smoke test explicitly create the same MainWindow.
+            // Explicit shutdown lets the UI probes open and close launcher windows.
             if (smokeTest)
                 ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
@@ -293,12 +293,24 @@ namespace BlockCraftLauncher.Wpf
                 {
                     if (ordinaryStartup && !VerifyStartupComponents()) return;
                     var window = new MainWindow();
-                    window.SuppressAutomaticUpdateCheck = relaunchWindowSelfTest || directPreview || updateHandoff || rollback;
+                    window.SuppressAutomaticUpdateCheck = smokeTest || directPreview || updateHandoff || rollback;
                     if (updateHandoff) window.BeginUpdateHandoff();
                     if (window.Content == null)
                         throw new InvalidOperationException("WPF 主窗口没有初始化内容");
                     if (smokeTest && !relaunchWindowSelfTest)
                     {
+                        if (qwenSearchSelfTest)
+                        {
+                            window.ShowActivated = false;
+                            window.ShowInTaskbar = false;
+                            string result = await window.VerifyQwenSearchAsync();
+                            string capture = Environment.GetEnvironmentVariable("BLOCKCRAFT_UI_CAPTURE_DIR");
+                            if (!string.IsNullOrWhiteSpace(capture))
+                            {
+                                Directory.CreateDirectory(capture);
+                                File.WriteAllText(Path.Combine(capture, "qwen-check.txt"), result);
+                            }
+                        }
                         if (downloadPageSelfTest)
                         {
                             window.VerifyDownloadPageBindings();

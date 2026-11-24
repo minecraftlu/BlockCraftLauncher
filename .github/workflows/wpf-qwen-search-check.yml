@@ -1,0 +1,188 @@
+name: BlockCraft v0.9.58 Qwen search, interface and update checks
+
+on:
+  push:
+    branches:
+      - feature/v0958-qwen-search
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: blockcraft-v0958-qwen-search-checks
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test the CurseForge Worker and request limits
+        working-directory: backend/curseforge
+        run: node --test *.test.mjs
+
+  public-curseforge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify service discovery and a real public mod download
+        run: |
+          node --input-type=module <<'JS'
+          import { smoke } from './backend/curseforge/smoke.mjs';
+          const registry = 'https://raw.githubusercontent.com/minecraftlu/BlockCraftLauncher/curseforge-service-config/service.json';
+          const response = await fetch(registry, { redirect: 'error', signal: AbortSignal.timeout(15000) });
+          if (!response.ok) throw new Error('Service registry returned HTTP ' + response.status);
+          const { serviceUrl } = await response.json();
+          if (!serviceUrl) throw new Error('Public CurseForge service is not enabled in the player registry.');
+          console.log('Verified mod download:', await smoke(serviceUrl));
+          JS
+
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: microsoft/setup-msbuild@v2
+      - name: Static launcher regression checks
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($check in @('check_project.py', 'check_phase2.py',
+              'check_windows_packaging.py', 'check_v0926_features.py',
+              'check_onefile.py', 'check_pcl_downloads.py', 'check_download_bindings.py',
+              'check_auth_recovery.py', 'check_pcl_unified_ui.py', 'check_pcl_fixed_shell.py',
+              'check_skin_search.py', 'check_server_discovery.py', 'check_publisher_metadata.py')) {
+            python "tests/$check"
+            if ($LASTEXITCODE -ne 0) { throw "Static check failed: $check" }
+          }
+      - name: Build full WPF and Windows single EXE
+        shell: cmd
+        working-directory: wpf-net48
+        env:
+          BlockCraftCurseForgeServiceUrl: ${{ vars.BLOCKCRAFT_CURSEFORGE_SERVICE_URL }}
+        run: call build\build-windows.bat
+      - name: Offline lifecycle, UI, skin, auth and updater regressions
+        shell: pwsh
+        working-directory: wpf-net48
+        env:
+          BLOCKCRAFT_UI_CAPTURE_DIR: ${{ runner.temp }}/blockcraft-v0958-ui
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $wpf = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $one = @(Get-ChildItem 'dist' -Filter '*-WPF-OneFile-Windows-x64.exe')
+          if ($one.Count -ne 1) { throw 'Expected exactly one standalone EXE' }
+          foreach ($binary in @($wpf, $one[0].FullName)) {
+            foreach ($argument in @('--download-selftest', '--download-ui-selftest',
+                '--skin-selftest', '--auth-selftest', '--smoke-test')) {
+              $probe = Start-Process -FilePath $binary -ArgumentList $argument -PassThru -WindowStyle Hidden
+              if (-not $probe.WaitForExit(180000)) { $probe.Kill(); throw "Timed out: $argument" }
+              $probe.Refresh()
+              if ($probe.ExitCode -ne 0) {
+                $diagnostic = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+                if (Test-Path -LiteralPath $diagnostic) { Get-Content -LiteralPath $diagnostic -Tail 60 }
+                throw "$binary $argument failed with $($probe.ExitCode)"
+              }
+              Write-Host "PASS: $binary $argument"
+            }
+          }
+          $updater = (Resolve-Path 'updater/bin/Release/net48/BlockCraftLauncher.Updater.exe').Path
+          $probe = Start-Process -FilePath $updater -ArgumentList '--selftest' -PassThru -WindowStyle Hidden
+          if (-not $probe.WaitForExit(180000)) { $probe.Kill(); throw 'Updater regression timed out' }
+          $probe.Refresh()
+          if ($probe.ExitCode -ne 0) { throw "Updater selftest failed: $($probe.ExitCode)" }
+      - name: Verify native Qwen search with offline responses in both Windows builds
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          $wpf = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $one = @(Get-ChildItem 'dist' -Filter '*-WPF-OneFile-Windows-x64.exe')
+          if ($one.Count -ne 1) { throw 'Expected one standalone EXE' }
+          foreach ($entry in @(@('wpf', $wpf), @('onefile', $one[0].FullName))) {
+            $dir = Join-Path $env:RUNNER_TEMP ('blockcraft-v0958-ui/qwen-' + $entry[0])
+            $null = New-Item -ItemType Directory -Force -Path $dir
+            $env:BLOCKCRAFT_UI_CAPTURE_DIR = $dir
+            $process = Start-Process -FilePath $entry[1] -ArgumentList '--qwen-search-selftest' -PassThru -WindowStyle Hidden
+            try {
+              if (!$process.WaitForExit(180000)) { $process.Kill($true); throw 'Qwen search checks timed out' }
+              $process.Refresh()
+              if ($process.ExitCode -ne 0) {
+                $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+                if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Encoding utf8 -Tail 20 }
+                throw "Qwen search checks failed on $($entry[0]) ($($process.ExitCode))"
+              }
+              Get-Content -ErrorAction Stop -LiteralPath (Join-Path $dir 'qwen-check.txt') -Encoding utf8
+            } finally { $process.Dispose() }
+          }
+      - name: Exercise and capture the WPF and OneFile interfaces
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          $capture = Join-Path $env:RUNNER_TEMP 'blockcraft-v0958-ui'
+          ./tests/check_ui_gallery.ps1 -CaptureDirectory $capture
+          Copy-Item -ErrorAction Stop -LiteralPath (Join-Path $capture 'qwen-wpf/qwen-search-result.png') -Destination (Join-Path $capture 'wpf/qwen-search-result.png')
+          ./tests/export_ui_preview.ps1 -CaptureDirectory (Join-Path $capture 'wpf') -OutputFile (Join-Path (Resolve-Path 'dist') 'BlockCraftLauncher-v0.9.58-qwen.jpg')
+      - name: Test desktop OneFile update with real Windows executables
+        shell: pwsh
+        working-directory: wpf-net48
+        run: ./tests/check_desktop_update.ps1
+      - name: Test automatic desktop download without installation
+        shell: pwsh
+        working-directory: wpf-net48
+        run: ./tests/check_desktop_download.ps1
+      - name: Download the official standalone CurseForge installer and verify its Windows publisher
+        shell: pwsh
+        working-directory: wpf-net48
+        run: ./tests/check_curseforge_installer.ps1
+      - name: Upload verified preview builds
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlockCraftLauncher-v0.9.58-RC1-Windows-x64
+          path: |
+            wpf-net48/dist/*-WPF-OneFile-Windows-x64.exe
+            wpf-net48/dist/*-WPF-OneFile-Windows-x64.exe.sha256
+            wpf-net48/dist/*-WPF-net48-Alpha-Windows-x64.zip
+            wpf-net48/dist/BlockCraftLauncher-v0.9.58-qwen.jpg
+          retention-days: 14
+          if-no-files-found: error
+      - name: Upload UI evidence and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlockCraftLauncher-v0958-diagnostics
+          path: ${{ runner.temp }}/blockcraft-v0958-ui/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  visual-review:
+    needs: [windows, backend]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: BlockCraftLauncher-v0.9.58-RC1-Windows-x64
+          path: gallery
+      - name: Show the release preview from the offline UI fixtures
+        shell: bash
+        run: |
+          echo 'RELEASE_PREVIEW_START'
+          base64 -w 120 gallery/BlockCraftLauncher-v0.9.58-qwen.jpg
+          echo 'RELEASE_PREVIEW_END'
