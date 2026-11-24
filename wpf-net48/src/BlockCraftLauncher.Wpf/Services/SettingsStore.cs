@@ -16,7 +16,7 @@ namespace BlockCraftLauncher.Wpf.Services
         private readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = 64 * 1024 * 1024 };
         public SettingsStore(string filePath = null)
         {
-            FilePath = filePath ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BlockCraftLauncher", "settings.wpf-preview.json");
+            FilePath = filePath ?? LauncherSettingsFiles.DefaultPath;
         }
         static string S(IDictionary<string, object> d, string key, string fallback = "") => d.ContainsKey(key) && d[key] != null ? Convert.ToString(d[key]) : fallback;
         static int N(IDictionary<string, object> d, string key, int fallback)
@@ -25,7 +25,7 @@ namespace BlockCraftLauncher.Wpf.Services
         }
         public LauncherConfig Load()
         {
-            foreach (string path in new[] { FilePath, Path.ChangeExtension(FilePath, ".bak"), Path.Combine(Path.GetDirectoryName(FilePath), "settings.json"), Path.Combine(Path.GetDirectoryName(FilePath), "settings.bak") })
+            foreach (string path in LauncherSettingsFiles.ReadCandidates(FilePath))
             {
                 if (!File.Exists(path)) continue;
                 try
@@ -106,3 +106,4 @@ namespace BlockCraftLauncher.Wpf.Services
         }
     }
 }
+

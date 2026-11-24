@@ -22,6 +22,11 @@ namespace BlockCraftLauncher.Wpf
     {
         const int AtlasSize = SkinEditorDocument.Size;
         readonly Grid interaction = new Grid { Background = Brushes.Transparent };
+        readonly System.Windows.Shapes.Ellipse floor = new System.Windows.Shapes.Ellipse
+        {
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top,
+            IsHitTestVisible = false
+        };
         readonly Viewport3D viewport = new Viewport3D();
         readonly Model3DGroup parts = new Model3DGroup();
         readonly ModelVisual3D figure = new ModelVisual3D();
@@ -54,28 +59,25 @@ namespace BlockCraftLauncher.Wpf
             System.Windows.Automation.AutomationProperties.SetName(this, "皮肤 360° 预览");
             var surface = new Border {
                 Child = interaction,
-                CornerRadius = new CornerRadius(7),
+                CornerRadius = new CornerRadius(8),
                 BorderThickness = new Thickness(1),
                 ClipToBounds = true
             };
-            surface.SetResourceReference(Border.BackgroundProperty, "SearchSurfaceBrush");
-            surface.SetResourceReference(Border.BorderBrushProperty, "BorderBrushTheme");
+            surface.SetResourceReference(Border.BackgroundProperty, "PanelAltBrush");
+            surface.SetResourceReference(Border.BorderBrushProperty, "SoftDividerBrush");
+            IsKeyboardFocusWithinChanged += (sender, args) =>
+                surface.SetResourceReference(Border.BorderBrushProperty,
+                    IsKeyboardFocusWithin ? "AccentInkBrush" : "SoftDividerBrush");
             Content = surface;
-            // Subtle background gradients work in light and dark themes.
             interaction.Children.Add(new Border {
-                Background = new LinearGradientBrush(
-                    Color.FromArgb(30, 79, 145, 208),
-                    Color.FromArgb(6, 74, 109, 158), 90),
+                Background = new RadialGradientBrush(Color.FromArgb(40, 255, 255, 255), Colors.Transparent)
+                {
+                    Center = new Point(0.5, 0.35), GradientOrigin = new Point(0.5, 0.35), RadiusX = 0.7, RadiusY = 0.7
+                },
                 IsHitTestVisible = false
             });
-            var floor = new System.Windows.Shapes.Ellipse
-            {
-                Width = 136, Height = 23,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(0, 0, 0, 22), IsHitTestVisible = false
-            };
             floor.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "PreviewFloorBrush");
+            floor.OpacityMask = new RadialGradientBrush(Colors.Black, Colors.Transparent);
             interaction.Children.Add(floor);
             interaction.Children.Add(viewport);
             var lights = new Model3DGroup();
@@ -92,8 +94,8 @@ namespace BlockCraftLauncher.Wpf
             figure.Transform = transforms;
             viewport.Children.Add(figure);
             camera.UpDirection = new Vector3D(0, 1, 0);
-            camera.FieldOfView = 35;
             viewport.Camera = camera;
+            interaction.SizeChanged += (sender, args) => UpdateCamera();
             RenderOptions.SetBitmapScalingMode(viewport, BitmapScalingMode.NearestNeighbor);
             ResetView();
 
@@ -220,6 +222,17 @@ namespace BlockCraftLauncher.Wpf
         {
             camera.Position = new Point3D(0, 16.5, distance);
             camera.LookDirection = new Vector3D(0, -0.5, -distance);
+            double width = interaction.ActualWidth, height = interaction.ActualHeight;
+            if (width <= 0 || height <= 0) return;
+            // WPF uses a horizontal field of view. Hold the vertical framing
+            // and zoom steady when the inspector or expanded window changes width.
+            const double halfVerticalRadians = 20 * Math.PI / 180;
+            double verticalScale = Math.Tan(halfVerticalRadians);
+            camera.FieldOfView = 2 * Math.Atan(verticalScale * width / height) * 180 / Math.PI;
+            double pixelsPerUnit = height / (2 * distance * verticalScale);
+            floor.Width = 16 * pixelsPerUnit;
+            floor.Height = 3 * pixelsPerUnit;
+            floor.Margin = new Thickness(0, height / 2 + 16 * pixelsPerUnit - floor.Height / 2, 0, 0);
         }
 
         public void ResetView()

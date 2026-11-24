@@ -35,7 +35,8 @@ assert "<Image " not in server_template  # no untrusted remote catalogue icons
 
 # Search is a separate multiplayer subpage; favorites and LAN retain their
 # pre-existing pages and only a real user's button triggers lookups or joins.
-assert 'AddNavSection("Minecraft Java", "多人联机", "查找服务器", "局域网")' in main
+multiplayer_nav = main.split("case NavigationSection.Multiplayer:", 1)[1].split("break;", 1)[0]
+assert all(f'"{page}"' in multiplayer_nav for page in ("多人联机", "查找服务器", "局域网"))
 assert 'case "查找服务器": PageHost.Content = BuildServerFinder()' in main
 assert 'Btn("查找服务器", () => Navigate("查找服务器"))' in main
 for item in ("BuildServerFinder()", "SearchServersAsync(", "serverFinderResults",
@@ -56,3 +57,4 @@ assert 'PublicServerDirectoryService.RunOfflineSelfTest()' in app
 assert '"--server-search-selftest"' in app
 assert "mc-monitor.app" in privacy and "minecraftserver.id" in privacy
 print("PASS: public Minecraft Java server discovery, safe parsing and navigation wiring")
+

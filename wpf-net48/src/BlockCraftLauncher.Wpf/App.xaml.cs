@@ -13,6 +13,44 @@ namespace BlockCraftLauncher.Wpf
     public partial class App : Application
     {
         private bool smokeTest;
+        private StartupLoadingWindow startupView;
+        private EventWaitHandle bootstrapReady;
+
+        private void StartLoadingView()
+        {
+            var token = Environment.GetEnvironmentVariable(StartupLoadingWindow.ReadyVariable);
+            Environment.SetEnvironmentVariable(StartupLoadingWindow.ReadyVariable, null);
+            if (Guid.TryParseExact(token, "N", out var id) &&
+                LauncherAutoUpdateService.IsOneFileEnvironment(AppDomain.CurrentDomain.BaseDirectory,
+                    Environment.GetEnvironmentVariable("BLOCKCRAFT_SINGLEFILE_BOOTSTRAP")))
+            {
+                try
+                {
+                    if (EventWaitHandle.TryOpenExisting(StartupLoadingWindow.EventPrefix + id.ToString("N"), out bootstrapReady))
+                        return;
+                }
+                catch (UnauthorizedAccessException) { }
+            }
+            startupView = new StartupLoadingWindow();
+            startupView.Show();
+        }
+
+        private void FinishLoadingView()
+        {
+            var ready = bootstrapReady;
+            bootstrapReady = null;
+            if (ready != null)
+                using (ready) ready.Set();
+            var view = startupView;
+            startupView = null;
+            if (view?.IsVisible == true) view.Close();
+        }
+
+        protected override void OnExit(ExitEventArgs e)
+        {
+            FinishLoadingView();
+            base.OnExit(e);
+        }
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -67,29 +105,45 @@ namespace BlockCraftLauncher.Wpf
             bool updateHandoff = !smokeTest && postUpdateToken != null && !directPreview &&
                 e.Args.Contains(LauncherRelaunchSignal.HandoffFlag, StringComparer.OrdinalIgnoreCase);
 
-            try
+            bool ordinaryStartup = !smokeTest && e.Args.Length == 0;
+            bool VerifyStartupComponents()
             {
-                VerifyCoreAssemblies();
-            }
-            catch (Exception ex)
-            {
-                string log = WriteDiagnostic(ex);
-                if (!smokeTest && !updateHandoff)
+                try
                 {
-                    MessageBox.Show(
-                        "启动器依赖检查未通过：\n" + ex.GetBaseException().Message +
-                        "\n\n请将完整 ZIP 解压到一个全新文件夹，" +
-                        "然后从该文件夹启动 BlockCraftLauncher.Wpf.exe。" +
-                        "\n不要只复制 EXE，也不要与旧版 DLL 混用。" +
-                        "\n\n诊断日志：\n" + log,
-                        "BlockCraft Launcher · DLL 依赖错误",
-                        MessageBoxButton.OK, MessageBoxImage.Error);
+                    VerifyCoreAssemblies();
+                    return true;
                 }
-                Shutdown(21);
-                return;
+                catch (Exception ex)
+                {
+                    FinishLoadingView();
+                    string log = WriteDiagnostic(ex);
+                    if (!smokeTest && !updateHandoff)
+                    {
+                        MessageBox.Show(
+                            "启动器依赖检查未通过：\n" + ex.GetBaseException().Message +
+                            "\n\n请将完整 ZIP 解压到一个全新文件夹，" +
+                            "然后从该文件夹启动 BlockCraftLauncher.Wpf.exe。" +
+                            "\n不要只复制 EXE，也不要与旧版 DLL 混用。" +
+                            "\n\n诊断日志：\n" + log,
+                            "BlockCraft Launcher · DLL 依赖错误",
+                            MessageBoxButton.OK, MessageBoxImage.Error);
+                    }
+                    Shutdown(21);
+                    return false;
+                }
             }
 
             base.OnStartup(e);
+            var normalShutdownMode = ShutdownMode;
+            if (ordinaryStartup)
+            {
+                // The loading surface can be dismissed before the real window
+                // is ready without making it the application's last window.
+                ShutdownMode = ShutdownMode.OnExplicitShutdown;
+                try { StartLoadingView(); }
+                catch (Exception ex) { WriteDiagnostic(ex); FinishLoadingView(); }
+            }
+            else if (!VerifyStartupComponents()) return;
 
             if (publicNetworkSelfTest)
             {
@@ -237,6 +291,7 @@ namespace BlockCraftLauncher.Wpf
             {
                 try
                 {
+                    if (ordinaryStartup && !VerifyStartupComponents()) return;
                     var window = new MainWindow();
                     window.SuppressAutomaticUpdateCheck = relaunchWindowSelfTest || directPreview || updateHandoff || rollback;
                     if (updateHandoff) window.BeginUpdateHandoff();
@@ -250,12 +305,22 @@ namespace BlockCraftLauncher.Wpf
                             await window.VerifyDownloadTaskFilteringAsync();
                         }
                         if (layoutSelfTest)
+                        {
                             await window.VerifyPclLayoutAsync();
+                            window.VerifyRedesignedNavigation();
+                            StartupLoadingWindow.CaptureLayoutEvidence();
+                        }
                         Shutdown(0);
                     }
                     else
                     {
                         MainWindow = window;
+                        if (ordinaryStartup)
+                        {
+                            ShutdownMode = normalShutdownMode;
+                            window.ContentRendered += (sender, args) => FinishLoadingView();
+                            window.Closed += (sender, args) => FinishLoadingView();
+                        }
                         if (postUpdateToken != null)
                         {
                             bool acknowledged = false;
@@ -302,6 +367,7 @@ namespace BlockCraftLauncher.Wpf
                 }
                 catch (Exception ex)
                 {
+                    FinishLoadingView();
                     string log = WriteDiagnostic(ex);
                     if (!smokeTest && !updateHandoff)
                         MessageBox.Show("启动器窗口初始化失败：\n" + ex.GetBaseException().Message
@@ -342,6 +408,7 @@ namespace BlockCraftLauncher.Wpf
 
         private static void OnDispatcherException(object sender, DispatcherUnhandledExceptionEventArgs args)
         {
+            (Current as App)?.FinishLoadingView();
             string path = WriteDiagnostic(args.Exception);
             if (Current is App app && app.smokeTest)
             {
@@ -390,3 +457,4 @@ namespace BlockCraftLauncher.Wpf
         }
     }
 }
+

@@ -23,9 +23,10 @@ for item in ('catch (MicrosoftReauthenticationRequiredException)', 'MessageBoxBu
     assert item in ui, item
 
 assert 'gameProcesses.Track(profile, started)' in ui
-assert 'launchingProfiles.Contains(profile)' in ui
+assert 'launchStages.ContainsKey(profile)' in ui
 assert '--auth-selftest' in app and '--auth-selftest' in one
 assert 'AuthSanityChecks.Run()' in app
 assert 'Offline Microsoft refresh-token recovery tests' in workflow
 assert 'Microsoft recovery test from single EXE' in workflow
 print('PASS: Microsoft token recovery is opt-in and tested without credentials')
+
