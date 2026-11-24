@@ -1,16 +1,16 @@
-name: BlockCraft v0.9.53 desktop update checks
+name: BlockCraft v0.9.54 desktop update checks
 
 on:
   push:
     branches:
-      - feature/v0953-desktop-update
+      - feature/v0954-versioned-desktop
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: blockcraft-desktop-update-checks
+  group: blockcraft-versioned-desktop-checks
   cancel-in-progress: true
 
 jobs:
@@ -43,7 +43,7 @@ jobs:
         shell: pwsh
         working-directory: wpf-net48
         env:
-          BLOCKCRAFT_UI_CAPTURE_DIR: ${{ runner.temp }}/blockcraft-v0953-ui
+          BLOCKCRAFT_UI_CAPTURE_DIR: ${{ runner.temp }}/blockcraft-v0954-ui
         run: |
           $ErrorActionPreference = 'Stop'
           $wpf = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
@@ -72,10 +72,14 @@ jobs:
         shell: pwsh
         working-directory: wpf-net48
         run: ./tests/check_desktop_update.ps1
+      - name: Test automatic desktop download without installation
+        shell: pwsh
+        working-directory: wpf-net48
+        run: ./tests/check_desktop_download.ps1
       - name: Upload verified preview builds
         uses: actions/upload-artifact@v4
         with:
-          name: BlockCraftLauncher-v0.9.53-RC1-Windows-x64
+          name: BlockCraftLauncher-v0.9.54-RC1-Windows-x64
           path: |
             wpf-net48/dist/*-WPF-OneFile-Windows-x64.exe
             wpf-net48/dist/*-WPF-OneFile-Windows-x64.exe.sha256
@@ -86,7 +90,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BlockCraftLauncher-v0953-diagnostics
-          path: ${{ runner.temp }}/blockcraft-v0953-ui/
+          name: BlockCraftLauncher-v0954-diagnostics
+          path: ${{ runner.temp }}/blockcraft-v0954-ui/
           retention-days: 7
           if-no-files-found: ignore

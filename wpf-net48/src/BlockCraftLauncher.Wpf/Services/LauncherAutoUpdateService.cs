@@ -5,6 +5,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net.Http;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -38,6 +39,7 @@ namespace BlockCraftLauncher.Wpf.Services
     {
         public LauncherUpdateOffer Offer { get; internal set; }
         public string StagedPath { get; internal set; }
+        public string DesktopPath { get; internal set; }
         public string Sha256 { get; internal set; }
         public string TargetPath { get; internal set; }
         public string UpdatesRoot { get; internal set; }
@@ -50,7 +52,7 @@ namespace BlockCraftLauncher.Wpf.Services
     /// </summary>
     public sealed class LauncherAutoUpdateService
     {
-        internal const string CurrentTag = "v0.9.53-wpf-rc.1";
+        internal const string CurrentTag = "v0.9.54-wpf-rc.1";
         internal static string BuildChannelLabel => CurrentTag.Contains("-wpf-rc.") ? "预览版" : "正式版";
         internal const string ReleasesApi =
             "https://api.github.com/repos/minecraftlu/BlockCraftLauncher/releases?per_page=100";
@@ -295,7 +297,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 "/minecraftlu/BlockCraftLauncher/releases/tag/" + tag,
                 StringComparison.Ordinal);
 
-        static string ExpectedAsset(string tag, string mode)
+        internal static string ExpectedAsset(string tag, string mode)
         {
             string version = tag.Split('-')[0]; // v0.9.37-wpf-rc.5 -> v0.9.37
             if (mode == "onefile")
@@ -601,10 +603,13 @@ namespace BlockCraftLauncher.Wpf.Services
 
         public async Task<PreparedLauncherUpdate> PrepareAsync(
             LauncherUpdateOffer offer, CancellationToken ct,
-            IProgress<LauncherUpdateProgress> progress = null)
+            IProgress<LauncherUpdateProgress> progress = null, bool publishToDesktop = true)
         {
             if (offer == null || offer.Mode != InstallMode)
                 throw new ArgumentException("更新包格式与当前安装方式不一致");
+            if (!string.Equals(offer.AssetName, ExpectedAsset(offer.Tag, offer.Mode),
+                StringComparison.Ordinal))
+                throw new InvalidDataException("发布文件名与更新版本不一致。");
             if (!DownloadPathService.TryValidate(settings.DownloadDirectory,
                 settings.Root, out var selectedRoot, out var directoryError))
                 throw new IOException("自定义下载路径无效：" + directoryError);
@@ -637,10 +642,25 @@ namespace BlockCraftLauncher.Wpf.Services
                 string target = installedTarget ?? (offer.Mode == "onefile"
                     ? Path.GetFullPath(Environment.GetEnvironmentVariable("BLOCKCRAFT_SINGLEFILE_BOOTSTRAP") ?? "")
                     : Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory));
+                string desktopPath = null;
+                if (offer.Mode == "onefile" && publishToDesktop)
+                {
+                    progress?.Report(new LauncherUpdateProgress { Message = "正在将已校验的新版启动器保存到桌面..." });
+                    desktopPath = await Task.Run(() =>
+                    {
+                        var assembly = AssemblyName.GetAssemblyName(staged);
+                        if (assembly.Name != "BlockCraftLauncher" || assembly.Version == null ||
+                            assembly.Version.Build < 0 || VersionedDesktopFileName.FromVersion(assembly.Version) != offer.AssetName)
+                            throw new InvalidDataException("下载的启动器版本与发布文件名不一致。");
+                        return DesktopUpdateDownload.Publish(
+                            Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                            staged, offer.AssetName, hash, ct);
+                    }, ct);
+                }
                 return new PreparedLauncherUpdate
                 {
                     Offer = offer, StagedPath = staged, Sha256 = hash,
-                    TargetPath = target, UpdatesRoot = updatesRoot
+                    TargetPath = target, UpdatesRoot = updatesRoot, DesktopPath = desktopPath
                 };
             }
             catch
