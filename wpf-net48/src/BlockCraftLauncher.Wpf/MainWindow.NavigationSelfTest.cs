@@ -97,6 +97,21 @@ namespace BlockCraftLauncher.Wpf
                     Visit("游戏版本", "game-download", TopDownloadButton);
                     Side("手动安装", "manual-install");
                     Side("资源中心", "mods");
+                    var demoMod = new ResourceHit { Name = "林地地图", Kind = "mod", ProjectId = "ui-demo-map",
+                        Author = "界面示例", CategoryLabel = "地图", LoaderLabel = "Fabric", VersionsLabel = "1.21.1",
+                        Description = "在地图上标记村庄、林地和探索路线。" };
+                    resourceResults.Add(demoMod);
+                    resourceResults.Add(new ResourceHit { Name = "行囊整理", Kind = "mod", ProjectId = "ui-demo-inventory",
+                        Author = "界面示例", CategoryLabel = "实用工具", LoaderLabel = "Fabric", VersionsLabel = "1.21.1",
+                        Description = "按类型整理背包中的物品。" });
+                    resourceCounter.Text = "界面预览 · 2 项示例";
+                    resourceList.SelectedItem = demoMod;
+                    Arrange();
+                    ClickFixtureAction(FixtureButton(PageHost, "查看文件"));
+                    if (!FixtureVisuals(modDetailsHost).OfType<TextBlock>().Any(t => t.Text == demoMod.Name))
+                        throw new InvalidOperationException("选择模组后未显示对应的项目详情。");
+                    PageScroll.ScrollToTop();
+                    ArrangeLayoutProbe(width, height, theme + "mods");
                     Side("资源包", "resource-packs");
                     var sample = new ResourceHit { Name = "山间村落", Kind = "resourcepack",
                         ProjectId = "offline-fixture", Author = "BlockCraft", Description = "适用于 1.21.1 的资源包。" };

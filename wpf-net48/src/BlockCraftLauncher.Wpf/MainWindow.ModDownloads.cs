@@ -134,7 +134,17 @@ namespace BlockCraftLauncher.Wpf
             DockPanel.SetDock(resourceSearchButton, Dock.Right);
             searchBar.Children.Add(resourceSearchButton);
             resourceQuery.Margin = new Thickness(0);
-            searchBar.Children.Add(resourceQuery);
+            var keywordField = new Grid();
+            keywordField.Children.Add(resourceQuery);
+            AutomationProperties.SetName(resourceQuery, "模组名称或关键词");
+            var prompt = Txt("输入模组名称或关键词", 13, false, true);
+            prompt.Margin = new Thickness(11, 0, 4, 0);
+            prompt.VerticalAlignment = VerticalAlignment.Center;
+            prompt.IsHitTestVisible = false;
+            keywordField.Children.Add(prompt);
+            resourceQuery.TextChanged += (sender, args) =>
+                prompt.Visibility = resourceQuery.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+            searchBar.Children.Add(keywordField);
 
             var filters = new Expander
             {
