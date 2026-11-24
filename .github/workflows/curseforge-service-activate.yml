@@ -1,0 +1,76 @@
+name: Verify and activate the public CurseForge mod service
+
+on:
+  push:
+    branches: [curseforge-service-config]
+    paths: [candidate.json]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-curseforge-service-registry
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    if: github.repository == 'minecraftlu/BlockCraftLauncher'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      origin: ${{ steps.candidate.outputs.origin }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - id: candidate
+        name: Read the proposed public HTTPS service address
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const {serviceUrl} = JSON.parse(fs.readFileSync('candidate.json', 'utf8'));
+          if (serviceUrl === '') process.exit(0);
+          const url = new URL(serviceUrl);
+          if (url.protocol !== 'https:' || url.username || url.password || url.port || url.search || url.hash ||
+              url.pathname !== '/' || !/^[a-z][a-z0-9-]*(\.[a-z0-9-]+)+$/i.test(url.hostname) ||
+              /(?:^|\.)(localhost|local|internal|invalid|test)$/i.test(url.hostname) ||
+              url.origin !== serviceUrl) throw Error('Enter the bare public HTTPS origin in candidate.json.');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'origin=' + url.origin + '\n');
+          JS
+      - uses: actions/checkout@v4
+        if: steps.candidate.outputs.origin != ''
+        with:
+          ref: v0.9.56-wpf-rc.1
+          path: release
+          persist-credentials: false
+      - name: Check readiness, author permission and a real mod file hash
+        if: steps.candidate.outputs.origin != ''
+        env:
+          ORIGIN: ${{ steps.candidate.outputs.origin }}
+        run: node release/backend/curseforge/smoke.mjs "$ORIGIN"
+
+  activate:
+    needs: verify
+    if: needs.verify.outputs.origin != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Publish the verified address for installed launchers
+        env:
+          ORIGIN: ${{ needs.verify.outputs.origin }}
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          fs.writeFileSync('service.json', JSON.stringify({serviceUrl: process.env.ORIGIN}, null, 2) + '\n');
+          JS
+          git add -- service.json
+          if git diff --cached --quiet; then exit 0; fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Activate the verified public CurseForge service'
+          git push origin HEAD:refs/heads/curseforge-service-config
