@@ -43,15 +43,19 @@ jobs:
           $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:BUILD_RUN" | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0 -or $run.conclusion -cne 'success' -or $run.head_sha -cne $env:BUILD_SHA -or
               $run.path -cne '.github/workflows/wpf-desktop-update-check.yml') { throw 'Unexpected source build' }
-          gh run download $env:BUILD_RUN --repo $env:GITHUB_REPOSITORY --name 'BlockCraftLauncher-v0.9.53-RC1-Windows-x64' --dir dist
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to download the tested build' }
-          $expected = [ordered]@{
-            $env:EXE_NAME = '5c8e517eb569056d3c97327a066d3e3df4232192464f7cc2663f43a72777b838'
-            $env:ZIP_NAME = 'eb6b6a4bcb8c7d581ea62cb916fa9b8170a2004df5c077cde473c021cf01168f'
+          $archive = Join-Path $env:RUNNER_TEMP 'blockcraft-tested-artifact.zip'
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json' }
+          Invoke-WebRequest -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/artifacts/14902869193/zip" -Headers $headers -OutFile $archive
+          $archiveHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+          if ($archiveHash -ine '3e1a25d478080dd0e62cf83558e97694e649d6565340e51216dfe60d56e2ebc8') {
+            throw 'Archive digest differs from the successful Windows build'
           }
-          $manifest = foreach ($name in $expected.Keys) {
+          Expand-Archive -LiteralPath $archive -DestinationPath dist
+          $manifest = foreach ($name in @($env:EXE_NAME, $env:ZIP_NAME)) {
             $hash = (Get-FileHash -LiteralPath "dist/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($hash -cne $expected[$name]) { throw "Release digest mismatch for $name" }
+            if ($name -ceq $env:EXE_NAME -and $hash -cne '5c8e517eb569056d3c97327a066d3e3df4232192464f7cc2663f43a72777b838') {
+              throw 'Single-file digest differs from the recorded build'
+            }
             "$hash  $name"
           }
           $sidecar = (Get-Content -LiteralPath "dist/$env:EXE_NAME.sha256" -Raw).Trim()
