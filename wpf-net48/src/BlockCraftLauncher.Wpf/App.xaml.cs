@@ -243,7 +243,10 @@ namespace BlockCraftLauncher.Wpf
                     if (smokeTest && !relaunchWindowSelfTest)
                     {
                         if (downloadPageSelfTest)
+                        {
                             window.VerifyDownloadPageBindings();
+                            await window.VerifyDownloadTaskFilteringAsync();
+                        }
                         if (layoutSelfTest)
                             await window.VerifyPclLayoutAsync();
                         Shutdown(0);

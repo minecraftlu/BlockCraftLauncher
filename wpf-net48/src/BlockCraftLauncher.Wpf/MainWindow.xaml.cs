@@ -71,6 +71,7 @@ namespace BlockCraftLauncher.Wpf
         ComboBox downloadStatusFilter;
         TextBlock downloadCounter;
         ProgressBar downloadProgressBar;
+        bool downloadFilterRefreshPending;
         readonly ObservableCollection<ResourceHit> resourceResults = new ObservableCollection<ResourceHit>();
         readonly Dictionary<string, Button> sidebarButtons = new Dictionary<string, Button>();
         readonly List<string> logs = new List<string>();
@@ -134,6 +135,7 @@ namespace BlockCraftLauncher.Wpf
         public MainWindow()
         {
             InitializeComponent();
+            downloads.JobsChanged += OnDownloadJobsChanged;
             // PCL-style launcher window: the user can drag and minimize, but
             // cannot resize or maximize it. On a small or high-DPI screen,
             // reduce the initial bounds once so the close button remains usable.
@@ -201,6 +203,7 @@ namespace BlockCraftLauncher.Wpf
             };
             Closed += (sender, args) =>
             {
+                downloads.JobsChanged -= OnDownloadJobsChanged;
                 gameProcessTimer.Stop();
                 updateCancellation.Cancel();
                 localModIconLoad?.Cancel();
@@ -1959,6 +1962,24 @@ namespace BlockCraftLauncher.Wpf
         /// crashed when selecting a completed download (read-only Percent).
         /// No network or game files are touched.
         /// </summary>
+        void OnDownloadJobsChanged(object sender, EventArgs args)
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(new Action(() => OnDownloadJobsChanged(sender, args)));
+                return;
+            }
+            if (currentPage != "下载管理" || downloadList == null || downloadFilterRefreshPending)
+                return;
+            downloadFilterRefreshPending = true;
+            // Coalesce changes after WPF has finished updating its current item.
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+            {
+                downloadFilterRefreshPending = false;
+                if (currentPage == "下载管理") ApplyDownloadFilter();
+            }));
+        }
+
         void ApplyDownloadFilter()
         {
             if (downloadList == null) return;
@@ -2011,6 +2032,37 @@ namespace BlockCraftLauncher.Wpf
             BindingOperations.GetBindingExpression(downloadProgressBar, ProgressBar.ValueProperty)?.UpdateTarget();
             BindingOperations.GetBindingExpression(downloadProgressBar,
                 ProgressBar.IsIndeterminateProperty)?.UpdateTarget();
+        }
+
+        internal async Task VerifyDownloadTaskFilteringAsync()
+        {
+            Navigate("下载管理");
+            var completion = new TaskCompletionSource<bool>();
+            var sample = downloads.Enqueue("自检", "任务状态筛选验证",
+                (token, stage, bytes) => completion.Task);
+            try
+            {
+                downloadStatusFilter.SelectedItem = "进行中";
+                await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                if (!downloadList.Items.Contains(sample))
+                    throw new InvalidOperationException("正在运行的任务必须出现在进行中列表");
+
+                completion.SetResult(true);
+                await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                if (downloadList.Items.Contains(sample) || sample.IsRunning ||
+                    sample.IsIndeterminate || sample.Percent != 100)
+                    throw new InvalidOperationException("完成后必须自动刷新筛选并停止下载进度动画");
+
+                downloadStatusFilter.SelectedItem = "已完成";
+                if (!downloadList.Items.Contains(sample) ||
+                    downloadCounter.Text != "显示 1 / " + downloads.Jobs.Count + " 个任务")
+                    throw new InvalidOperationException("已完成列表和任务计数必须同步更新");
+            }
+            finally
+            {
+                completion.TrySetResult(true);
+                downloads.Jobs.Remove(sample);
+            }
         }
 
         static void WireResultActions(ListBox list, Action open, params Button[] actions)
