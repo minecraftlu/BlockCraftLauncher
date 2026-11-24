@@ -35,6 +35,9 @@ namespace BlockCraftLauncher.Wpf
             public int Requests;
             public HttpStatusCode ResponseCode = HttpStatusCode.OK;
             public string ValidationFailure;
+            public bool OmitSources, WaitForCancellation;
+            public readonly TaskCompletionSource<bool> Canceled = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
 
             protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
             {
@@ -56,9 +59,14 @@ namespace BlockCraftLauncher.Wpf
                 }
                 catch (Exception ex) { ValidationFailure = ex.GetType().Name; }
 
+                if (WaitForCancellation)
+                {
+                    using (token.Register(() => Canceled.TrySetResult(true)))
+                        await Task.Delay(Timeout.Infinite, token).ConfigureAwait(false);
+                }
                 string json = ResponseCode == HttpStatusCode.OK ? serializer.Serialize(new
                 {
-                    choices = new[] { new { message = new { content = QwenFixtureAnswer, annotations = new[]
+                    choices = new[] { new { message = new { content = QwenFixtureAnswer, annotations = OmitSources ? null : new[]
                     {
                         new { type = "url_citation", url_citation = new { title = "Minecraft 官网", url = QwenFixtureSource } },
                         new { type = "url_citation", url_citation = new { title = "Invalid", url = "file:///local-file" } }
@@ -141,6 +149,16 @@ namespace BlockCraftLauncher.Wpf
                 CheckQwen(fixture.Requests == 0 && !qwenCancel.IsEnabled, "没有凭据时发送了请求。");
                 qwenApiKey.Password = QwenFixtureKey;
                 await Layout();
+                qwenRememberKey.IsChecked = true;
+                ClickFixtureAction(FixtureButton(PageHost, "保存连接"));
+                CheckQwen(File.Exists(qwenSettingsPath), "未写出连接设置：" + qwenSearchStatus.Text);
+                CheckQwen(!File.ReadAllText(qwenSettingsPath).Contains(QwenFixtureKey), "配置文件含有明文密钥。");
+                CheckQwen(QwenConnectionSettings.Load(qwenSettingsPath).ApiKey == QwenFixtureKey,
+                    "本机保存的密钥无法回读。");
+                qwenRememberKey.IsChecked = false;
+                ClickFixtureAction(FixtureButton(PageHost, "保存连接"));
+                CheckQwen(string.IsNullOrEmpty(QwenConnectionSettings.Load(qwenSettingsPath).ApiKey),
+                    "取消记住后仍然存有密钥。");
                 qwenConnection.IsExpanded = false;
                 await Layout();
                 await SearchAndWait();
@@ -154,6 +172,11 @@ namespace BlockCraftLauncher.Wpf
                 PageScroll.ScrollToBottom();
                 ArrangeLayoutProbe(960, 600, "qwen-search-result");
 
+                fixture.OmitSources = true;
+                await SearchAndWait();
+                CheckQwen(qwenAnswer.Text == QwenFixtureAnswer && !FixtureVisuals(qwenSources).OfType<Button>().Any() &&
+                    FixtureVisuals(qwenSources).OfType<TextBlock>().Any(label => label.Text.Contains("未附来源")),
+                    "缺少来源元数据时未保留回答和对应说明。");
                 foreach (var code in new[] { HttpStatusCode.Unauthorized, (HttpStatusCode)429 })
                 {
                     fixture.ResponseCode = code;
@@ -163,7 +186,13 @@ namespace BlockCraftLauncher.Wpf
                         !qwenSearchStatus.Text.Contains("private provider details") && !qwenAnswer.Text.Contains(QwenFixtureKey),
                         "服务错误内容未安全处理。");
                 }
-                CheckQwen(fixture.Requests == 3 && fixture.ValidationFailure == null, "错误响应未走真实搜索入口。");
+                CheckQwen(fixture.Requests == 4 && fixture.ValidationFailure == null, "错误响应未走真实搜索入口。");
+                fixture.WaitForCancellation = true;
+                ClickFixtureAction(qwenSubmit);
+                await WaitForQwenAsync(() => fixture.Requests == 5, "启动可取消的 HTTP 请求");
+                ClickFixtureAction(qwenCancel);
+                await WaitForQwenAsync(() => fixture.Canceled.Task.IsCompleted, "取消 HTTP 请求");
+                await Layout();
                 await VerifyQwenCanceledQueriesAsync();
                 return "Offline Qwen search passed: companion settings import without credentials, native UI navigation, " +
                     "authenticated HTTP request with web search, answer and source, 401/429, cancel and stale navigation.";
