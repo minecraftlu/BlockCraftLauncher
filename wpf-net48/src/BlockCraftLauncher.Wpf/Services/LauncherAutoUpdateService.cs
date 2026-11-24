@@ -50,7 +50,7 @@ namespace BlockCraftLauncher.Wpf.Services
     /// </summary>
     public sealed class LauncherAutoUpdateService
     {
-        internal const string CurrentTag = "v0.9.52-wpf-rc.1";
+        internal const string CurrentTag = "v0.9.53-wpf-rc.1";
         internal static string BuildChannelLabel => CurrentTag.Contains("-wpf-rc.") ? "预览版" : "正式版";
         internal const string ReleasesApi =
             "https://api.github.com/repos/minecraftlu/BlockCraftLauncher/releases?per_page=100";
@@ -932,6 +932,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 " --sha256 " + Q(prepared.Sha256) +
                 " --updates-root " + Q(prepared.UpdatesRoot ??
                     DownloadPathService.UpdatesRoot(null));
+            if (prepared.Offer.Mode == "onefile") args += " --desktop-install 1";
             if (token != null) args += " --handoff " + Q(token);
             try
             {
