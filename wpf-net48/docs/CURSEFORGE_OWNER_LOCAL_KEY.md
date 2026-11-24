@@ -17,7 +17,7 @@
 
 维护者可以部署仓库中的 CurseForge 服务，并将获授权使用的密钥存为服务端 Secret `CURSEFORGE_API_KEY`。部署后先检查 `/health`，再验证分类查询、兼容文件查询，以及一个允许第三方分发的模组的实际下载。部署和接口说明见[服务端说明](../../backend/curseforge/README.md)。
 
-通过后，更新 `minecraftlu/BlockCraftLauncher` 仓库 `curseforge-service-config` 分支根目录的 `service.json`。该文件是公开的服务地址登记表。把 `serviceUrl` 设为实际部署的 HTTPS 源地址，例如 `https://mods.example.org`，使用默认端口，省略路径、查询参数和凭据。下面的内容表示尚未登记服务。
+将公开的 HTTPS 源地址填入 [candidate.json](https://github.com/minecraftlu/BlockCraftLauncher/edit/curseforge-service-config/candidate.json)，例如 `https://mods.example.org`。使用默认端口，省略路径、查询参数和凭据。仓库的自动验证会实际下载模组并校验文件，成功后将地址发布到启动器读取的 `service.json`。下面的内容表示尚未登记服务。
 
 ```json
 {"serviceUrl": ""}

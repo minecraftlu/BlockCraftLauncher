@@ -119,11 +119,17 @@ namespace BlockCraftLauncher.Wpf
                     PageScroll.ScrollToTop();
                     ArrangeLayoutProbe(width, height, theme + "mods");
                     Side("CurseForge 官方", "curseforge");
-                    if (SelectedModSource != ModSource.CurseForge ||
-                        resourceSearchButton.IsEnabled != CurseForgeMirrorClient.HasOfficialAccess ||
-                        (!resourceSearchButton.IsEnabled &&
-                            (modSourceStatus.Visibility != Visibility.Visible || !modSourceStatus.Text.Contains("未配置"))))
-                        throw new InvalidOperationException("官方 CurseForge 入口未说明搜索和安装的可用状态。");
+                    if (SelectedModSource != ModSource.CurseForge)
+                        throw new InvalidOperationException("CurseForge 入口未选择官方来源。");
+                    if (resourceSearchButton.IsEnabled != CurseForgeMirrorClient.HasOfficialAccess)
+                        throw new InvalidOperationException("CurseForge 搜索按钮与官方服务可用状态不一致。");
+                    if (!resourceSearchButton.IsEnabled &&
+                        (modSourceStatus.Visibility != Visibility.Visible || !modSourceStatus.Text.Contains("CurseForge") ||
+                         resourceCounter.Visibility != Visibility.Visible || string.IsNullOrWhiteSpace(resourceCounter.Text) ||
+                         checkOfficialService.Visibility != Visibility.Visible || !checkOfficialService.IsEnabled ||
+                         browseOfficialMods.Visibility != Visibility.Visible || !browseOfficialMods.IsEnabled ||
+                         !FixtureButton(officialSourceActions, "下载 CurseForge 客户端").IsEnabled))
+                        throw new InvalidOperationException("官方服务不可用时缺少提示、重试、官网入口或客户端下载操作。");
                     Side("资源包", "resource-packs");
                     var sample = new ResourceHit { Name = "山间村落", Kind = "resourcepack",
                         ProjectId = "offline-fixture", Author = "BlockCraft", Description = "适用于 1.21.1 的资源包。" };

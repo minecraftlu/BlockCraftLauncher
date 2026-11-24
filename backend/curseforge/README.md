@@ -9,13 +9,13 @@ Windows 启动器通过此 HTTPS 服务搜索 Minecraft Java 模组并下载 JAR
 1. 仓库维护者打开上方入口，使用自己的 Cloudflare 和 GitHub 账号完成授权。入口选取 `v0.9.56-wpf-rc.1` 发布标签的 `backend/curseforge` 子目录，Cloudflare 会把它作为独立 Worker 项目导入。保留默认部署命令。
 2. 在 Cloudflare 的 Secret 输入框中填写为 BlockCraft 获批的 `CURSEFORGE_API_KEY`，完成部署。如果部署向导跳过了 Secret，在对应 Worker 的 **Settings → Variables and Secrets → Add** 中选择 **Secret**，保存并部署。 [Workers 控制台](https://dash.cloudflare.com/?to=/:account/workers-and-pages)
 3. 从 Worker 的 **Settings → Domains & Routes** 复制实际生效的 HTTPS 源地址。访问该域名的 `/health`，密钥和配额绑定就绪时应返回 HTTP 200 和 `{"configured":true}`。缺少配置时返回 503。
-4. 打开同一域名的 `/v1/categories?gameId=432&classId=6`，确认返回非空 Minecraft 模组分类。将本机启动器的环境变量 `BLOCKCRAFT_CURSEFORGE_SERVICE_URL` 设为此源地址，重新打开启动器，搜索并下载一个允许分发的小型模组。确认保存成功后再向公共版本发布该域名。
+4. 把该地址填入项目的候选地址文件并提交。GitHub Actions 会自动查询分类、检查作者分发许可、下载一个真实的小型 JAR 并核对字节数和 SHA‑1。检查通过后，工作流自动为所有玩家发布地址。[填写候选服务地址](https://github.com/minecraftlu/BlockCraftLauncher/edit/curseforge-service-config/candidate.json)
 
 也可使用 Node.js 22 或更高版本在本目录运行 `node smoke.mjs https://实际服务域名`。脚本先查询服务健康和 Minecraft 分类，再检查 Clumps 项目的实时分发授权，最多下载 1 MiB，在内存中核验 JAR 文件头、字节数与官方 SHA-1。通过时输出项目 ID、文件 ID、大小与摘要。若项目的分发设置发生变化，可在命令末尾指定另一项允许分发的小型模组 ID。 [Clumps 的官方文件列表](https://www.curseforge.com/minecraft/mc-mods/clumps/files/all)
 
 ## 发布公共服务地址
 
-由仓库维护者在 `minecraftlu/BlockCraftLauncher` 的 `curseforge-service-config` 分支根目录创建或更新 `service.json`。若该分支尚未建立，先在仓库的分支页面创建。将示例占位符替换为上一步已验证的真实域名。该文件只包含公开地址。 [管理 GitHub 分支](https://github.com/minecraftlu/BlockCraftLauncher/branches) · [打开配置分支](https://github.com/minecraftlu/BlockCraftLauncher/tree/curseforge-service-config)
+维护者在 `curseforge-service-config` 分支的 `candidate.json` 中填写公开地址。自动检查通过后，工作流会将地址写入玩家读取的 `service.json`。服务尚未开通时，`service.json` 的 `serviceUrl` 为空字符串。维护者也可将它恢复为空字符串来暂停服务。[查看启用流程](https://github.com/minecraftlu/BlockCraftLauncher/blob/curseforge-service-config/CURSEFORGE_SERVICE.md)
 
 ```json
 {"serviceUrl":"https://<已验证的服务域名>"}
