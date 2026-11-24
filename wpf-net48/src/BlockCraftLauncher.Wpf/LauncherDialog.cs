@@ -52,7 +52,7 @@ namespace BlockCraftLauncher.Wpf
             tile.BorderThickness = new Thickness(1);
             var title = new TextBlock
             {
-                Text = caption, FontSize = 18, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis,
+                Text = caption, FontSize = 18, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap,
                 VerticalAlignment = VerticalAlignment.Center
             };
             title.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
@@ -114,7 +114,8 @@ namespace BlockCraftLauncher.Wpf
             Show(null, text, caption, buttons, image);
 
         internal static MessageBoxResult Show(Window owner, string text, string caption = "BlockCraft Launcher",
-            MessageBoxButton buttons = MessageBoxButton.OK, MessageBoxImage image = MessageBoxImage.None)
+            MessageBoxButton buttons = MessageBoxButton.OK, MessageBoxImage image = MessageBoxImage.None,
+            string yesText = "是", string noText = "否")
         {
             var app = Application.Current;
             if (app?.Dispatcher.CheckAccess() != true)
@@ -151,8 +152,8 @@ namespace BlockCraftLauncher.Wpf
             }
             if (buttons == MessageBoxButton.YesNo || buttons == MessageBoxButton.YesNoCancel)
             {
-                Add("是", MessageBoxResult.Yes, true);
-                Add("否", MessageBoxResult.No);
+                Add(yesText, MessageBoxResult.Yes, true);
+                Add(noText, MessageBoxResult.No);
             }
             else Add("确定", MessageBoxResult.OK, true);
             if (buttons == MessageBoxButton.OKCancel || buttons == MessageBoxButton.YesNoCancel)

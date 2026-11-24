@@ -167,11 +167,11 @@
         </Button>
         <Button x:Name="PostponeUpdateButton" DockPanel.Dock="Right"
                 Style="{StaticResource FooterButton}" Visibility="Collapsed"
-                Content="稍后更新" ToolTip="暂缓自动关闭旧版并打开新版"/>
+                Content="稍后更新" ToolTip="推迟自动重启"/>
         <TextBlock x:Name="BuildVersionText" DockPanel.Dock="Right" Margin="0,0,12,0"
-                   FontSize="11" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
+                   FontSize="12" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
         <TextBlock x:Name="StatusText" Margin="0,0,12,0"
-                   Foreground="{DynamicResource MutedBrush}" FontSize="11"
+                   Foreground="{DynamicResource MutedBrush}" FontSize="12" AutomationProperties.LiveSetting="Polite"
                    TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                    ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
       </DockPanel>

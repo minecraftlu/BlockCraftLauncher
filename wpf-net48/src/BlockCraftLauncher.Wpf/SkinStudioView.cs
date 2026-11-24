@@ -37,16 +37,17 @@ namespace BlockCraftLauncher.Wpf
         UIElement editorPage;
         UIElement downloadPage;
         UIElement libraryPage;
+        readonly ContentControl managementHeader = new ContentControl { Visibility = Visibility.Collapsed };
         bool downloadMode;
         bool libraryMode;
         internal bool LibraryMode => libraryMode;
         readonly ListBox libraryEntries = new ListBox();
         readonly TextBlock libraryCount = Label("已保存的皮肤", 16, true);
-        readonly TextBlock libraryEmpty = Label("皮肤库还是空的。下载一张皮肤，或在 DIY 中保存作品。");
+        readonly TextBlock libraryEmpty = Label("暂无皮肤。可下载皮肤，或在皮肤编辑器中保存作品。");
         readonly ComboBox libraryArms = new ComboBox();
         readonly Skin3DPreview library3D = new Skin3DPreview();
-        readonly TextBlock libraryTitle = Label("选择一张已保存的皮肤", 16, true);
-        readonly TextBlock libraryStatus = Label("皮肤仅保存在本机，可选择后应用到正版账号。");
+        readonly TextBlock libraryTitle = Label("皮肤预览", 16, true);
+        readonly TextBlock libraryStatus = Label("选择一张皮肤以预览或应用到账号。");
         Button libraryUseButton, libraryEditButton;
         LocalSkinLibrary.Entry librarySelectedSkin;
         SkinEditorDocument libraryPreviewDocument;
@@ -82,7 +83,6 @@ namespace BlockCraftLauncher.Wpf
         readonly Slider blue = new Slider();
         readonly TextBox hex = new TextBox();
         readonly TextBox skinName = new TextBox();
-        readonly ComboBox savedSkins = new ComboBox();
         readonly ComboBox onlineSource = new ComboBox();
         readonly ComboBox onlineCategory = new ComboBox();
         readonly ComboBox onlineArms = new ComboBox();
@@ -136,13 +136,6 @@ namespace BlockCraftLauncher.Wpf
         static string RecoveryFile => System.IO.Path.Combine(
             SkinEditorDocument.LocalLibrary, ".blockcraft-recovery.png");
         const string OfficialArticle = "https://www.minecraft.net/en-us/article/what-is-minecraft-skin";
-
-        sealed class SavedSkin
-        {
-            public string Name { get; set; }
-            public string Path { get; set; }
-            public override string ToString() => Name;
-        }
 
         static TextBlock Label(string title, double font = 12, bool strong = false)
         {
@@ -235,7 +228,7 @@ namespace BlockCraftLauncher.Wpf
             SetColor(selected);
             Loaded += (sender, args) =>
             {
-                if (!downloadMode)
+                if (!downloadMode && !libraryMode)
                 {
                     Keyboard.Focus(paintingSurface);
                     OfferRecoveryOnce();
@@ -253,14 +246,13 @@ namespace BlockCraftLauncher.Wpf
 
         void Build()
         {
-            var page = Column(MainWindow.PageHeading("皮肤 DIY", "绘制 64 × 64 贴图，实时查看角色效果。"),
+            var page = Column(MainWindow.PageHeading("皮肤编辑", ""),
                 Card(
                 Row(ActionButton("导入 PNG", ImportPng),
                     ActionButton("保存到皮肤库", SaveToLibrary, true),
                     ActionButton("导出 PNG", ExportPng),
                     ActionButton("新建皮肤", ResetTemplate),
-                    ActionButton("进入我的皮肤库", GoLibrary),
-                    ActionButton("前往皮肤下载", () => openDownloads?.Invoke())), "SearchPanel"));
+                    ActionButton("我的皮肤", GoLibrary)), "SearchPanel"));
             // Keep the online catalog out of the DIY editing page.
             // Both navigation entries reuse this one instance so unsaved
             // edits and the selected search result survive page switches.
@@ -391,22 +383,15 @@ namespace BlockCraftLauncher.Wpf
             rightPanel.Children.Add(Card(Column(Label("画笔颜色", 16, true),
                 Row(colorSwatch, hex), colorSliders, BuildPalette())));
 
-            var manage = Column(Label("皮肤库", 16, true));
+            var manage = Column(Label("作品", 16, true));
             skinName.Text = "我的自定义皮肤";
             skinName.MaxLength = 48;
             StyleSearch(skinName);
             manage.Children.Add(Label("保存名称"));
             manage.Children.Add(skinName);
-            StyleSearch(savedSkins);
-            manage.Children.Add(Label("已保存的皮肤"));
-            manage.Children.Add(savedSkins);
-            manage.Children.Add(Row(
-                ActionButton("打开选中皮肤", LoadFromLibrary),
-                ActionButton("直接使用选中皮肤", async () => await ApplyEditorLibrarySkinAsync(), true),
-                ActionButton("刷新列表", RefreshLibrary)));
-            manage.Children.Add(ActionButton("上传到 Minecraft 账号", async () =>
+            manage.Children.Add(ActionButton("应用到当前账号", async () =>
                 await UploadToMicrosoftAsync(), true));
-            manage.Children.Add(ActionButton("查看官方皮肤说明", () =>
+            manage.Children.Add(ActionButton("官方皮肤说明", () =>
                 Process.Start(new ProcessStartInfo(OfficialArticle) { UseShellExecute = true })));
             manage.Children.Add(Label("登录微软正版账号后可上传。编辑草稿会自动备份。"));
             rightPanel.Children.Add(Card(manage));
@@ -420,13 +405,19 @@ namespace BlockCraftLauncher.Wpf
             sections.Children.Add(editorPage);
             sections.Children.Add(downloadPage);
             sections.Children.Add(libraryPage);
-            Content = sections;
+            var layout = new DockPanel();
+            DockPanel.SetDock(managementHeader, Dock.Top);
+            layout.Children.Add(managementHeader);
+            layout.Children.Add(sections);
+            Content = layout;
             ResizeEditor();
         }
 
         internal void ShowDownloadPage(bool downloads)
         {
             libraryMode = false;
+            if (downloads) ShowManagementHeader("下载皮肤");
+            else managementHeader.Visibility = Visibility.Collapsed;
             if (libraryPage != null) libraryPage.Visibility = Visibility.Collapsed;
             downloadMode = downloads;
             if (editorPage != null)
@@ -448,11 +439,20 @@ namespace BlockCraftLauncher.Wpf
             {
                 CancelOnlineRequests();
                 WatchOnlineDownload(null);
-                RefreshLibrary();
                 OfferRecoveryOnce();
             }
         }
-
+        void ShowManagementHeader(string active)
+        {
+            managementHeader.Content = MainWindow.WorkspaceHeader("皮肤管理", active,
+                ("下载皮肤", () =>
+                {
+                    if (openDownloads != null) openDownloads();
+                    else ShowDownloadPage(true);
+                }),
+                ("我的皮肤", GoLibrary));
+            managementHeader.Visibility = Visibility.Visible;
+        }
 
 
         void GoLibrary()
@@ -465,6 +465,7 @@ namespace BlockCraftLauncher.Wpf
         {
             libraryMode = true;
             downloadMode = false;
+            ShowManagementHeader("我的皮肤");
             if (editorPage != null) editorPage.Visibility = Visibility.Collapsed;
             if (downloadPage != null) downloadPage.Visibility = Visibility.Collapsed;
             if (libraryPage != null) libraryPage.Visibility = Visibility.Visible;
@@ -477,16 +478,14 @@ namespace BlockCraftLauncher.Wpf
 
         UIElement BuildLibraryPage()
         {
-            var top = MainWindow.PageHeading("我的皮肤库", "管理本机保存的皮肤，预览或应用到 Minecraft Java 正版账号。");
             libraryEntries.MinHeight = 180;
             libraryEntries.MaxHeight = 440;
             libraryEntries.SelectionChanged += (sender, args) => RefreshLibraryPreview();
             System.Windows.Automation.AutomationProperties.SetName(libraryEntries, "已保存的皮肤");
             libraryEmpty.Margin = new Thickness(0, 8, 0, 14);
             var list = Card(Column(libraryCount, libraryEntries, libraryEmpty,
-                Row(ActionButton("刷新皮肤库", RefreshLibrary),
-                    ActionButton("打开皮肤文件夹", OpenSkinLibrary),
-                    ActionButton("下载更多皮肤", () => openDownloads?.Invoke()))), "ResultsPanel");
+                Row(ActionButton("刷新", RefreshLibrary),
+                    ActionButton("打开文件夹", OpenSkinLibrary))), "ResultsPanel");
 
             libraryArms.ItemsSource = new[] { "Steve · 经典宽臂", "Alex · 纤细手臂" };
             libraryArms.SelectedIndex = 0;
@@ -498,15 +497,15 @@ namespace BlockCraftLauncher.Wpf
                     RefreshLibraryPreview(false);
             };
             library3D.Height = 318;
-            libraryUseButton = ActionButton("使用此皮肤（正版）", async () => await ApplyLibrarySkinAsync(), true);
-            libraryEditButton = ActionButton("导入 DIY 编辑", EditSelectedLibrary);
+            libraryUseButton = ActionButton("应用到当前账号", async () => await ApplyLibrarySkinAsync(), true);
+            libraryEditButton = ActionButton("编辑皮肤", EditSelectedLibrary);
             libraryUseButton.IsEnabled = libraryEditButton.IsEnabled = false;
             var preview = Card(Column(libraryTitle,
                 library3D,
                 PreviewControls(library3D), Label("手臂模型"), libraryArms,
                 Row(libraryUseButton, libraryEditButton), libraryStatus,
                 Label("离线账号需要兼容的皮肤模组才能在游戏中显示本地皮肤。")), "FeaturePanel");
-            return Column(top, MainWindow.PageColumns(list, preview, 315, 13));
+            return MainWindow.PageColumns(list, preview, 315, 13);
         }
 
         void RefreshLibraryPreview(bool useSavedModel = true)
@@ -516,8 +515,8 @@ namespace BlockCraftLauncher.Wpf
             libraryUseButton.IsEnabled = libraryEditButton.IsEnabled = false;
             if (librarySelectedSkin == null)
             {
-                libraryTitle.Text = "选择一张已保存的皮肤";
-                libraryStatus.Text = "皮肤库为空或尚未选择皮肤，请先下载或保存皮肤。";
+                libraryTitle.Text = "皮肤预览";
+                libraryStatus.Text = "选择一张皮肤以预览或应用到账号。";
                 library3D.SetSkin(null, false, true);
                 return;
             }
@@ -535,7 +534,7 @@ namespace BlockCraftLauncher.Wpf
                 libraryStatus.Text = "已选择：" + librarySelectedSkin.Name +
                     " · " + (candidate.SlimArms ? "Alex" : "Steve") +
                     (librarySelectedSkin.HasAttribution ? " · 含来源与版权说明" : "") +
-                    "\n点击“使用此皮肤”会先确认，再上传到当前 Minecraft Java 正版账号。";
+                    "\n确认后将上传到当前 Minecraft Java 正版账号。";
             }
             catch (Exception ex)
             {
@@ -558,14 +557,8 @@ namespace BlockCraftLauncher.Wpf
             }
             catch (Exception ex)
             {
-                libraryStatus.Text = "无法导入 DIY：" + ex.GetBaseException().Message;
+                libraryStatus.Text = "无法打开皮肤：" + ex.GetBaseException().Message;
             }
-        }
-
-        async Task ApplyEditorLibrarySkinAsync()
-        {
-            if (!(savedSkins.SelectedItem is SavedSkin item)) return;
-            await ApplySavedSkinAsync(item.Path, item.Name, LocalSkinLibrary.ReadModel(item.Path));
         }
 
         async Task ApplyLibrarySkinAsync()
@@ -583,7 +576,7 @@ namespace BlockCraftLauncher.Wpf
                 MessageBox.Show(Window.GetWindow(this),
                     "请先登录拥有 Minecraft Java 的微软正版账号，才能将已保存的皮肤应用到游戏角色。\n\n" +
                     "离线账号的原版 Minecraft 不能直接读取启动器的本地 PNG，需要兼容的皮肤模组。\n" +
-                    "皮肤库文件和 DIY 草稿不会改变。",
+                    "登录后可在“我的皮肤”中应用。",
                     "皮肤使用方式", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -648,9 +641,8 @@ namespace BlockCraftLauncher.Wpf
         // selected preview/detail -> download/apply, similar to mod search.
         UIElement BuildOnlineSearch()
         {
-            var root = Column(MainWindow.PageHeading("皮肤下载", "按名称、模型或许可搜索皮肤，下载前可旋转预览。"));
-            var libraryActions = Row(ActionButton("我的皮肤库", GoLibrary),
-                ActionButton("皮肤 DIY", () => openEditor?.Invoke()));
+            var root = Column();
+            var libraryActions = Row();
             if (openDownloadTasks != null)
                 libraryActions.Children.Add(ActionButton("下载任务", openDownloadTasks));
 
@@ -687,7 +679,7 @@ namespace BlockCraftLauncher.Wpf
 
             var filters = MainWindow.SearchFields(("名称", onlineQuery), ("来源", onlineSource),
                 ("分类", onlineCategory), ("模型", onlineArms), ("排序", onlineSort));
-            onlineSearchButton = ActionButton("搜索 / 刷新", async () =>
+            onlineSearchButton = ActionButton("搜索", async () =>
                 await SearchOnlineAsync(1), true);
             onlineSearchButton.MinWidth = 120;
             var reset = ActionButton("重置筛选", async () =>
@@ -738,7 +730,7 @@ namespace BlockCraftLauncher.Wpf
             }
 
             onlineSaveButton = ActionButton("下载到皮肤库", async () => await SaveOnlineSkinAsync(), true);
-            onlineEditButton = ActionButton("导入 DIY", async () => await UseOnlineSkinAsync());
+            onlineEditButton = ActionButton("编辑皮肤", async () => await UseOnlineSkinAsync());
             onlineDetailButton = ActionButton("作者与许可证", OpenOnlineSource);
             onlineDetailButton.IsEnabled = false;
             onlinePreviewMode = ActionButton("2D 正反面", () =>
@@ -1266,7 +1258,7 @@ namespace BlockCraftLauncher.Wpf
                 RefreshImages();
                 // A downloaded preview is not yet a saved local skin.
                 document.MarkUnsaved();
-                onlineStatus.Text = "已导入 DIY 编辑器。请点击“保存到皮肤库”或“导出 PNG”留存。";
+                onlineStatus.Text = "已打开皮肤编辑器。可保存到皮肤库或导出 PNG。";
                 info.Text = "已载入在线皮肤：" + item.Name +
                     "\n来源：" + item.Attribution;
                 openEditor?.Invoke();
@@ -1679,7 +1671,7 @@ namespace BlockCraftLauncher.Wpf
                 if (MessageBox.Show(Window.GetWindow(this),
                     "发现上次未手动保存的 Minecraft 皮肤草稿。"
                     + "\n是否恢复上次的编辑内容？",
-                    "恢复皮肤 DIY 草稿",
+                "恢复皮肤编辑草稿",
                     MessageBoxButton.YesNo,
                     MessageBoxImage.Question) == MessageBoxResult.Yes)
                 {
@@ -1835,13 +1827,8 @@ namespace BlockCraftLauncher.Wpf
             try
             {
                 Directory.CreateDirectory(SkinEditorDocument.LocalLibrary);
-                string previousEditor = (savedSkins.SelectedItem as SavedSkin)?.Path;
                 string previousLibrary = (libraryEntries.SelectedItem as LocalSkinLibrary.Entry)?.Path;
                 var items = LocalSkinLibrary.List();
-                var saved = items.Select(item => new SavedSkin { Name = item.Name, Path = item.Path }).ToList();
-                savedSkins.ItemsSource = saved;
-                if (saved.Count > 0)
-                    savedSkins.SelectedItem = saved.FirstOrDefault(x => x.Path == previousEditor) ?? saved[0];
                 libraryEntries.ItemsSource = items;
                 libraryCount.Text = "已保存的皮肤 · " + items.Count;
                 libraryEmpty.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -1853,25 +1840,6 @@ namespace BlockCraftLauncher.Wpf
             catch (Exception ex)
             {
                 info.Text = "无法读取本地皮肤库：" + ex.GetBaseException().Message;
-            }
-        }
-
-        void LoadFromLibrary()
-        {
-            if (!(savedSkins.SelectedItem is SavedSkin selectedSkin)) return;
-            if (!ConfirmDiscard()) return;
-            // Refuse symlinks/reparse points for libraries where users expect
-            // ordinary local PNGs; the PNG decoder still validates contents.
-            try
-            {
-                LocalSkinLibrary.ValidatePath(selectedSkin.Path);
-                armModel.SelectedIndex = LocalSkinLibrary.ReadModel(selectedSkin.Path) ? 1 : 0;
-                OpenFile(selectedSkin.Path);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(Window.GetWindow(this), ex.GetBaseException().Message,
-                    "无法打开本地皮肤", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -1960,7 +1928,7 @@ namespace BlockCraftLauncher.Wpf
             if (texture.Source == null || front.Source == null || back.Source == null ||
                 guideCanvas == null || tool.SelectedIndex != 0 ||
                 part.SelectedIndex != 0 || layer.SelectedIndex != 0 ||
-                savedSkins == null || hex == null ||
+                hex == null ||
                 onlineResults == null || onlineSource.SelectedIndex != 1 ||
                 onlineSearchButton == null || onlineSaveButton == null ||
                 editorPage == null || downloadPage == null || libraryPage == null ||

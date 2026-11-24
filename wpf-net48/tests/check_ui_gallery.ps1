@@ -13,7 +13,7 @@ if ($onefile.Count -ne 1) { throw 'Expected a single freshly built Windows OneFi
 $pages = @('home', 'versions', 'version-settings', 'installed-mods', 'saves', 'game-download',
     'manual-install', 'mods', 'curseforge', 'resource-packs', 'shaders', 'modpacks', 'skins', 'skin-library',
     'tasks', 'servers', 'server-search', 'lan', 'start-settings', 'download-settings', 'appearance',
-    'update-settings', 'about', 'updates', 'logs', 'skin-editor', 'resource-detail')
+    'updates', 'about', 'logs', 'skin-editor', 'resource-detail')
 
 function Test-RenderedImage([string]$File, [int]$Width = 0, [int]$Height = 0) {
     $bitmap = [Drawing.Bitmap]::new($File)
@@ -77,5 +77,5 @@ foreach ($build in @(@('wpf', $wpf), @('onefile', $onefile[0].FullName))) {
     foreach ($image in @('startup-loading', 'page-loading', 'game-launch-loading', 'dialog-account', 'dialog-skin')) {
         Test-RenderedImage (Join-Path $folder "$image.png")
     }
-    Write-Host "PASS $($build[0]): $($pages.Count - 1) navigable pages, resource details, both themes, startup, loading and two real dialogs."
+    Write-Host "PASS $($build[0]): $($pages.Count) distinct views including merged modes and resource details, both themes, startup, loading and two real dialogs."
 }

@@ -33,12 +33,14 @@ for field in ("Name", "Summary", "Address", "PlayerLabel", "VersionLabel", "Stat
 server_template = xaml.split('x:Key="PublicServerResultTemplate"', 1)[1].split('</DataTemplate>', 1)[0]
 assert "<Image " not in server_template  # no untrusted remote catalogue icons
 
-# Search is a separate multiplayer subpage; favorites and LAN retain their
-# pre-existing pages and only a real user's button triggers lookups or joins.
+# One sidebar destination exposes favorites, the online directory and LAN.
+# Only a real user's button triggers lookups or joins.
 multiplayer_nav = main.split("case NavigationSection.Multiplayer:", 1)[1].split("break;", 1)[0]
-assert all(f'"{page}"' in multiplayer_nav for page in ("多人联机", "查找服务器", "局域网"))
+assert '"多人联机"' in multiplayer_nav and '"查找服务器"' not in multiplayer_nav and '"局域网"' not in multiplayer_nav
 assert 'case "查找服务器": PageHost.Content = BuildServerFinder()' in main
-assert 'Btn("查找服务器", () => Navigate("查找服务器"))' in main
+workspace = (src / "MainWindow.Workspaces.cs").read_text("utf8")
+for label, route in (("收藏", "多人联机"), ("发现", "查找服务器"), ("局域网", "局域网")):
+    assert f'("{label}", () => Navigate("{route}"))' in workspace
 for item in ("BuildServerFinder()", "SearchServersAsync(", "serverFinderResults",
              "serverFinderQuery", "serverFinderVersion", "serverFinderProvider",
              "serverFinderSort", "serverFinderOnlineOnly", "serverFinderPrevButton",

@@ -251,9 +251,10 @@
     <Style x:Key="HomeAction" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
       <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
       <Setter Property="MinHeight" Value="36"/>
-      <Setter Property="Padding" Value="9,4"/>
-      <Setter Property="Background" Value="{DynamicResource PanelAltBrush}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource SoftDividerBrush}"/>
+      <Setter Property="Padding" Value="4,5"/>
+      <Setter Property="Margin" Value="0,0,0,2"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Background" Value="Transparent"/>
     </Style>
     <Style x:Key="AccountMode" TargetType="RadioButton">
       <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
@@ -1022,14 +1023,10 @@
             <ColumnDefinition Width="117"/>
           </Grid.ColumnDefinitions>
           <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,12,0">
-            <WrapPanel Margin="0,0,0,4">
-              <TextBlock Text="{Binding Kind}" FontSize="10.5"
-                         Foreground="{DynamicResource AccentInkBrush}"
-                         Margin="0,0,11,0" FontWeight="SemiBold"/>
-              <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold"
-                         TextWrapping="Wrap"/>
-            </WrapPanel>
-            <TextBlock Text="{Binding Detail}" FontSize="11.5" TextWrapping="Wrap"
+            <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold"
+                       TextWrapping="Wrap" Margin="0,0,0,3"/>
+            <TextBlock Text="{Binding Kind}" FontSize="12" Foreground="{DynamicResource AccentInkBrush}"/>
+            <TextBlock Text="{Binding Detail}" FontSize="12" TextWrapping="Wrap"
                        Foreground="{DynamicResource MutedBrush}"
                        TextTrimming="CharacterEllipsis" MaxHeight="37"/>
           </StackPanel>
@@ -1040,7 +1037,7 @@
             <TextBlock Text="{Binding PercentLabel}" FontSize="11"
                        Foreground="{DynamicResource MutedBrush}"
                        HorizontalAlignment="Right" Margin="0,4,0,0"/>
-            <TextBlock Text="{Binding Speed}" FontSize="10.5"
+            <TextBlock Text="{Binding Speed}" FontSize="12"
                        Foreground="{DynamicResource MutedBrush}"
                        HorizontalAlignment="Right" Margin="0,3,0,0"/>
           </StackPanel>

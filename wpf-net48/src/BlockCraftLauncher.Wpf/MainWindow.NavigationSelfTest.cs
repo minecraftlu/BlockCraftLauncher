@@ -7,6 +7,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -17,6 +19,54 @@ namespace BlockCraftLauncher.Wpf
 {
     public partial class MainWindow
     {
+        async Task VerifyLocalPackQueueAsync()
+        {
+            var archive = Path.Combine(Path.GetTempPath(), "blockcraft-queue-" + Guid.NewGuid().ToString("N") + ".mrpack");
+            const string invalidArchive = "offline fixture: invalid Modrinth archive";
+            File.WriteAllText(archive, invalidArchive);
+            var releaseSlots = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var jobs = new List<DownloadJob>();
+            var before = activeProfile;
+            int profiles = settings.Profiles.Count;
+            var view = PageHost.Content;
+            async Task WaitForIdle(IEnumerable<DownloadJob> pending)
+            {
+                var timer = System.Diagnostics.Stopwatch.StartNew();
+                while (pending.Any(job => job.IsRunning))
+                {
+                    if (timer.Elapsed.TotalSeconds > 8) throw new TimeoutException("整合包队列检查超时。");
+                    await Task.Delay(20);
+                }
+            }
+            try
+            {
+                // Hold the queue's maximum six slots so cancellation always precedes archive I/O.
+                for (int i = 0; i < 6; i++)
+                    jobs.Add(downloads.Enqueue("自检", "占用下载槽", (token, stage, bytes) => releaseSlots.Task));
+                var pack = QueueMrpackInstall("本地整合包自检", archive);
+                jobs.Add(pack);
+                if (pack.Kind != "整合包" || pack.Status != "排队中") throw new InvalidOperationException("本地整合包未进入任务队列。");
+                pack.Cancel();
+                await WaitForIdle(new[] { pack });
+                if (pack.Status != "已取消" || !pack.CanRetry)
+                    throw new InvalidOperationException("排队中的整合包无法取消和重试。");
+                releaseSlots.SetResult(true);
+                await WaitForIdle(jobs);
+                downloads.Retry(pack);
+                await WaitForIdle(new[] { pack });
+                if (pack.Status != "失败" || string.IsNullOrWhiteSpace(pack.Error) || !pack.CanRetry ||
+                    File.ReadAllText(archive) != invalidArchive || settings.Profiles.Count != profiles ||
+                    !ReferenceEquals(activeProfile, before) || !ReferenceEquals(PageHost.Content, view))
+                    throw new InvalidOperationException("整合包重试未报告错误，或改动了用户文件、实例及页面。");
+            }
+            finally
+            {
+                releaseSlots.TrySetResult(true);
+                foreach (var job in jobs) downloads.Jobs.Remove(job);
+                File.Delete(archive);
+            }
+        }
+
         // The fixture supplies offline data only. Every transition after the
         // initial Home reset is dispatched through an ordinary user action.
         internal void VerifyRedesignedNavigation()
@@ -62,9 +112,22 @@ namespace BlockCraftLauncher.Wpf
                             throw new InvalidOperationException("缺少到页面的导航：" + page);
                         Visit(page, id, action);
                     }
+                    void Mode(string page, string id, string parent, string label)
+                    {
+                        SelectFixtureMode(PageHost, label);
+                        Visit(page, id);
+                        VerifyFixtureMode(PageHost, label);
+                        VerifyFixtureSidebar(parent);
+                    }
 
                     Navigate("首页");
                     Visit("首页", "home");
+                    ClickFixtureAction(FixtureButton(PageHost, "CurseForge 官方"));
+                    Arrange();
+                    if (currentPage != "资源中心" || SelectedModSource != ModSource.CurseForge)
+                        throw new InvalidOperationException("首页快捷入口未打开模组页的 CurseForge 官方来源。");
+                    VerifyFixtureSidebar("资源中心");
+                    Visit("首页", "home", TopLaunchButton);
                     if (!dark && dialogs)
                     {
                         var offline = FixtureVisuals((FrameworkElement)Content).OfType<RadioButton>()
@@ -98,8 +161,17 @@ namespace BlockCraftLauncher.Wpf
                     Arrange();
 
                     Visit("游戏版本", "game-download", TopDownloadButton);
-                    Side("手动安装", "manual-install");
+                    VerifyFixtureMode(PageHost, "自动安装");
+                    versionQuery.Text = "1.21";
+                    versionLoader.SelectedItem = "Fabric";
+                    Mode("手动安装", "manual-install", "游戏版本", "本地导入");
+                    Mode("游戏版本", "game-download", "游戏版本", "自动安装");
+                    if (versionQuery.Text != "1.21" || !Equals(versionLoader.SelectedItem, "Fabric"))
+                        throw new InvalidOperationException("切换安装方式后丢失版本筛选或加载器。");
+                    versionQuery.Clear();
+                    versionLoader.SelectedIndex = 0;
                     Side("资源中心", "mods");
+                    resourceSource.SelectedIndex = (int)ModSource.Modrinth;
                     if (!FixtureVisuals(PageHost).OfType<TextBox>().Contains(resourceQuery) ||
                         AutomationProperties.GetName(resourceQuery) != "模组名称或关键词")
                         throw new InvalidOperationException("模组搜索框无法通过当前页面访问。");
@@ -118,7 +190,12 @@ namespace BlockCraftLauncher.Wpf
                         throw new InvalidOperationException("选择模组后未显示对应的项目详情。");
                     PageScroll.ScrollToTop();
                     ArrangeLayoutProbe(width, height, theme + "mods");
-                    Side("CurseForge 官方", "curseforge");
+                    var modWorkspace = PageHost.Content;
+                    resourceSource.SelectedIndex = (int)ModSource.CurseForge;
+                    Visit("资源中心", "curseforge");
+                    VerifyFixtureSidebar("资源中心");
+                    if (!ReferenceEquals(modWorkspace, PageHost.Content))
+                        throw new InvalidOperationException("更换模组下载源重建了页面。");
                     if (SelectedModSource != ModSource.CurseForge)
                         throw new InvalidOperationException("CurseForge 入口未选择官方来源。");
                     if (resourceSearchButton.IsEnabled != CurseForgeMirrorClient.HasOfficialAccess)
@@ -147,6 +224,7 @@ namespace BlockCraftLauncher.Wpf
                     Side("光影引擎", "shaders");
                     Side("整合包", "modpacks");
                     Side("皮肤下载", "skins");
+                    VerifyFixtureMode(PageHost, "下载皮肤");
                     if (!dark && dialogs)
                         skinStudio.VerifyOnlinePreviewLayout(() =>
                         {
@@ -158,9 +236,10 @@ namespace BlockCraftLauncher.Wpf
                                         throw new InvalidOperationException("放大皮肤预览未显示 3D 模型。");
                                 });
                         });
-                    Side("皮肤库", "skin-library");
+                    Mode("皮肤库", "skin-library", "皮肤下载", "我的皮肤");
                     Visit("下载管理", "tasks", TaskShortcut);
                     Visit("多人联机", "servers", TopMultiplayerButton);
+                    VerifyFixtureMode(PageHost, "收藏");
                     var server = new ServerEntry { Name = "村庄", Address = "village.example.invalid:25565" };
                     serverList.ItemsSource = new[] { server };
                     serverList.SelectedItem = server;
@@ -175,19 +254,35 @@ namespace BlockCraftLauncher.Wpf
                     serverAddress.Text = server.Address;
                     if (!join.IsEnabled || save.IsEnabled || remove.IsEnabled)
                         throw new InvalidOperationException("手动输入地址与收藏名称的状态混淆。");
-                    Side("查找服务器", "server-search");
-                    Side("局域网", "lan");
-                    var joinWorld = FixtureButton(PageHost, "加入选中世界");
+                    Mode("查找服务器", "server-search", "多人联机", "发现");
+                    serverFinderQuery.Text = "村庄";
+                    Mode("局域网", "lan", "多人联机", "局域网");
+                    var joinWorld = FixtureButton(PageHost, "加入世界");
+                    lanWorldList.UnselectAll();
                     if (joinWorld.IsEnabled) throw new InvalidOperationException("未选中世界时可加入局域网。");
                     lanWorldList.ItemsSource = new[] { server };
                     lanWorldList.SelectedItem = server;
                     if (!joinWorld.IsEnabled) throw new InvalidOperationException("选中世界后无法加入局域网。");
+                    Mode("查找服务器", "server-search", "多人联机", "发现");
+                    if (serverFinderQuery.Text != "村庄")
+                        throw new InvalidOperationException("切换联机分类后丢失服务器搜索词。");
+                    serverFinderQuery.Clear();
                     Visit("设置", "start-settings", TopSettingsButton);
                     Side("下载设置", "download-settings");
                     Side("个性化", "appearance");
-                    Side("更新设置", "update-settings");
+                    Side("更新设置", "updates");
+                    VerifyFixtureSidebar("更新设置");
+                    if (!FixtureVisuals(PageHost).Contains(settingsUpdateChannel) ||
+                        !FixtureButton(PageHost, "检查更新").IsEnabled)
+                        throw new InvalidOperationException("更新页缺少更新通道或检查更新操作。");
+                    bool? oldAutoDownload = settingsAutoDownload.IsChecked;
+                    settingsAutoDownload.IsChecked = oldAutoDownload != true;
+                    Side("下载设置", "download-settings");
+                    Side("更新设置", "updates");
+                    if (settingsAutoDownload.IsChecked == oldAutoDownload || !FixtureVisuals(PageHost).Contains(updateStatusText))
+                        throw new InvalidOperationException("切换设置分类后丢失更新偏好或更新状态。");
+                    settingsAutoDownload.IsChecked = oldAutoDownload;
                     Visit("关于", "about", TopMoreButton);
-                    Side("启动器更新", "updates");
                     Side("运行日志", "logs");
                     Side("皮肤 DIY", "skin-editor");
                     Visit("首页", "home", TopLaunchButton);
@@ -249,7 +344,8 @@ namespace BlockCraftLauncher.Wpf
                 {
                     ClickFixtureAction(window.TopDownloadButton);
                     Layout();
-                    ClickFixtureAction(window.sidebarButtons["CurseForge 官方"]);
+                    ClickFixtureAction(window.sidebarButtons["资源中心"]);
+                    window.resourceSource.SelectedIndex = (int)ModSource.CurseForge;
                     Layout();
                     await Until(() => lookupToken.CanBeCanceled, "未开始检测公开服务地址");
                     if (window.resourceSearchButton.IsEnabled ||
@@ -269,13 +365,14 @@ namespace BlockCraftLauncher.Wpf
                 Environment.SetEnvironmentVariable(variable, CurseForgeInstallSanityChecks.Key);
                 ClickFixtureAction(window.TopDownloadButton);
                 Layout();
-                ClickFixtureAction(window.sidebarButtons["CurseForge 官方"]);
+                ClickFixtureAction(window.sidebarButtons["资源中心"]);
+                window.resourceSource.SelectedIndex = (int)ModSource.CurseForge;
                 Layout();
                 await Until(() => window.resourceCategory.Items.OfType<CurseForgeCategory>()
                     .Any(category => category.Id == 409), "官方分类未载入");
                 window.modTarget.SelectedItem = profile;
                 var filters = FixtureVisuals(window.PageHost).OfType<Expander>()
-                    .First(expander => Equals(expander.Header, "版本、加载器与分类"));
+                    .First(expander => Equals(expander.Header, "筛选条件"));
                 filters.IsExpanded = true;
                 window.resourceMatchVersion.IsChecked = true;
                 window.resourceCategory.SelectedItem = window.resourceCategory.Items.OfType<CurseForgeCategory>()
@@ -349,6 +446,38 @@ namespace BlockCraftLauncher.Wpf
                 .Where(button => names.Contains(AutomationProperties.GetName(button)) || names.Contains(button.Content as string))
                 .OrderByDescending(button => button.IsEnabled).FirstOrDefault() ??
                 throw new InvalidOperationException("找不到可用操作：" + string.Join("/", names));
+        }
+
+        static RadioButton FixtureMode(FrameworkElement root, string label)
+        {
+            var radio = FixtureVisuals(root).OfType<RadioButton>()
+                .SingleOrDefault(item => AutomationProperties.GetName(item) == label);
+            if (radio == null || !radio.IsEnabled || !radio.Focusable || radio.ActualWidth <= 0)
+                throw new InvalidOperationException("页面缺少可聚焦的模式选项：" + label);
+            return radio;
+        }
+
+        static void SelectFixtureMode(FrameworkElement root, string label)
+        {
+            var radio = FixtureMode(root, label);
+            var peer = UIElementAutomationPeer.CreatePeerForElement(radio);
+            var selection = peer?.GetPattern(PatternInterface.SelectionItem) as ISelectionItemProvider;
+            if (selection == null) throw new InvalidOperationException("模式未提供可访问的选择操作：" + label);
+            selection.Select();
+        }
+
+        static void VerifyFixtureMode(FrameworkElement root, string label)
+        {
+            if (FixtureMode(root, label).IsChecked != true)
+                throw new InvalidOperationException("当前模式未选中：" + label);
+        }
+
+        void VerifyFixtureSidebar(string parent)
+        {
+            var active = sidebarButtons.Where(item => AutomationProperties.GetItemStatus(item.Value) == "当前页面")
+                .Select(item => item.Key).ToArray();
+            if (active.Length != 1 || active[0] != parent)
+                throw new InvalidOperationException("当前页面未高亮统一入口：" + parent);
         }
 
         static void ClickFixtureAction(Button button)

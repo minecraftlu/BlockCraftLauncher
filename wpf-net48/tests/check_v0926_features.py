@@ -26,7 +26,7 @@ for symbol in (
 ):
     assert symbol in main, symbol
 
-assert "if (isMod) return BuildModDownloadPage(title, actions);" in main
+assert "if (isMod) return BuildModDownloadPage(" in main
 assert "void QueueCurseForgeInstall(" in mod_downloads
 assert "client.InstallAsync(hit.Id, profile, stage, token, fileId, bytes)" in mod_downloads
 
@@ -58,3 +58,4 @@ assert '4445' in multi
 assert "ParseAddress" in multi
 
 print("PASS: v0.9.26 WPF migration source contracts; Windows behavior still requires testing")
+
