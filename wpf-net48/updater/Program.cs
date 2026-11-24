@@ -18,7 +18,7 @@ namespace BlockCraftLauncher.Updater
     /// Separate process: the launcher never overwrites its own running EXE.
     /// No admin elevation, shell scripts or Minecraft/game directory edits.
     /// </summary>
-    internal static class Program
+    internal static partial class Program
     {
         const string WpfExe = "BlockCraftLauncher.Wpf.exe";
         const string ManifestName = "SHA256SUMS.txt";
@@ -46,6 +46,7 @@ namespace BlockCraftLauncher.Updater
             string completedZipStage = null;
             Process previous = null, visible = null;
             bool previousClosed = false, installed = false;
+            DesktopOneFile desktop = null;
             string fallbackExe = null, fallbackSha256 = null;
             try
             {
@@ -64,6 +65,9 @@ namespace BlockCraftLauncher.Updater
                 string target = Path.GetFullPath(Require(opt, "target"));
                 string staged = Path.GetFullPath(Require(opt, "staged"));
                 string digest = Require(opt, "sha256");
+                bool desktopInstall = opt.TryGetValue("desktop-install", out var desktopValue);
+                if (desktopInstall && (mode != "onefile" || desktopValue != "1"))
+                    throw new InvalidDataException("桌面更新仅支持单文件 EXE。");
                 string updatesRoot = opt.TryGetValue("updates-root",
                     out var selectedRoot) ? Path.GetFullPath(selectedRoot) : null;
                 if (digest.Length != 64 || digest.Any(c => !Uri.IsHexDigit(c)))
@@ -86,11 +90,13 @@ namespace BlockCraftLauncher.Updater
                         if (!acquired) throw new IOException("同一个启动器正在更新，请等待更新结束。");
                         try
                         {
+                            if (desktopInstall)
+                                desktop = DesktopOneFile.Prepare(target, fallbackSha256, staged, digest, updatesRoot);
                             if (handoff != null)
                             {
                                 previous = Process.GetProcessById(pid);
                                 visible = OpenBeforeReplacement(previous, mode, target, staged,
-                                    digest, updatesRoot, handoff);
+                                    digest, updatesRoot, handoff, desktop?.PreparedDesktopPath);
                                 LauncherRelaunchSignal.WriteHandoffResult(handoff,
                                     LauncherRelaunchSignal.Ready, visible.Id.ToString());
                                 previousClosed = WaitForHandoffExit(previous, visible);
@@ -101,7 +107,13 @@ namespace BlockCraftLauncher.Updater
                             if (visible?.HasExited == true)
                                 throw new IOException("新版主窗口已退出，无法完成交接。");
 
-                            if (mode == "onefile")
+                            string installedPath = target;
+                            Exception cleanupError = null;
+                            if (desktop != null)
+                            {
+                                installedPath = desktop.Install(staged, updatesRoot, visible, out cleanupError);
+                            }
+                            else if (mode == "onefile")
                                 ApplySingleExe(target, staged, digest, updatesRoot: updatesRoot,
                                     visible: visible);
                             else
@@ -113,7 +125,15 @@ namespace BlockCraftLauncher.Updater
                                 if (mode == "zip") completedZipStage = OwnedStageDirectory(staged, updatesRoot);
                                 LauncherRelaunchSignal.WriteHandoffResult(handoff, mode == "onefile"
                                     ? LauncherRelaunchSignal.InstalledOneFile
-                                    : LauncherRelaunchSignal.InstalledZip, target);
+                                    : LauncherRelaunchSignal.InstalledZip, installedPath);
+                            }
+                            if (cleanupError != null)
+                            {
+                                string cleanupLog = WriteLog(cleanupError);
+                                MessageBox.Show("新版启动器已在桌面打开，旧文件暂未移除。\n\n" +
+                                    target + "\n" + cleanupError.GetBaseException().Message +
+                                    "\n\n日志：" + cleanupLog, "BlockCraft Launcher 更新", MessageBoxButtons.OK,
+                                    MessageBoxIcon.Warning);
                             }
                         }
                         finally { updateLock.ReleaseMutex(); }
@@ -127,9 +147,19 @@ namespace BlockCraftLauncher.Updater
                 if (handoff != null)
                 {
                     if (!installed)
+                    {
+                        bool recovered = false;
+                        if (desktop != null && previousClosed)
+                            BestEffortCleanup(() =>
+                            {
+                                CheckLauncherExe(fallbackExe);
+                                ExpectHash(fallbackExe, fallbackSha256);
+                                recovered = Restart(fallbackExe, out _, recovery: true);
+                            });
                         BestEffortCleanup(() => LauncherRelaunchSignal.WriteHandoffResult(handoff,
-                            previousClosed ? LauncherRelaunchSignal.Failed : LauncherRelaunchSignal.Rejected,
+                            previousClosed && !recovered ? LauncherRelaunchSignal.Failed : LauncherRelaunchSignal.Rejected,
                             error.GetBaseException().Message));
+                    }
                     return 1;
                 }
                 if (handoff == null && previousClosed &&
@@ -159,6 +189,7 @@ namespace BlockCraftLauncher.Updater
             }
             finally
             {
+                desktop?.Dispose();
                 if (handoff != null) LauncherRelaunchSignal.RemoveReadySignal(handoff);
                 previous?.Dispose();
                 if (visible != null)
@@ -178,7 +209,7 @@ namespace BlockCraftLauncher.Updater
 
         static Dictionary<string, string> ParseArguments(string[] args)
         {
-            if ((args.Length != 11 && args.Length != 13 && args.Length != 15) || args[0] != "--apply")
+            if (args.Length < 11 || args.Length > 17 || args.Length % 2 == 0 || args[0] != "--apply")
                 throw new ArgumentException("缺少安全更新参数");
             var result = new Dictionary<string, string>(StringComparer.Ordinal);
             for (int i = 1; i < args.Length; i += 2)
@@ -188,7 +219,7 @@ namespace BlockCraftLauncher.Updater
                     throw new ArgumentException("重复或无效的更新参数");
                 string key = args[i].Substring(2);
                 if (key != "mode" && key != "pid" && key != "target" && key != "staged" &&
-                    key != "sha256" && key != "updates-root" && key != "handoff")
+                    key != "sha256" && key != "updates-root" && key != "handoff" && key != "desktop-install")
                     throw new ArgumentException("未知更新参数：" + key);
                 result.Add(key, args[i + 1]);
             }
@@ -214,17 +245,17 @@ namespace BlockCraftLauncher.Updater
         }
 
         static Process OpenBeforeReplacement(Process previous, string mode, string target,
-            string staged, string digest, string updatesRoot, string token)
+            string staged, string digest, string updatesRoot, string token, string desktopExecutable = null)
         {
             string owned = OwnedStageDirectory(staged, updatesRoot);
             if (owned == null || AtOrBelow(target, owned))
                 throw new IOException("更新暂存目录不可用或与安装目录冲突。");
             bool oneFile = mode == "onefile";
             CheckLauncherExe(oneFile ? target : Path.Combine(target, WpfExe));
-            string executable = oneFile ? staged : Path.Combine(staged, WpfExe);
+            string executable = oneFile ? desktopExecutable ?? staged : Path.Combine(staged, WpfExe);
             CheckLauncherExe(executable);
             if (oneFile)
-                ExpectHash(staged, digest);
+                ExpectHash(executable, digest);
             else
             {
                 var files = StageFiles(staged);
@@ -374,7 +405,7 @@ namespace BlockCraftLauncher.Updater
         /// On success a new WPF main window must have rendered and acknowledged
         /// itself, including when an outer OneFile bootstrap has already exited.
         /// </summary>
-        static bool Restart(string executable, out string runningDirectory)
+        static bool Restart(string executable, out string runningDirectory, bool recovery = false)
         {
             runningDirectory = null;
             string token = Guid.NewGuid().ToString("N");
@@ -383,7 +414,7 @@ namespace BlockCraftLauncher.Updater
             if (File.Exists(marker)) File.Delete(marker);
 
             Process launched = Process.Start(new ProcessStartInfo(executable,
-                "--after-update " + token)
+                "--after-update " + token + (recovery ? " --update-rollback" : ""))
             {
                 UseShellExecute = true,
                 WorkingDirectory = Path.GetDirectoryName(executable),
@@ -401,6 +432,7 @@ namespace BlockCraftLauncher.Updater
                     return true;
                 }))
                 {
+                    if (recovery) return false;
                     // Do NOT roll back or overwrite a possibly still-running
                     // new WPF process. The ZIP and original EXE were verified,
                     // but the GUI may be delayed or blocked by Windows.
@@ -658,7 +690,8 @@ namespace BlockCraftLauncher.Updater
             Path.GetDirectoryName(target), ".blockcraft-" + Guid.NewGuid().ToString("N") + ".tmp");
 
         static void ApplySingleExe(string target, string staged, string digest,
-            bool simulateLaunchFailure = false, string updatesRoot = null, Process visible = null)
+            bool simulateLaunchFailure = false, string updatesRoot = null, Process visible = null,
+            bool requireConfirmation = false)
         {
             if (!target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
                 !staged.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
@@ -685,7 +718,10 @@ namespace BlockCraftLauncher.Updater
                     throw new IOException("CI 模拟新版启动自检失败");
                 SmokeTest(target);
                 string runningDirectory = visible != null ? WindowDirectory(visible) : null;
-                if (visible != null || Restart(target, out runningDirectory))
+                bool confirmed = visible != null ? !visible.HasExited : Restart(target, out runningDirectory);
+                if (requireConfirmation && !confirmed)
+                    throw new IOException("未能确认桌面新版窗口仍在运行，恢复旧版。");
+                if (confirmed)
                     BestEffortCleanup(() =>
                     {
                         CleanupOwnedExeBackups(target);
@@ -969,6 +1005,7 @@ namespace BlockCraftLauncher.Updater
                 // A fake executable is intentionally unable to pass the
                 // post-install launch test. Verify that an EXE replacement
                 // automatically returns the previous file byte-for-byte.
+                TestDesktopOneFile(root);
                 string originalExe = Path.Combine(target, "launcher.exe");
                 string incomingExe = Path.Combine(source, "incoming.exe");
                 File.WriteAllText(originalExe, "old-single-exe", Encoding.ASCII);
@@ -1118,3 +1155,4 @@ namespace BlockCraftLauncher.Updater
         }
     }
 }
+

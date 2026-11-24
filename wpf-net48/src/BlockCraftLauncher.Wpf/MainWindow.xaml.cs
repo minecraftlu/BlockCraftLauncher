@@ -728,17 +728,17 @@ namespace BlockCraftLauncher.Wpf
         {
             Status("一个已结束的搜索或下载任务被重复取消，已跳过。启动器可以继续使用；如有问题请重试该操作。");
         }
-        internal void ShowPostUpdateSuccess()
+        internal void ShowPostUpdateSuccess(string installedExe = null)
         {
             Title = "BlockCraft Launcher · " + LauncherAutoUpdateService.CurrentTag + " · 更新完成";
-            Status("更新完成！已自动打开新版 BlockCraft Launcher " +
-                LauncherAutoUpdateService.CurrentTag + "。");
+            Status(installedExe == null ? "更新完成！已打开 BlockCraft Launcher " +
+                LauncherAutoUpdateService.CurrentTag + "。" : "更新完成！新版启动器：" + installedExe);
         }
 
         internal void BeginUpdateHandoff()
         {
             updateHandoffPending = true;
-            Status("新版窗口已打开，正在原位更新启动器文件。");
+            Status("新版窗口已打开，正在完成安装。");
         }
 
         internal async Task CompleteUpdateHandoffAsync(string token)
@@ -763,7 +763,7 @@ namespace BlockCraftLauncher.Wpf
                         updateHandoffPending = false;
                         SuppressAutomaticUpdateCheck = false;
                         RefreshLauncherUpdatePanel();
-                        ShowPostUpdateSuccess();
+                        ShowPostUpdateSuccess(status == LauncherRelaunchSignal.InstalledOneFile ? detail : null);
                         _ = CheckLauncherUpdatesAsync(false);
                         return;
                     }
@@ -776,7 +776,7 @@ namespace BlockCraftLauncher.Wpf
             {
                 updatePreparationError = error.GetBaseException().Message;
                 RefreshLauncherUpdatePanel();
-                ShowError("未完成启动器原位更新", error);
+                ShowError("启动器更新未完成", error);
             }
             finally
             {
@@ -3167,8 +3167,11 @@ namespace BlockCraftLauncher.Wpf
             };
             updateCheckButton = Btn("检查更新", async () =>
                 await CheckLauncherUpdatesAsync(true), true);
-            updateInstallButton = Btn("替换旧版并启动新版", async () =>
+            bool desktopInstall = LauncherAutoUpdateService.InstallMode == "onefile";
+            updateInstallButton = Btn(desktopInstall ? "安装新版到桌面" : "替换旧版并启动新版", async () =>
                 await InstallLauncherUpdateAsync(), true);
+            if (desktopInstall)
+                updateInstallButton.ToolTip = "新版打开并校验成功后，清理启动本次更新的旧 EXE。";
             updateDirectOpenButton = Btn("临时试用（不替换）", async () =>
                 await OpenDownloadedUpdateDirectlyAsync());
             root.Children.Add(Card(Col(Txt("更新状态", 16, true),
@@ -3213,16 +3216,22 @@ namespace BlockCraftLauncher.Wpf
         string ReadyUpdateStatus()
         {
             string tag = preparedUpdate.Offer.Tag;
-            if (updateHandoffStarting) return "正在关闭旧版并自动安装 " + tag + "；完成后启动新窗口。";
+            bool desktopInstall = preparedUpdate.Offer.Mode == "onefile";
+            if (updateHandoffStarting) return desktopInstall
+                ? "正在安装 " + tag + " 到桌面，等待新版窗口打开。"
+                : "正在关闭旧版并安装 " + tag + "。";
             if (updateRestartAtUtc.HasValue)
             {
                 int remaining = Math.Max(1, (int)Math.Ceiling((updateRestartAtUtc.Value - DateTime.UtcNow).TotalSeconds));
-                return "新版 " + tag + " 已校验，" + remaining + " 秒后自动关闭旧版并启动新版。";
+                return "新版 " + tag + " 已校验，" + remaining + (desktopInstall
+                    ? " 秒后自动安装到桌面。" : " 秒后自动安装并启动。");
             }
             if (settings.AutoRestartAfterUpdateDownload && !postponeAutomaticRestart && !SuppressAutomaticUpdateCheck)
-                return "新版 " + tag + " 已校验，空闲时自动关闭旧版、替换原 EXE 并启动新版。";
+                return "新版 " + tag + " 已校验，空闲时" + (desktopInstall
+                    ? "自动安装到桌面并打开。" : "自动安装并打开。");
             if (settings.AutoInstallUpdatesOnExit && !SuppressAutomaticUpdateCheck)
-                return "新版 " + tag + " 已校验，关闭启动器后会自动替换并打开新版。";
+                return "新版 " + tag + " 已校验，关闭启动器时" + (desktopInstall
+                    ? "会安装到桌面并打开。" : "会自动安装并打开。");
             return "新版 " + tag + " 已校验，可以安装。";
         }
 
@@ -3271,8 +3280,8 @@ namespace BlockCraftLauncher.Wpf
             }
             if (currentPage == "启动器更新" && updateStatusText != null)
             {
-                updateStatusText.Text = updateHandoffStarting ? "正在关闭旧版，更新助手将原位替换并打开新版。" :
-                    updateHandoffPending && updatePreparationError == null ? "新版窗口已打开，正在原位替换文件。" :
+                updateStatusText.Text = updateHandoffStarting ? ReadyUpdateStatus() :
+                    updateHandoffPending && updatePreparationError == null ? "新版窗口已打开，正在完成安装。" :
                     updatePreparing ?
                     "正在下载并校验更新..." :
                     updateChecking ? "正在连接 GitHub 检查更新..." :
@@ -3498,11 +3507,13 @@ namespace BlockCraftLauncher.Wpf
             Status(ReadyUpdateStatus());
             try
             {
-                // The independent updater waits for this process to exit, installs
-                // the verified package at the original path, smoke-tests it,
-                // and opens the replacement window. Rollback remains enabled.
-                await Task.Run(() => autoUpdater.StartExternalInstaller(preparedUpdate),
-                    updateCancellation.Token);
+                // The old OneFile window stays available until the candidate
+                // renders. The helper then verifies the desktop installation.
+                if (preparedUpdate.Offer.Mode == "onefile")
+                    await autoUpdater.StartPreparedHandoffAsync(preparedUpdate, updateCancellation.Token);
+                else
+                    await Task.Run(() => autoUpdater.StartExternalInstaller(preparedUpdate),
+                        updateCancellation.Token);
                 suppressAutomaticInstallOnClose = true;
                 Application.Current.Shutdown();
             }
@@ -3793,12 +3804,14 @@ namespace BlockCraftLauncher.Wpf
                 IsChecked = settings.AutoInstallUpdatesOnExit,
                 Content = new TextBlock
                 {
-                    Text = "正常关闭启动器时自动替换原 EXE",
+                    Text = "关闭启动器时安装已下载的更新",
                     TextWrapping = TextWrapping.Wrap
                 }
             };
             SettingRow(updates, "自动安装", settingsAutoInstallOnExit,
-                "校验完成后，正常关闭时安装并打开新版。");
+                LauncherAutoUpdateService.InstallMode == "onefile"
+                    ? "新版会安装到桌面。确认新版成功打开后，清理启动本次更新的旧 EXE。"
+                    : "校验完成后，正常关闭时安装并打开新版。");
             AddPage("更新设置", "启动器更新", updates,
                 Btn("查看更新", () => Navigate("启动器更新")));
             return settingsPages[page];
