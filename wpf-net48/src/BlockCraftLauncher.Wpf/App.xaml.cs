@@ -293,7 +293,8 @@ namespace BlockCraftLauncher.Wpf
                 {
                     if (ordinaryStartup && !VerifyStartupComponents()) return;
                     var window = new MainWindow();
-                    window.SuppressAutomaticUpdateCheck = smokeTest || directPreview || updateHandoff || rollback;
+                    window.SuppressAutomaticUpdateCheck = qwenSearchSelfTest || relaunchWindowSelfTest ||
+                        directPreview || updateHandoff || rollback;
                     if (updateHandoff) window.BeginUpdateHandoff();
                     if (window.Content == null)
                         throw new InvalidOperationException("WPF 主窗口没有初始化内容");
