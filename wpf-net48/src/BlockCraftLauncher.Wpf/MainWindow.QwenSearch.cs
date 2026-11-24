@@ -90,6 +90,7 @@ namespace BlockCraftLauncher.Wpf
             qwenModel = new TextBox { Text = string.IsNullOrWhiteSpace(connection.Model) ? QwenSearchService.DefaultModel : connection.Model };
             qwenApiKey = new PasswordBox { Password = connection.ApiKey ?? "", MinHeight = 30, Padding = new Thickness(8, 4, 8, 4) };
             qwenApiKey.SetResourceReference(Control.ForegroundProperty, "TextBrush");
+            qwenApiKey.SetResourceReference(PasswordBox.CaretBrushProperty, "TextBrush");
             qwenApiKey.SetResourceReference(Control.BackgroundProperty, "PanelBrush");
             qwenApiKey.SetResourceReference(Control.BorderBrushProperty, "InputBorderBrush");
             qwenApiKey.ToolTip = "填写自己的百炼 API 密钥，或使用本机的 DASHSCOPE_API_KEY 环境变量。";
@@ -130,7 +131,13 @@ namespace BlockCraftLauncher.Wpf
             });
             var content = Col(Txt("接口地址"), qwenEndpoint, Txt("模型名称"), qwenModel,
                 Txt("API 密钥"), qwenApiKey, qwenRememberKey, Row(import, save));
-            return new Expander { Header = "连接设置", Content = Card(content), Margin = new Thickness(0, 2, 0, 10) };
+            var heading = Txt("连接设置", 14, true);
+            heading.Margin = new Thickness(0);
+            heading.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
+            var expander = new Expander { Header = heading, Content = Card(content), Margin = new Thickness(0, 2, 0, 10) };
+            expander.SetResourceReference(Control.ForegroundProperty, "TextBrush");
+            AutomationProperties.SetName(expander, heading.Text);
+            return expander;
         }
 
         QwenConnectionSettings ReadQwenConnection() => new QwenConnectionSettings
