@@ -5,6 +5,8 @@ using System.IO.Compression;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using BlockCraftLauncher.Wpf.Models;
 
@@ -46,6 +48,40 @@ namespace BlockCraftLauncher.Wpf.Services
         {
             using (var sha = SHA256.Create())
                 return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant();
+        }
+
+        static void CheckDesktopDownloads(string folder, string staged, byte[] bytes)
+        {
+            string desktop = Directory.CreateDirectory(Path.Combine(folder, "Desktop")).FullName;
+            string asset = Path.GetFileName(staged);
+            string canonical = Path.Combine(desktop, asset);
+            string digest = Hash(bytes);
+            string first = null, second = null;
+            Parallel.Invoke(
+                () => first = DesktopUpdateDownload.Publish(desktop, staged, asset, digest, CancellationToken.None),
+                () => second = DesktopUpdateDownload.Publish(desktop, staged, asset, digest, CancellationToken.None));
+            Require(first == canonical && second == canonical && File.ReadAllBytes(first).SequenceEqual(bytes),
+                "同时下载同一个版本时，桌面只生成一份校验通过的新版 EXE");
+
+            byte[] previous = Encoding.ASCII.GetBytes("Previous build");
+            File.WriteAllBytes(canonical, previous);
+            string alternate = DesktopUpdateDownload.Publish(desktop, staged, asset, digest, CancellationToken.None);
+            Require(Path.GetFileName(alternate) == Path.GetFileNameWithoutExtension(asset) + " (2).exe" &&
+                File.ReadAllBytes(canonical).SequenceEqual(previous) &&
+                File.ReadAllBytes(alternate).SequenceEqual(bytes) &&
+                DesktopUpdateDownload.Publish(desktop, staged, asset, digest, CancellationToken.None) == alternate,
+                "保留桌面上同名的旧 EXE，重试时复用已校验的新版");
+
+            bool rejected = false;
+            try { DesktopUpdateDownload.Publish(desktop, staged, asset, new string('0', 64), CancellationToken.None); }
+            catch (InvalidDataException) { rejected = true; }
+            Require(rejected, "校验不符时禁止向桌面发布文件");
+            bool cancelled = false;
+            try { DesktopUpdateDownload.Publish(desktop, staged, asset, digest, new CancellationToken(true)); }
+            catch (OperationCanceledException) { cancelled = true; }
+            Require(cancelled && Directory.GetFileSystemEntries(desktop).Length == 2 &&
+                File.ReadAllBytes(staged).SequenceEqual(bytes),
+                "失败或取消后没有半成品，准备安装的原始下载包保留");
         }
 
         public static void Run()
@@ -208,6 +244,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 string file = Path.Combine(folder, exe29);
                 byte[] body = Encoding.ASCII.GetBytes("Known test data");
                 File.WriteAllBytes(file, body);
+                CheckDesktopDownloads(folder, file, body);
                 LauncherAutoUpdateService.VerifyFile(file, Hash(body));
                 rejected = false;
                 try { LauncherAutoUpdateService.VerifyFile(file, new string('a', 64)); }
@@ -457,3 +494,4 @@ namespace BlockCraftLauncher.Wpf.Services
         }
     }
 }
+

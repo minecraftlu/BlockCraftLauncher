@@ -13,11 +13,16 @@ $new = $payloads[0]
 $newHash = (Get-FileHash -LiteralPath $new.FullName).Hash
 $newTag = [IO.File]::ReadAllText((Join-Path $project 'src/BlockCraftLauncher.Wpf/Services/LauncherAutoUpdateService.cs'))
 $newTag = [regex]::Match($newTag, 'internal const string CurrentTag = "(v[^"]+)";').Groups[1].Value
-if (-not $newTag) { throw 'Cannot determine the expected new window version.' }
+if ($newTag -notmatch '^(v\d+\.\d+\.\d+)(?:-wpf-rc\.\d+)?$') { throw 'Cannot determine the expected new window version.' }
+$releaseNumber = $Matches[1]
+$canonicalName = "BlockCraftLauncher-$releaseNumber-WPF-OneFile-Windows-x64.exe"
+if ($new.Name -cne $canonicalName) { throw 'Published asset filename differs from compiled updater version.' }
 $helperPath = (Resolve-Path -LiteralPath (Join-Path $project 'updater/bin/Release/net48/BlockCraftLauncher.Updater.exe')).Path
 $desktop = [Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory, [Environment+SpecialFolderOption]::Create)
 if (-not $desktop -or -not (Test-Path -LiteralPath $desktop -PathType Container)) { throw 'Desktop unavailable.' }
-$canonical = Join-Path $desktop 'BlockCraftLauncher.exe'
+$canonical = Join-Path $desktop $canonicalName
+$legacyDesktopPath = Join-Path $desktop 'BlockCraftLauncher.exe'
+$collisionPath = Join-Path $desktop (([IO.Path]::GetFileNameWithoutExtension($canonicalName)) + ' (2).exe')
 function Get-DesktopLaunchers {
     @(Get-ChildItem -LiteralPath $desktop -Force -File -Filter 'BlockCraft*.exe')
 }
@@ -25,8 +30,10 @@ if (@(Get-DesktopLaunchers).Count) { throw 'Existing BlockCraft desktop executab
 $root = Join-Path $env:RUNNER_TEMP ('BlockCraft desktop ' + [guid]::NewGuid().ToString('N'))
 $null = [IO.Directory]::CreateDirectory($root)
 $old = Join-Path $root 'fixture.exe'
-$oldHash = 'b8ea400657131aba4b5df6300ec06b38a7abdcf4d0360c104822f5009958159e'
-Invoke-WebRequest -Uri 'https://github.com/minecraftlu/BlockCraftLauncher/releases/download/v0.9.51-wpf-rc.1/BlockCraftLauncher-v0.9.51-WPF-OneFile-Windows-x64.exe' -OutFile $old -TimeoutSec 90
+$oldHash = '5c8e517eb569056d3c97327a066d3e3df4232192464f7cc2663f43a72777b838'
+$oldName = 'BlockCraftLauncher-v0.9.53-WPF-OneFile-Windows-x64.exe'
+$oldRelease = 'https://github.com/minecraftlu/BlockCraftLauncher/releases/download/v0.9.53-wpf-rc.1'
+Invoke-WebRequest -Uri "$oldRelease/$oldName" -OutFile $old -TimeoutSec 90
 if ((Get-FileHash -LiteralPath $old).Hash -ne $oldHash -or $newHash -eq $oldHash) {
     throw 'Old public fixture or new build identity mismatch.'
 }
@@ -75,11 +82,38 @@ function New-Stage([string]$Updates) {
     return $staged
 }
 
-foreach ($case in @('downloads', 'collision', 'already-desktop', 'candidate-exits')) {
+function Get-Released053Helper([string]$Updates) {
+    $archiveName = 'BlockCraftLauncher-v0.9.53-WPF-net48-Alpha-Windows-x64.zip'
+    $archivePath = Join-Path $root $archiveName
+    Invoke-WebRequest -Uri "$oldRelease/$archiveName" -OutFile $archivePath -TimeoutSec 90
+    if ((Get-FileHash -LiteralPath $archivePath).Hash -ne '7e07bc699c16e43f6784a4a5c439efecc4860959d33602275d9f8abaf3c116e7') {
+        throw 'Original v0.9.53 release archive digest mismatch.'
+    }
+    $runner = Join-Path $Updates ('runner-' + [guid]::NewGuid().ToString('N'))
+    $null = [IO.Directory]::CreateDirectory($runner)
+    $helper = Join-Path $runner 'BlockCraftLauncher.Updater.exe'
+    $zip = [IO.Compression.ZipFile]::OpenRead($archivePath)
+    try {
+        $entries = @($zip.Entries | Where-Object Name -ceq 'BlockCraftLauncher.Updater.exe')
+        if ($entries.Count -ne 1) { throw 'Expected a single updater in the original v0.9.53 archive.' }
+        [IO.Compression.ZipFileExtensions]::ExtractToFile($entries[0], $helper)
+    } finally { $zip.Dispose() }
+    if ([Diagnostics.FileVersionInfo]::GetVersionInfo($helper).FileVersion -ne '0.9.53.0') {
+        throw 'Expected the original v0.9.53 helper.'
+    }
+    return $helper
+}
+
+foreach ($case in @('downloads', 'collision', 'previous-version-on-desktop', 'legacy-desktop-name', 'already-canonical', 'candidate-exits', 'released-053-helper')) {
     if (@(Get-DesktopLaunchers).Count) { throw "Unowned desktop EXE before case $case" }
     $caseRoot = Join-Path $root $case
     $null = [IO.Directory]::CreateDirectory($caseRoot)
-    $entry = if ($case -eq 'already-desktop') { $canonical } else { Join-Path $caseRoot 'BlockCraftLauncher previous.exe' }
+    $entry = switch ($case) {
+        'previous-version-on-desktop' { Join-Path $desktop $oldName }
+        'legacy-desktop-name' { $legacyDesktopPath }
+        'already-canonical' { $canonical }
+        default { Join-Path $caseRoot $oldName }
+    }
     [IO.File]::Copy($old, $entry, $false)
     $untouched = Join-Path $caseRoot 'another launcher copy.exe'
     [IO.File]::Copy($old, $untouched, $false)
@@ -90,6 +124,7 @@ foreach ($case in @('downloads', 'collision', 'already-desktop', 'candidate-exit
     }
     $updates = Join-Path $caseRoot 'downloads/updates'
     $staged = New-Stage $updates
+    $applier = if ($case -eq 'released-053-helper') { Get-Released053Helper $updates } else { $helperPath }
     $oldToken = [guid]::NewGuid().ToString('N')
     $token = [guid]::NewGuid().ToString('N')
     $badToken = [guid]::NewGuid().ToString('N')
@@ -115,7 +150,7 @@ foreach ($case in @('downloads', 'collision', 'already-desktop', 'candidate-exit
                 -not (Visible-Wpf $oldWindow.Id) -or (Get-FileHash -LiteralPath $entry).Hash -ne $oldHash -or
                 @(Get-DesktopLaunchers).Count) { throw 'Invalid package changed the original launcher or desktop.' }
         }
-        $installer = Start-Child $helperPath ($options + @('--staged', $staged, '--sha256', $newHash, '--handoff', $token)) $entry
+        $installer = Start-Child $applier ($options + @('--staged', $staged, '--sha256', $newHash, '--handoff', $token)) $entry
         Wait-For {
             $lines = @(Read-Signal $result)
             if ($lines.Count -gt 0 -and $lines[0] -in @('rejected','failed')) { throw ($lines -join ' ') }
@@ -127,6 +162,10 @@ foreach ($case in @('downloads', 'collision', 'already-desktop', 'candidate-exit
             [int]$ack[0] -ne $newWindow.Id -or -not (Visible-Wpf $oldWindow.Id) -or
             (Get-FileHash -LiteralPath $entry).Hash -ne $oldHash) {
             throw 'The old file or visible launcher changed before handoff approval.'
+        }
+        if ($case -eq 'released-053-helper' -and
+            ((Get-FileHash -LiteralPath $legacyDesktopPath).Hash -ne $newHash -or (Test-Path -LiteralPath $canonical))) {
+            throw 'Original v0.9.53 updater did not start its candidate from the legacy desktop filename.'
         }
 
         if ($case -eq 'candidate-exits') {
@@ -146,22 +185,31 @@ foreach ($case in @('downloads', 'collision', 'already-desktop', 'candidate-exit
                 $newWindow.MainWindowTitle.Contains($newTag)
             } "New window did not acknowledge its installed launcher path in $case"
             if (-not $installer.WaitForExit(20000) -or $installer.ExitCode -ne 0) { throw "Update failed in $case" }
+            if ($case -eq 'released-053-helper') {
+                # The released helper briefly holds its generic desktop EXE open.
+                # The running new WPF window adopts the versioned name once it closes.
+                Wait-For {
+                    (Test-Path -LiteralPath $canonical -PathType Leaf) -and
+                    -not (Test-Path -LiteralPath $legacyDesktopPath) -and
+                    -not (Test-Path -LiteralPath $entry) -and (Visible-Wpf $newWindow.Id)
+                } 'The running candidate failed to migrate the original v0.9.53 helper installation.' 20
+            }
             $entries = @(Get-DesktopLaunchers)
             $installed = @($entries | Where-Object { (Get-FileHash -LiteralPath $_.FullName).Hash -eq $newHash })
             $expectedCount = if ($sentinelHash) { 2 } else { 1 }
             if ($installed.Count -ne 1 -or $entries.Count -ne $expectedCount) {
                 throw "New desktop executable missing, duplicated, or incorrect in $case"
             }
-            if ($sentinelHash) {
-                if ($installed[0].FullName -eq $canonical -or (Get-FileHash -LiteralPath $canonical).Hash -ne $sentinelHash) {
-                    throw 'Unrelated desktop file was overwritten.'
-                }
-            } elseif ($installed[0].FullName -ne $canonical) { throw "Unexpected desktop destination in $case" }
+            $expectedPath = if ($case -in @('already-canonical', 'collision')) { $collisionPath } else { $canonical }
+            if ($installed[0].FullName -cne $expectedPath) { throw "Unexpected versioned desktop destination in $case" }
+            if ($sentinelHash -and (Get-FileHash -LiteralPath $canonical).Hash -ne $sentinelHash) {
+                throw 'An unrelated desktop file was overwritten.'
+            }
             if ($entry -ne $installed[0].FullName -and (Test-Path -LiteralPath $entry)) {
                 throw 'Verified update left the exact original EXE behind.'
             }
             if (Test-Path -LiteralPath (Split-Path -LiteralPath $staged)) { throw 'Successful update left its marked staging directory behind.' }
-            if ($case -eq 'downloads') {
+            if ($case -in @('downloads', 'released-053-helper')) {
                 if (-not $newWindow.CloseMainWindow() -or -not $newWindow.WaitForExit(20000)) {
                     throw 'Installed window would not close normally.'
                 }

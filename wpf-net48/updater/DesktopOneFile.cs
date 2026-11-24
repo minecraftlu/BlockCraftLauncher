@@ -5,6 +5,7 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using BlockCraftLauncher.Wpf.Services;
 using Microsoft.Win32.SafeHandles;
 
 namespace BlockCraftLauncher.Updater
@@ -48,8 +49,6 @@ namespace BlockCraftLauncher.Updater
                     AtOrBelow(source, ownedStage))
                     throw new InvalidDataException("更新包的位置与原启动器冲突或不属于此次更新。");
                 CheckOneFileIdentity(source);
-                CheckOneFileIdentity(staged);
-                ExpectHash(staged, newDigest);
                 string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
                 if (string.IsNullOrWhiteSpace(desktop) || !Directory.Exists(desktop) ||
                     AtOrBelow(Path.GetFullPath(desktop), ownedStage))
@@ -58,38 +57,60 @@ namespace BlockCraftLauncher.Updater
                 var install = new DesktopOneFile(source, oldDigest, newDigest);
                 try
                 {
-                    install.PrepareDestination(desktop, staged);
+                    // Hold the incoming bytes stable while checking their digest,
+                    // reading their version and preparing the desktop copy.
+                    using (var package = File.OpenRead(staged))
+                    {
+                        CheckDigest(package, newDigest);
+                        var incomingVersion = CheckOneFileIdentity(staged);
+                        install.PrepareDestination(desktop, staged, ReleaseFileName(incomingVersion));
+                    }
                     if (install.PreparedDesktopPath != null) SmokeTest(install.destination);
                     return install;
                 }
                 catch { install.Dispose(); throw; }
             }
 
-            static void CheckOneFileIdentity(string path)
+            static Version CheckOneFileIdentity(string path)
             {
                 CheckLauncherExe(path);
+                var assembly = AssemblyName.GetAssemblyName(path);
+                var file = FileVersionInfo.GetVersionInfo(path);
                 if (!string.Equals(Path.GetExtension(path), ".exe", StringComparison.OrdinalIgnoreCase) ||
-                    !string.Equals(AssemblyName.GetAssemblyName(path).Name, "BlockCraftLauncher",
-                        StringComparison.Ordinal) ||
-                    !string.Equals(FileVersionInfo.GetVersionInfo(path).ProductName, "BlockCraft Launcher",
-                        StringComparison.Ordinal))
+                    !string.Equals(assembly.Name, "BlockCraftLauncher", StringComparison.Ordinal) ||
+                    !string.Equals(file.ProductName, "BlockCraft Launcher", StringComparison.Ordinal))
                     throw new InvalidDataException("此文件不是 BlockCraft 单文件启动器：" + path);
+                var version = assembly.Version;
+                if (version == null || version.Build < 0 ||
+                    version.Major != file.FileMajorPart || version.Minor != file.FileMinorPart ||
+                    version.Build != file.FileBuildPart || version.Revision != file.FilePrivatePart)
+                    throw new InvalidDataException("启动器的程序集与文件版本不一致：" + path);
+                return version;
             }
+
+            static string ReleaseFileName(Version version) =>
+                "BlockCraftLauncher-v" + version.ToString(3) + "-WPF-OneFile-Windows-x64.exe";
 
             static bool SamePath(string a, string b) =>
                 string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
-            void PrepareDestination(string desktop, string staged)
+            void PrepareDestination(string desktop, string staged, string releaseFile)
             {
                 packageSize = new FileInfo(staged).Length;
-                string pending = PendingBeside(Path.Combine(desktop, "BlockCraftLauncher.exe"));
+                string pending = PendingBeside(Path.Combine(desktop, releaseFile));
                 try
                 {
                     for (int number = 1; number <= 1000; number++)
                     {
-                        destination = Path.Combine(desktop, number == 1 ? "BlockCraftLauncher.exe" :
-                            "BlockCraftLauncher (" + number + ").exe");
-                        if (SamePath(source, destination)) return;
+                        destination = Path.Combine(desktop,
+                            VersionedDesktopFileName.GetCandidate(releaseFile, number));
+                        if (SamePath(source, destination))
+                        {
+                            // Successive release candidates may share a numeric
+                            // version. Keep the running bytes until handoff.
+                            if (string.Equals(oldDigest, newDigest, StringComparison.OrdinalIgnoreCase)) return;
+                            continue;
+                        }
                         if (EntryExists(destination))
                         {
                             // A previous interrupted attempt may have left this
@@ -288,25 +309,39 @@ namespace BlockCraftLauncher.Updater
             internal static void RunSelfTest(string root)
             {
                 string desktop = Directory.CreateDirectory(Path.Combine(root, "test-desktop")).FullName;
-                string source = Path.Combine(root, "renamed-old.exe");
+                string source = Path.Combine(desktop, ReleaseFileName(new Version(0, 9, 53, 0)));
                 string staged = Path.Combine(root, "test-incoming.exe");
-                string occupied = Path.Combine(desktop, "BlockCraftLauncher.exe");
+                string releaseFile = ReleaseFileName(new Version(0, 9, 54, 0));
+                if (releaseFile != "BlockCraftLauncher-v0.9.54-WPF-OneFile-Windows-x64.exe")
+                    throw new Exception("Desktop filename does not follow the release asset version");
+                string occupied = Path.Combine(desktop, releaseFile);
+                string parallelInstallation = Path.Combine(desktop, ReleaseFileName(new Version(0, 9, 52, 0)));
                 File.WriteAllText(source, "old");
                 File.WriteAllText(staged, "new version");
                 File.WriteAllText(occupied, "personal executable");
+                File.WriteAllText(parallelInstallation, "separate older installation");
                 string digest = Hash(staged);
+                using (var sameVersion = new DesktopOneFile(occupied, Hash(occupied), digest))
+                {
+                    sameVersion.PrepareDestination(desktop, staged, releaseFile);
+                    if (sameVersion.PreparedDesktopPath == null ||
+                        Path.GetFileName(sameVersion.PreparedDesktopPath) != VersionedDesktopFileName.GetCandidate(releaseFile, 2) ||
+                        File.ReadAllText(occupied) != "personal executable")
+                        throw new Exception("Same-version update displaced the running executable");
+                }
                 using (var install = new DesktopOneFile(source, Hash(source), digest))
                 {
-                    install.PrepareDestination(desktop, staged);
-                    if (SamePath(install.destination, occupied) || !File.Exists(source))
+                    install.PrepareDestination(desktop, staged, releaseFile);
+                    if (Path.GetFileName(install.destination) != "BlockCraftLauncher-v0.9.54-WPF-OneFile-Windows-x64 (2).exe" ||
+                        !File.Exists(source))
                         throw new Exception("Desktop collision or premature source cleanup");
                 }
-                if (!File.Exists(source) || Directory.GetFiles(desktop).Length != 1 ||
+                if (!File.Exists(source) || Directory.GetFiles(desktop).Length != 3 ||
                     File.ReadAllText(occupied) != "personal executable")
                     throw new Exception("Unconfirmed update damaged a pre-existing file");
                 using (var install = new DesktopOneFile(source, Hash(source), digest))
                 {
-                    install.PrepareDestination(desktop, staged);
+                    install.PrepareDestination(desktop, staged, releaseFile);
                     string original = Path.Combine(root, "original-before-swap.exe");
                     File.Move(source, original);
                     File.WriteAllText(source, "old");
@@ -318,7 +353,8 @@ namespace BlockCraftLauncher.Updater
                     File.Move(original, source);
                     install.RetireSource();
                     install.keepDesktop = true;
-                    if (File.Exists(source) || Hash(install.destination) != digest)
+                    if (File.Exists(source) || Hash(install.destination) != digest ||
+                        File.ReadAllText(parallelInstallation) != "separate older installation")
                         throw new Exception("Verified old launcher cleanup failed");
                 }
             }

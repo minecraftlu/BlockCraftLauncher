@@ -41,6 +41,7 @@ namespace BlockCraftLauncher.Wpf
         bool updatePreparing;
         bool updateHandoffStarting;
         bool updateHandoffPending;
+        string legacyDesktopBootstrapHash;
         bool updateCheckFailed;
         string updatePreparationError;
         DateTime? updateRestartAtUtc;
@@ -744,6 +745,7 @@ namespace BlockCraftLauncher.Wpf
         internal void BeginUpdateHandoff()
         {
             updateHandoffPending = true;
+            legacyDesktopBootstrapHash = DesktopUpdateNameMigration.CaptureBootstrapHash();
             Status("新版窗口已打开，正在完成安装。");
         }
 
@@ -765,6 +767,9 @@ namespace BlockCraftLauncher.Wpf
                             return;
                         }
                         if (status == LauncherRelaunchSignal.Failed) throw new IOException(detail);
+                        if (status == LauncherRelaunchSignal.InstalledOneFile)
+                            detail = await DesktopUpdateNameMigration.RenameAfterHandoffAsync(
+                                detail, legacyDesktopBootstrapHash, LauncherAutoUpdateService.CurrentTag);
                         autoUpdater.UseInstalledTarget(status, detail);
                         updateHandoffPending = false;
                         SuppressAutomaticUpdateCheck = false;
@@ -3238,7 +3243,9 @@ namespace BlockCraftLauncher.Wpf
             if (settings.AutoInstallUpdatesOnExit && !SuppressAutomaticUpdateCheck)
                 return "新版 " + tag + " 已校验，关闭启动器时" + (desktopInstall
                     ? "会安装到桌面并打开。" : "会自动安装并打开。");
-            return "新版 " + tag + " 已校验，可以安装。";
+            return preparedUpdate.DesktopPath != null
+                ? "新版已下载到桌面：" + Path.GetFileName(preparedUpdate.DesktopPath)
+                : "新版 " + tag + " 已校验，可以安装。";
         }
 
         void ClearUpdateCountdown()
@@ -3301,6 +3308,7 @@ namespace BlockCraftLauncher.Wpf
                 updateNotesText.Text = available ?
                     "通道：" + (settings.UpdateChannel == "preview" ? "预览版" : "正式稳定版") +
                     "  ·  来源：GitHub Releases\n" +
+                    (preparedUpdate?.DesktopPath == null ? "" : "已下载到桌面：" + preparedUpdate.DesktopPath + "\n") +
                     (offeredUpdate.Description ?? "") :
                     "当前通道：" + (settings.UpdateChannel == "preview" ?
                         "预览版" : "稳定版") + "。";
@@ -3319,7 +3327,7 @@ namespace BlockCraftLauncher.Wpf
             }
         }
 
-        async Task CheckLauncherUpdatesAsync(bool manual)
+        async Task CheckLauncherUpdatesAsync(bool manual, bool prepareAutomatically = true)
         {
             if (UpdateHandoffActive || updateChecking || updatePreparing || updateCancellation.IsCancellationRequested)
                 return;
@@ -3375,15 +3383,16 @@ namespace BlockCraftLauncher.Wpf
                 updateChecking = false;
                 RefreshLauncherUpdatePanel();
             }
-            if (offeredUpdate != null && settings.AutoDownloadUpdates &&
+            if (prepareAutomatically && offeredUpdate != null && settings.AutoDownloadUpdates &&
                 preparedUpdate == null && !updateCancellation.IsCancellationRequested)
                 await PrepareLauncherUpdateAsync(false);
         }
 
-        async Task PrepareLauncherUpdateAsync(bool interactive)
+        async Task<PreparedLauncherUpdate> PrepareLauncherUpdateAsync(bool interactive, bool temporary = false)
         {
             if (UpdateHandoffActive || updatePreparing || offeredUpdate == null ||
-                updateCancellation.IsCancellationRequested) return;
+                updateCancellation.IsCancellationRequested) return null;
+            PreparedLauncherUpdate stage;
             updatePreparing = true;
             updatePreparationError = null;
             if (updateProgressBar != null)
@@ -3413,20 +3422,23 @@ namespace BlockCraftLauncher.Wpf
                     }
                     Status(status);
                 });
-                var stage = await autoUpdater.PrepareAsync(
-                    selected, updateCancellation.Token, progress);
+                stage = temporary
+                    ? await autoUpdater.PrepareAsync(selected, updateCancellation.Token, progress, publishToDesktop: false)
+                    : await autoUpdater.PrepareAsync(selected, updateCancellation.Token, progress);
                 if (updateCancellation.IsCancellationRequested ||
                     !LauncherAutoUpdateService.SameOffer(offeredUpdate, selected))
-                    return;
+                    return null;
+                if (temporary) return stage;
                 preparedUpdate = stage;
                 Status(ReadyUpdateStatus());
             }
-            catch (OperationCanceledException) when (updateCancellation.IsCancellationRequested) { }
+            catch (OperationCanceledException) when (updateCancellation.IsCancellationRequested) { return null; }
             catch (Exception ex)
             {
                 updatePreparationError = ex.GetBaseException().Message;
                 if (interactive) ShowError("下载或校验更新失败", ex);
                 else Log("后台预下载失败：" + ex.GetType().Name);
+                return null;
             }
             finally
             {
@@ -3434,11 +3446,10 @@ namespace BlockCraftLauncher.Wpf
                 if (updateProgressBar != null)
                     updateProgressBar.Visibility = Visibility.Collapsed;
                 RefreshLauncherUpdatePanel();
-                // A verified package switches automatically as soon as the
-                // launcher is idle. Busy games and unsaved work block the switch.
-                if (preparedUpdate != null && settings.AutoRestartAfterUpdateDownload)
-                    AdvanceAutomaticRestart();
             }
+            if (preparedUpdate != null && settings.AutoRestartAfterUpdateDownload)
+                AdvanceAutomaticRestart();
+            return stage;
         }
 
         async Task OpenDownloadedUpdateDirectlyAsync()
@@ -3447,19 +3458,17 @@ namespace BlockCraftLauncher.Wpf
                 return;
             if (offeredUpdate == null)
             {
-                await CheckLauncherUpdatesAsync(true);
+                await CheckLauncherUpdatesAsync(true, prepareAutomatically: false);
                 if (offeredUpdate == null) return;
             }
-            if (!LauncherAutoUpdateService.SameOffer(preparedUpdate?.Offer, offeredUpdate))
-                await PrepareLauncherUpdateAsync(true);
-            if (preparedUpdate == null) return;
-
-            var candidate = preparedUpdate;
+            var candidate = LauncherAutoUpdateService.SameOffer(preparedUpdate?.Offer, offeredUpdate)
+                ? preparedUpdate : await PrepareLauncherUpdateAsync(true, temporary: true);
+            if (candidate == null) return;
             if (MessageBox.Show(this,
                 "是否直接打开 " + candidate.Offer.Tag + "？\n\n" +
                 "将从已校验的临时下载目录直接运行新版，确认新版主窗口显示后才关闭旧窗口。" +
                 "\n不会替换桌面上的旧 EXE，也不影响 Minecraft 世界或游戏进程。" +
-                "\n下次仍从旧安装位置启动。需要永久升级请点击“更新并替换旧版”。",
+                "\n下次仍可从旧安装位置启动。需要永久升级可返回更新页面安装。",
                 "直接打开新版（不安装）",
                 MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
                 return;
@@ -3793,7 +3802,9 @@ namespace BlockCraftLauncher.Wpf
                 Content = "自动下载可用更新"
             };
             SettingRow(updates, "自动下载", settingsAutoDownload,
-                "下载并校验可用版本。");
+                LauncherAutoUpdateService.InstallMode == "onefile"
+                    ? "新版校验通过后保存到桌面，EXE 文件名包含版本号。"
+                    : "下载并校验可用版本。");
             settingsAutoRestartAfterDownload = new CheckBox
             {
                 IsChecked = settings.AutoRestartAfterUpdateDownload,
