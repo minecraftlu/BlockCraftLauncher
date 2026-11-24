@@ -54,7 +54,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 beforeReset.CommitTurn(beforeReset.Current, "late after disable", reply);
                 Check(!File.Exists(file), "关闭记录后旧窗口不应重新创建文件。");
 
-                File.WriteAllText(file, "{");
+                File.WriteAllText(file, "invalid history json");
                 var corrupt = new QwenConversationStore(file);
                 Check(!corrupt.HistoryEnabled && corrupt.Current.Turns.Count == 0 && corrupt.PersistenceError.Length != 0,
                     "损坏的历史应保留原文件并允许继续在内存对话。");

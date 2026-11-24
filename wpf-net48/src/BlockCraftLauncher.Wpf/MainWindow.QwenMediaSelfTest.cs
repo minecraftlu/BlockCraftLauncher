@@ -20,8 +20,23 @@ namespace BlockCraftLauncher.Wpf
         sealed class MediaFixture
         {
             public byte[] Png;
-            public readonly byte[] Mp4 = { 0,0,0,24,102,116,121,112,105,115,111,109,
-                0,0,0,1,105,115,111,109,105,115,111,50 };
+            // Locally authored H.264 fixture: a 64×48 gold square moves across teal for one second.
+            public readonly byte[] Mp4 = Convert.FromBase64String(
+                "AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAMqbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAA+gAAQAA" +
+                "AQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
+                "AAAAAgAAAlR0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAA+gAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAA" +
+                "AAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAEAAAAAwAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAPoAAAAAAABAAAAAAHM" +
+                "bWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAABAAAAAQABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRl" +
+                "b0hhbmRsZXIAAAABd21pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAA" +
+                "AQAAATdzdGJsAAAAr3N0c2QAAAAAAAAAAQAAAJ9hdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAEAAMABIAAAASAAAAAAA" +
+                "AAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGP//AAAAJWF2Y0MBQsAK/+EADmdCwAqMjUI5gIDwiEagAQAE" +
+                "aM48gAAAABBwYXNwAAAAAQAAAAEAAAAUYnRydAAAAAAAAD6AAAAF+AAAABhzdHRzAAAAAAAAAAEAAAAEAAAQAAAAABRzdHNz" +
+                "AAAAAAAAAAEAAAABAAAAHHN0c2MAAAAAAAAAAQAAAAEAAAAEAAAAAQAAACRzdHN6AAAAAAAAAAAAAAAEAAAAJAAAAA0AAACA" +
+                "AAAADgAAABRzdGNvAAAAAAAAAAEAAANaAAAAYnVkdGEAAABabWV0YQAAAAAAAAAhaGRscgAAAAAAAAAAbWRpcmFwcGwAAAAA" +
+                "AAAAAAAAAAAtaWxzdAAAACWpdG9vAAAAHWRhdGEAAAABAAAAAExhdmY1OC43Ni4xMDAAAAAIZnJlZQAAAMdtZGF0AAAAIGW4" +
+                "AAQAAAniMUAAQa44AAgCRwABBPk5OTrrrrqSuuvAAAAACWHgAEAAvkCeNgAAAHxh4ACAAT5A/rhjigACDVFAAEGrigACDVFA" +
+                "AEGqIAAIGgAAgMoQAAQHwABACWDgAGQABASMg4ABkAAQEjODgAEgADmQcAAkAAcz4b4oAAg1RQABBqhAACAQAEBJkIAA+A45" +
+                "7BwADIAAgJGeDgAEgADmbFuKfs3h/9hGIuSaAAAACmHgAMABvkBXjYA=");
             public int Images, Videos, Polls, Downloads;
             public volatile bool HoldVideo, FailVideo, FailDownload;
             public string LastPayload;
@@ -132,8 +147,8 @@ namespace BlockCraftLauncher.Wpf
                 if (!IsVisible) Show();
                 Navigate(QwenSearchPage);
                 ArrangeLayoutProbe(960, 600);
-                qwenApiKey.Password = QwenFixtureKey;
                 qwenEndpoint.Text = QwenFixtureEndpoint;
+                qwenApiKey.Password = QwenFixtureKey;
                 ClickFixtureAction(qwenMediaTab);
                 CheckQwen(qwenMediaBody.Visibility == Visibility.Visible && mediaMode.Items.Count == 4, "创作导航或类型缺失");
                 await Submit();
@@ -142,7 +157,8 @@ namespace BlockCraftLauncher.Wpf
                 CheckQwen(SetQwenMediaDraft("image", "绘制一幅像素风格的山谷，远山、清晨的河流和方块树。"), "无法从聊天打开图片草稿");
                 fixture.FailDownload = true;
                 await Submit();
-                CheckQwen(fixture.Images == 1 && mediaPendingOutput != null && !mediaSubmit.IsEnabled, "下载中断丢失已受理的创作");
+                CheckQwen(fixture.Images == 1 && mediaPendingOutput != null && !mediaSubmit.IsEnabled,
+                    "下载中断丢失已受理的创作（提交 " + fixture.Images + " 次，下载 " + fixture.Downloads + " 次）" + mediaStatus.Text);
                 fixture.FailDownload = false;
                 await Submit(true);
                 CheckQwen(fixture.Images == 1 && mediaImage.Source != null && File.Exists(mediaOutputPath), "取回图片时重复生成或预览失败");
@@ -159,12 +175,19 @@ namespace BlockCraftLauncher.Wpf
                 await Submit();
                 CheckQwen(fixture.Images == 2 && fixture.LastPayload.Contains("data:image/png;base64,") &&
                     !fixture.LastPayload.Contains(folder) && !File.Exists(previous), "编辑请求未包含选中原图或未清理旧预览");
+                ClickFixtureAction(mediaEditResult);
+                CheckQwen(SelectedMediaKind == QwenMediaKind.ImageEdit && mediaInputPath == mediaOutputPath &&
+                    mediaPrompt.Text.Length == 0 && fixture.Images == 2, "继续编辑意外提交或没用上一张图");
+                mediaPrompt.Text = "把河水调亮一些，保留原来的树和远山。";
                 SetMediaStatus("离线自检示例 · 图片处理完成，可预览并另存为 PNG。");
                 ArrangeLayoutProbe(960, 600);
-                PageScroll.ScrollToBottom();
+                PageScroll.ScrollToTop();
                 await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
                 ArrangeLayoutProbe(960, 600, "qwen-media");
 
+                ClickFixtureAction(mediaAnimateResult);
+                CheckQwen(SelectedMediaKind == QwenMediaKind.ImageToVideo && mediaInputPath == mediaOutputPath &&
+                    fixture.Videos == 0, "选用首帧意外提交或未复用结果");
                 SetQwenMediaDraft("video", "生成山谷晨雾缓慢散去的视频。");
                 fixture.HoldVideo = true;
                 ClickFixtureAction(mediaSubmit);
@@ -175,10 +198,17 @@ namespace BlockCraftLauncher.Wpf
                 await WaitForQwenAsync(() => mediaRequest == null && mediaResume.Visibility == Visibility.Visible, "停止视频等待");
                 CheckQwen(!SetQwenMediaDraft("image", "另一个草稿"), "意外覆盖了已受理的视频任务");
                 fixture.HoldVideo = false;
+                var videoOpened = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                mediaVideo.MediaOpened += (s, e) => videoOpened.TrySetResult(mediaVideo.NaturalVideoWidth == 64 && mediaVideo.NaturalVideoHeight == 48);
+                mediaVideo.MediaFailed += (s, e) => videoOpened.TrySetResult(false);
                 await Submit(true);
                 CheckQwen(fixture.Videos == 1 && fixture.Polls == 2 && mediaOutputIsVideo && mediaVideo.Source?.IsFile == true &&
                     !File.Exists(qwenMediaTaskPath), "恢复视频重复提交或遗留任务");
                 string movie = Path.Combine(folder, "保存的视频.mp4");
+                ClickFixtureAction(mediaPlay);
+                var mediaState = await Task.WhenAny(videoOpened.Task, Task.Delay(3500));
+                bool previewDecoded = mediaState == videoOpened.Task && await videoOpened.Task;
+                if (mediaPlaying) ClickFixtureAction(mediaPlay);
                 await SaveQwenMediaOutputAsync(movie);
                 CheckQwen(File.ReadAllBytes(movie).SequenceEqual(fixture.Mp4), "保存的 MP4 与返回结果不同");
                 SetQwenMediaDraft("image-video", "从原图开始缓慢向河边移动。");
@@ -189,7 +219,8 @@ namespace BlockCraftLauncher.Wpf
                 string temporaryFolder = mediaTempFolder;
                 DisposeQwenMediaPage();
                 CheckQwen(!Directory.Exists(temporaryFolder) && File.Exists(movie) && File.Exists(saved), "关闭时临时作品或已保存作品清理错误");
-                return "PASS · 创作四种入口、原图预览、PNG/MP4 另存、已受理任务取消与恢复、终止后重新创作、临时文件清理。媒体响应来自离线测试。";
+                return "PASS · 创作四种入口、原图预览、PNG/MP4 另存、已受理任务取消与恢复、终止后重新创作、临时文件清理。媒体响应来自离线测试。" +
+                    (previewDecoded ? " WPF 已解码 H.264 测试视频。" : " 当前 Windows 未报告 H.264 解码，MP4 保存校验通过。");
             }
             finally
             {

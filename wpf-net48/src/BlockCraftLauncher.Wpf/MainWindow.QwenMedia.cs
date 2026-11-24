@@ -17,14 +17,15 @@ namespace BlockCraftLauncher.Wpf
 {
     public partial class MainWindow
     {
-        StackPanel qwenMediaPanel, mediaReferenceRow;
+        Grid qwenMediaPanel;
+        StackPanel mediaReferenceRow;
         ComboBox mediaMode;
         TextBox mediaPrompt;
         TextBlock mediaStatus, mediaInputName;
         Image mediaInputPreview, mediaImage;
         MediaElement mediaVideo;
         Border mediaOutputCard;
-        Button mediaPick, mediaSubmit, mediaStop, mediaResume, mediaDismiss, mediaSave, mediaPlay;
+        Button mediaPick, mediaSubmit, mediaStop, mediaResume, mediaDismiss, mediaSave, mediaPlay, mediaEditResult, mediaAnimateResult;
         CancellationTokenSource mediaRequest;
         string mediaInputPath, mediaOutputPath, mediaTempFolder, qwenMediaTaskPath;
         bool mediaOutputIsVideo, mediaPlaying, mediaSaving, mediaDisposed;
@@ -94,9 +95,20 @@ namespace BlockCraftLauncher.Wpf
             };
             mediaPlay = Btn("播放 / 暂停", ToggleQwenMediaPlayback);
             mediaSave = Btn("另存为", async () => await SaveQwenMediaDialogAsync());
-            mediaOutputCard = Card(Col(Row(Txt("创作结果", 16, true), mediaSave, mediaPlay), mediaImage, mediaVideo));
+            mediaEditResult = Btn("继续编辑", () => ReuseQwenMediaOutput(false));
+            mediaAnimateResult = Btn("用作视频首帧", () => ReuseQwenMediaOutput(true));
+            mediaOutputCard = Card(Col(Txt("创作结果", 16, true), mediaImage, mediaVideo,
+                Row(mediaSave, mediaPlay, mediaEditResult, mediaAnimateResult)));
             mediaOutputCard.Visibility = Visibility.Collapsed;
-            qwenMediaPanel = Col(options, mediaOutputCard);
+            mediaOutputCard.VerticalAlignment = options.VerticalAlignment = VerticalAlignment.Top;
+            qwenMediaPanel = new Grid();
+            qwenMediaPanel.ColumnDefinitions.Add(new ColumnDefinition());
+            qwenMediaPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0) });
+            qwenMediaPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            qwenMediaPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            qwenMediaPanel.Children.Add(options);
+            qwenMediaPanel.Children.Add(mediaOutputCard);
+            qwenMediaPanel.SizeChanged += (s, e) => ArrangeQwenMedia();
             mediaPendingTask = ReadPendingMediaTask();
             if (mediaPendingTask != null)
             {
@@ -112,6 +124,15 @@ namespace BlockCraftLauncher.Wpf
         {
             mediaStatus.Text = text;
             mediaStatus.Visibility = string.IsNullOrWhiteSpace(text) ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        void ArrangeQwenMedia()
+        {
+            bool wide = qwenMediaPanel.ActualWidth >= 700 && mediaOutputCard.Visibility == Visibility.Visible;
+            qwenMediaPanel.ColumnDefinitions[1].Width = wide ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+            Grid.SetRow(mediaOutputCard, wide ? 0 : 1);
+            Grid.SetColumn(mediaOutputCard, wide ? 1 : 0);
+            mediaOutputCard.Margin = wide ? new Thickness(8, 0, 0, 8) : new Thickness(0, 0, 0, 8);
         }
 
         bool SetQwenMediaDraft(string kind, string prompt)
@@ -154,18 +175,42 @@ namespace BlockCraftLauncher.Wpf
             mediaMode.IsEnabled = mediaPrompt.IsEnabled = mediaPick.IsEnabled = !busy && !pending;
             mediaSave.IsEnabled = !mediaSaving && mediaOutputPath != null;
             mediaPlay.Visibility = mediaOutputIsVideo ? Visibility.Visible : Visibility.Collapsed;
+            mediaEditResult.Visibility = mediaAnimateResult.Visibility = mediaOutputIsVideo ? Visibility.Collapsed : Visibility.Visible;
+            mediaEditResult.IsEnabled = mediaAnimateResult.IsEnabled = mediaOutputPath != null && !busy && !pending;
         }
 
         void PickQwenMediaImage()
         {
             var picker = new OpenFileDialog { Title = "选择原图", Filter = "PNG 或 JPEG 图片|*.png;*.jpg;*.jpeg", CheckFileExists = true };
             if (picker.ShowDialog(this) != true) return;
-            try { SetQwenMediaInput(picker.FileName); SetMediaStatus(""); }
+            if (TrySetQwenMediaInput(picker.FileName)) SetMediaStatus("");
+        }
+
+        void ReuseQwenMediaOutput(bool video)
+        {
+            if (mediaOutputIsVideo || mediaOutputPath == null || mediaRequest != null || mediaPendingTask != null || mediaPendingOutput != null) return;
+            int previousMode = mediaMode.SelectedIndex;
+            mediaMode.SelectedIndex = video ? 3 : 1;
+            if (!TrySetQwenMediaInput(mediaOutputPath))
+            {
+                mediaMode.SelectedIndex = previousMode;
+                return;
+            }
+            mediaInputName.Text = "上一张创作结果";
+            mediaPrompt.Clear();
+            mediaPrompt.BringIntoView();
+            mediaPrompt.Focus();
+            SetMediaStatus(video ? "已选用这张图片作为首帧，请描述镜头或动作。" : "已选用这张图片，请描述想修改的地方。");
+        }
+
+        bool TrySetQwenMediaInput(string path)
+        {
+            try { SetQwenMediaInput(path); return true; }
             catch (Exception ex) when (ex is IOException || ex is InvalidDataException || ex is NotSupportedException || ex is ArgumentException ||
                 ex is FormatException || ex is UnauthorizedAccessException || ex is InvalidOperationException)
             { SetMediaStatus(SelectedMediaKind == QwenMediaKind.ImageToVideo ?
                 "请选择不超过 20 MB 的 JPEG 或不透明 PNG 图片，两边应为 240 至 8000 像素。" :
-                "请选择不超过 10 MB 的有效 PNG 或 JPEG 图片。"); }
+                "请选择不超过 10 MB 的有效 PNG 或 JPEG 图片。"); return false; }
         }
 
         void SetQwenMediaInput(string path)
@@ -183,6 +228,10 @@ namespace BlockCraftLauncher.Wpf
             }
             mediaInputPreview.Source = ReadMediaBitmap(path, 180);
             mediaInputName.Text = Path.GetFileName(path);
+            if (mediaTempFolder != null && !string.Equals(mediaInputPath, mediaOutputPath, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(mediaInputPath, path, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(Path.GetDirectoryName(mediaInputPath), mediaTempFolder, StringComparison.OrdinalIgnoreCase))
+                DeleteMediaTemp(mediaInputPath);
             mediaInputPath = path;
         }
 
@@ -349,7 +398,8 @@ namespace BlockCraftLauncher.Wpf
             mediaVideo.Visibility = video ? Visibility.Visible : Visibility.Collapsed;
             if (video) { mediaVideo.Source = new Uri(path); mediaVideo.ScrubbingEnabled = true; mediaVideo.Pause(); }
             mediaOutputCard.Visibility = Visibility.Visible;
-            DeleteMediaTemp(previous);
+            ArrangeQwenMedia();
+            if (!string.Equals(previous, mediaInputPath, StringComparison.OrdinalIgnoreCase)) DeleteMediaTemp(previous);
         }
 
         void ToggleQwenMediaPlayback()
