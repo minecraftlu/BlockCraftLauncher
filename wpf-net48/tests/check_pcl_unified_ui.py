@@ -83,6 +83,7 @@ automatic = main.split('void AdvanceAutomaticRestart()', 1)[1].split('void Refre
 assert 'StartPreparedInstallationAsync()' in automatic
 assert 'DateTime.UtcNow.AddSeconds(2)' in automatic
 assert 'if (preparedUpdate != null && settings.AutoRestartAfterUpdateDownload)' in main
+assert 'if (temporary) return stage;' in main and 'publishToDesktop: false' in main
 
 for search in (
     'PageHeading(', 'SearchCard(', 'ResultsCard(', 'ApplySearchInputStyle(',

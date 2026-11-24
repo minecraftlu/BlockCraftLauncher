@@ -601,9 +601,13 @@ namespace BlockCraftLauncher.Wpf.Services
             }
         }
 
-        public async Task<PreparedLauncherUpdate> PrepareAsync(
+        public Task<PreparedLauncherUpdate> PrepareAsync(
             LauncherUpdateOffer offer, CancellationToken ct,
-            IProgress<LauncherUpdateProgress> progress = null, bool publishToDesktop = true)
+            IProgress<LauncherUpdateProgress> progress = null) =>
+            PrepareAsync(offer, ct, progress, publishToDesktop: true);
+
+        internal async Task<PreparedLauncherUpdate> PrepareAsync(LauncherUpdateOffer offer,
+            CancellationToken ct, IProgress<LauncherUpdateProgress> progress, bool publishToDesktop)
         {
             if (offer == null || offer.Mode != InstallMode)
                 throw new ArgumentException("更新包格式与当前安装方式不一致");

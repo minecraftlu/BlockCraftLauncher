@@ -3392,6 +3392,7 @@ namespace BlockCraftLauncher.Wpf
         {
             if (UpdateHandoffActive || updatePreparing || offeredUpdate == null ||
                 updateCancellation.IsCancellationRequested) return null;
+            PreparedLauncherUpdate stage;
             updatePreparing = true;
             updatePreparationError = null;
             if (updateProgressBar != null)
@@ -3421,24 +3422,23 @@ namespace BlockCraftLauncher.Wpf
                     }
                     Status(status);
                 });
-                var stage = await autoUpdater.PrepareAsync(
-                    selected, updateCancellation.Token, progress, publishToDesktop: !temporary);
+                stage = temporary
+                    ? await autoUpdater.PrepareAsync(selected, updateCancellation.Token, progress, publishToDesktop: false)
+                    : await autoUpdater.PrepareAsync(selected, updateCancellation.Token, progress);
                 if (updateCancellation.IsCancellationRequested ||
                     !LauncherAutoUpdateService.SameOffer(offeredUpdate, selected))
                     return null;
-                if (!temporary)
-                {
-                    preparedUpdate = stage;
-                    Status(ReadyUpdateStatus());
-                }
-                return stage;
+                if (temporary) return stage;
+                preparedUpdate = stage;
+                Status(ReadyUpdateStatus());
             }
-            catch (OperationCanceledException) when (updateCancellation.IsCancellationRequested) { }
+            catch (OperationCanceledException) when (updateCancellation.IsCancellationRequested) { return null; }
             catch (Exception ex)
             {
                 updatePreparationError = ex.GetBaseException().Message;
                 if (interactive) ShowError("下载或校验更新失败", ex);
                 else Log("后台预下载失败：" + ex.GetType().Name);
+                return null;
             }
             finally
             {
@@ -3446,12 +3446,10 @@ namespace BlockCraftLauncher.Wpf
                 if (updateProgressBar != null)
                     updateProgressBar.Visibility = Visibility.Collapsed;
                 RefreshLauncherUpdatePanel();
-                // A verified package switches automatically as soon as the
-                // launcher is idle. Busy games and unsaved work block the switch.
-                if (!temporary && preparedUpdate != null && settings.AutoRestartAfterUpdateDownload)
-                    AdvanceAutomaticRestart();
             }
-            return null;
+            if (preparedUpdate != null && settings.AutoRestartAfterUpdateDownload)
+                AdvanceAutomaticRestart();
+            return stage;
         }
 
         async Task OpenDownloadedUpdateDirectlyAsync()
