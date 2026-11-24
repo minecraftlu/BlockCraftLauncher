@@ -83,8 +83,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: BlockCraftLauncher-v0952-diagnostics
-          path: |
-            ${{ runner.temp }}/blockcraft-v0952-ui/*.png
-            ~/AppData/Local/BlockCraftLauncher/wpf-preview-logs/startup-error.log
+          path: ${{ runner.temp }}/blockcraft-v0952-ui/
           retention-days: 7
           if-no-files-found: ignore
