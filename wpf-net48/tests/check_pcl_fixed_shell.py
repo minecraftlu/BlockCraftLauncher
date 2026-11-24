@@ -35,7 +35,7 @@ for phrase in (
     assert phrase in main, "Missing responsive downloads UI: " + phrase
 
 for phrase in (
-    "PageHeading(", "searchBar.Children.Add(resourceQuery)", "resourceSource)",
+    "PageHeading(", "SetName(resourceQuery,", "resourceSource)",
     "resourceVersion)", "resourceCategory)", "resourceLoader)", "resourceSort)",
     "modTarget)", "PageColumns(results, modDetailsHost,",
 ):

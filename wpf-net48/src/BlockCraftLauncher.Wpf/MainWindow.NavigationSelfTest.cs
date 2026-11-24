@@ -97,6 +97,9 @@ namespace BlockCraftLauncher.Wpf
                     Visit("游戏版本", "game-download", TopDownloadButton);
                     Side("手动安装", "manual-install");
                     Side("资源中心", "mods");
+                    if (!FixtureVisuals(PageHost).OfType<TextBox>().Contains(resourceQuery) ||
+                        AutomationProperties.GetName(resourceQuery) != "模组名称或关键词")
+                        throw new InvalidOperationException("模组搜索框无法通过当前页面访问。");
                     var demoMod = new ResourceHit { Name = "林地地图", Kind = "mod", ProjectId = "ui-demo-map",
                         Author = "界面示例", CategoryLabel = "地图", LoaderLabel = "Fabric", VersionsLabel = "1.21.1",
                         Description = "在地图上标记村庄、林地和探索路线。" };
