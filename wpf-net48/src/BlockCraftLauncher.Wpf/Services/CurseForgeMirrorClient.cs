@@ -5,6 +5,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -57,13 +58,42 @@ namespace BlockCraftLauncher.Wpf.Services
         readonly bool useMirror;
         readonly NetworkDownloader net;
         readonly string officialKey;
+        Uri serviceOrigin;
+        readonly bool discoverService;
         readonly HttpClient official;
         readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = 12 * 1024 * 1024 };
 
         // Owner-only configuration. A public EXE cannot protect an embedded
         // developer key: it is intentionally not present in source or builds.
         const string OwnerKeyVariable = "BLOCKCRAFT_CURSEFORGE_API_KEY";
+        const string ServiceUrlVariable = "BLOCKCRAFT_CURSEFORGE_SERVICE_URL";
         internal static bool HasLocalOfficialKey => LocalKey() != null;
+        internal static bool HasOfficialAccess => HasLocalOfficialKey || ConfiguredServiceOrigin() != null ||
+            CurseForgeServiceDiscovery.Project.FreshOrigin != null;
+
+        internal static async Task<bool> DiscoverOfficialAccessAsync(LauncherConfig settings, CancellationToken ct,
+            bool refresh = false)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (HasLocalOfficialKey || ConfiguredServiceOrigin() != null) return true;
+            return await CurseForgeServiceDiscovery.Project.ResolveAsync(settings, ct, refresh)
+                .ConfigureAwait(false) != null;
+        }
+
+        static Uri ConfiguredServiceOrigin()
+        {
+            string address = Environment.GetEnvironmentVariable(ServiceUrlVariable);
+            if (string.IsNullOrWhiteSpace(address))
+                address = typeof(CurseForgeMirrorClient).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+                    .FirstOrDefault(item => item.Key == "BlockCraft.CurseForgeServiceUrl")?.Value;
+            return Uri.TryCreate(address?.Trim(), UriKind.Absolute, out var origin) &&
+                IsServiceOrigin(origin) ? origin : null;
+        }
+
+        internal static bool IsServiceOrigin(Uri origin) => origin != null && origin.IsAbsoluteUri &&
+            origin.Scheme == Uri.UriSchemeHttps && origin.IsDefaultPort && origin.Host.Length > 0 &&
+            origin.UserInfo.Length == 0 && origin.PathAndQuery == "/" && origin.Fragment.Length == 0;
+
         static string LocalKey()
         {
             string key = Environment.GetEnvironmentVariable(OwnerKeyVariable);
@@ -100,7 +130,7 @@ namespace BlockCraftLauncher.Wpf.Services
             : this(settings, useMirror, null, null) { }
 
         internal CurseForgeMirrorClient(LauncherConfig settings, bool useMirror,
-            HttpMessageHandler officialHandler, string testKey)
+            HttpMessageHandler officialHandler, string testKey, Uri serviceOrigin = null)
         {
             config = settings ?? throw new ArgumentNullException(nameof(settings));
             this.useMirror = useMirror;
@@ -109,8 +139,18 @@ namespace BlockCraftLauncher.Wpf.Services
                 net = new NetworkDownloader(settings);
                 return;
             }
-            officialKey = testKey ?? ReadOwnerKey();
-            if (officialKey != null)
+            // Injected tests set their own credentials/origin. A normal caller
+            // uses direct owner access when available, otherwise the public service.
+            officialKey = officialHandler == null ? ReadOwnerKey() : testKey;
+            if (officialKey == null)
+            {
+                this.serviceOrigin = officialHandler == null ?
+                    ConfiguredServiceOrigin() ?? CurseForgeServiceDiscovery.Project.FreshOrigin : serviceOrigin;
+                discoverService = officialHandler == null && this.serviceOrigin == null;
+                if (this.serviceOrigin != null && !IsServiceOrigin(this.serviceOrigin))
+                    throw new ArgumentException("CurseForge 下载服务需要有效的 HTTPS 地址。");
+            }
+            if (officialKey != null || this.serviceOrigin != null || discoverService)
             {
                 official = new HttpClient(officialHandler ??
                     NetworkDownloader.CreateHttpHandler(settings, allowRedirects: false))
@@ -132,12 +172,14 @@ namespace BlockCraftLauncher.Wpf.Services
                 throw new InvalidDataException("无效的 CurseForge 项目或文件 ID");
             return n;
         }
-        void RequireEnabled()
+        async Task RequireEnabledAsync(CancellationToken ct)
         {
             if (useMirror && !config.McimEnabled)
                 throw new InvalidOperationException("请在下载设置中启用 MCIM。");
-            if (!useMirror && officialKey == null)
-                throw new InvalidOperationException("请配置本机环境变量 BLOCKCRAFT_CURSEFORGE_API_KEY。");
+            if (discoverService && serviceOrigin == null)
+                serviceOrigin = await CurseForgeServiceDiscovery.Project.ResolveAsync(config, ct).ConfigureAwait(false);
+            if (!useMirror && (official == null || (officialKey == null && serviceOrigin == null)))
+                throw new InvalidOperationException("此版本尚未配置 CurseForge 官方下载服务。");
         }
 
         static Dictionary<string, object> ParseEnvelope(JavaScriptSerializer serializer, string body)
@@ -156,8 +198,9 @@ namespace BlockCraftLauncher.Wpf.Services
                 : path == "/mods";
             if (!supported)
                 throw new InvalidOperationException("CurseForge 官方接口路径无效。");
-            string url = OfficialApi + path;
-            if (!MaySendOwnerKey(url))
+            string url = serviceOrigin == null ? OfficialApi + path :
+                new Uri(serviceOrigin, "/v1" + path).AbsoluteUri;
+            if (serviceOrigin == null && !MaySendOwnerKey(url))
                 throw new InvalidOperationException("CurseForge 官方接口地址无效。");
 
             int attempts = Math.Min(3, Math.Max(1, config.DownloadRetries));
@@ -168,7 +211,8 @@ namespace BlockCraftLauncher.Wpf.Services
                 {
                     using (var request = new HttpRequestMessage(modIds == null ? HttpMethod.Get : HttpMethod.Post, url))
                     {
-                        request.Headers.TryAddWithoutValidation("x-api-key", officialKey);
+                        if (serviceOrigin == null)
+                            request.Headers.TryAddWithoutValidation("x-api-key", officialKey);
                         if (modIds != null)
                             request.Content = new StringContent(json.Serialize(new { modIds }),
                                 Encoding.UTF8, "application/json");
@@ -176,10 +220,14 @@ namespace BlockCraftLauncher.Wpf.Services
                             official, request, TimeSpan.FromSeconds(12), ct).ConfigureAwait(false))
                         using (var memory = new MemoryStream())
                         {
+                            CheckRateLimitAndAvailability(response);
                             if (response.StatusCode == HttpStatusCode.Unauthorized ||
                                 response.StatusCode == HttpStatusCode.Forbidden)
-                                throw new InvalidOperationException(
-                                    "CurseForge 官方 API 拒绝访问（HTTP " + (int)response.StatusCode + "）。请检查密钥和授权。");
+                                throw new InvalidOperationException(serviceOrigin == null
+                                    ? "CurseForge 官方 API 拒绝访问（HTTP " + (int)response.StatusCode + "）。请检查密钥和授权。"
+                                    : "CurseForge 官方下载服务拒绝访问（HTTP " + (int)response.StatusCode + "）。");
+                            if (serviceOrigin != null && (int)response.StatusCode >= 300 && (int)response.StatusCode < 400)
+                                throw new InvalidDataException("CurseForge 下载服务返回了意外的重定向。");
                             if (response.StatusCode == HttpStatusCode.NotFound)
                                 throw new FileNotFoundException("CurseForge 官方接口未提供该项目或文件。");
                             if (!response.IsSuccessStatusCode)
@@ -202,9 +250,23 @@ namespace BlockCraftLauncher.Wpf.Services
         static bool Retryable(Exception ex) =>
             ex is HttpRequestException || (ex is IOException && !(ex is FileNotFoundException));
 
+        void CheckRateLimitAndAvailability(HttpResponseMessage response)
+        {
+            if ((int)response.StatusCode == 429)
+            {
+                var retry = response.Headers.RetryAfter;
+                var delay = retry?.Delta ?? (retry?.Date - DateTimeOffset.UtcNow);
+                double seconds = Math.Ceiling(delay?.TotalSeconds ?? 0);
+                string when = seconds > 0 && seconds <= 3600 ? ((int)seconds) + " 秒后" : "稍后";
+                throw new InvalidOperationException("CurseForge 请求过于频繁（HTTP 429），请" + when + "重试。");
+            }
+            if (serviceOrigin != null && response.StatusCode == HttpStatusCode.ServiceUnavailable)
+                throw new InvalidOperationException("CurseForge 官方下载服务暂不可用（HTTP 503），请稍后重试。");
+        }
+
         async Task<Dictionary<string, object>> ApiGetAsync(string path, CancellationToken ct)
         {
-            RequireEnabled();
+            await RequireEnabledAsync(ct).ConfigureAwait(false);
             if (!useMirror)
                 return await OfficialRequestAsync(path, ct).ConfigureAwait(false);
             return await net.GetMetadataWithFallbackAsync(MirrorApi + path, "official",
@@ -252,7 +314,19 @@ namespace BlockCraftLauncher.Wpf.Services
             return value.Length <= maxLength ? value : value.Substring(0, maxLength) + "…";
         }
 
-        internal static IReadOnlyList<CurseForgeHit> ParseSearch(object data, bool useMirror = false)
+        static bool IsMinecraftMod(Dictionary<string, object> project) =>
+            Text(project, "gameId") == "432" && Text(project, "classId") == "6";
+
+        bool IsProjectFile(Dictionary<string, object> file, long project)
+        {
+            if (file == null || (serviceOrigin != null && Text(file, "gameId") != "432")) return false;
+            string modId = Text(file, "modId");
+            if (modId.Length == 0) return serviceOrigin == null;
+            return long.TryParse(modId, out long actual) && actual == project;
+        }
+
+        internal static IReadOnlyList<CurseForgeHit> ParseSearch(object data, bool useMirror = false,
+            bool operatorService = false)
         {
             var entries = data as object[];
             if (entries == null || entries.Length > 50)
@@ -262,7 +336,7 @@ namespace BlockCraftLauncher.Wpf.Services
             foreach (var item in entries)
             {
                 var obj = Dict(item);
-                if (obj == null) continue;
+                if (obj == null || (operatorService && !IsMinecraftMod(obj))) continue;
                 var id = Id(obj, "id");
                 var logo = Dict(obj.TryGetValue("logo", out var rawLogo) ? rawLogo : null);
                 string icon = TrustedArtworkUrl(Text(logo, "thumbnailUrl")) ??
@@ -329,7 +403,9 @@ namespace BlockCraftLauncher.Wpf.Services
                     VersionsLabel = string.IsNullOrWhiteSpace(versions)
                         ? "版本需安装时确认" : "近期版本：" + versions,
                     UpdatedLabel = Truncated(Text(obj, "dateModified"), 10),
-                    DistributionAllowed = !Equals(Value(obj, "allowModDistribution"), false),
+                    DistributionAllowed = operatorService
+                        ? Equals(Value(obj, "allowModDistribution"), true)
+                        : !Equals(Value(obj, "allowModDistribution"), false),
                     OfficialUrl = TrustedOfficialProjectUrl(Text(links, "websiteUrl")),
                     Screenshots = screenshots
                 });
@@ -369,7 +445,7 @@ namespace BlockCraftLauncher.Wpf.Services
         {
             var envelope = await ApiGetAsync(BuildSearchPath(query, gameVersion, loader,
                 sort, page, category), ct).ConfigureAwait(false);
-            var hits = ParseSearch(Value(envelope, "data"), useMirror);
+            var hits = ParseSearch(Value(envelope, "data"), useMirror, serviceOrigin != null);
             return (hits, HasNextPage(envelope, page, SearchPageSize, hits.Count));
         }
 
@@ -392,7 +468,7 @@ namespace BlockCraftLauncher.Wpf.Services
         internal async Task<IReadOnlyDictionary<long, string>> GetDependencyNamesAsync(
             IEnumerable<long> projectIds, CancellationToken ct)
         {
-            RequireEnabled();
+            await RequireEnabledAsync(ct).ConfigureAwait(false);
             if (useMirror) throw new InvalidOperationException("前置项目名称查询需要 CurseForge 官方来源。");
             var ids = projectIds.Where(id => id > 0).Distinct().Take(MaxDependencies).ToArray();
             var names = new Dictionary<long, string>();
@@ -402,6 +478,7 @@ namespace BlockCraftLauncher.Wpf.Services
             if (rows == null) throw new InvalidDataException("CurseForge 前置项目列表格式无效。");
             foreach (var row in rows.OfType<Dictionary<string, object>>())
             {
+                if (serviceOrigin != null && !IsMinecraftMod(row)) continue;
                 if (!long.TryParse(Text(row, "id"), out long id) || !ids.Contains(id)) continue;
                 string name = Truncated(Text(row, "name"), 95);
                 if (name.Length > 0) names[id] = name;
@@ -409,11 +486,16 @@ namespace BlockCraftLauncher.Wpf.Services
             return names;
         }
 
-        static bool HasNextPage(Dictionary<string, object> envelope, int page, int pageSize, int count)
+        bool HasNextPage(Dictionary<string, object> envelope, int page, int pageSize, int count)
         {
             int nextIndex = (page + 1) * pageSize;
-            if (nextIndex >= MaxResults || count == 0) return false;
+            if (nextIndex >= MaxResults) return false;
             var pagination = Dict(Value(envelope, "pagination"));
+            // The public service filters restricted rows without changing the
+            // upstream offsets. Entirely filtered pages can have successors.
+            if (serviceOrigin != null && int.TryParse(Text(pagination, "resultCount"), out int upstreamCount) &&
+                upstreamCount >= count && upstreamCount <= pageSize) count = upstreamCount;
+            if (count == 0) return false;
             return int.TryParse(Text(pagination, "totalCount"), out int total) && total >= count
                 ? nextIndex < total : count == pageSize;
         }
@@ -423,8 +505,8 @@ namespace BlockCraftLauncher.Wpf.Services
             switch (loader?.Trim().ToLowerInvariant())
             {
                 case "forge": return 1;
-                case "liteloader": return 2;
-                case "cauldron": return 3;
+                case "cauldron": return 2;
+                case "liteloader": return 3;
                 case "fabric": return 4;
                 case "quilt": return 5;
                 case "neoforge": return 6;
@@ -485,7 +567,10 @@ namespace BlockCraftLauncher.Wpf.Services
             var rows = Value(envelope, "data") as object[];
             if (rows == null || rows.Length > FilePageSize)
                 throw new InvalidDataException("CurseForge 文件列表格式异常");
-            return (rows, HasNextPage(envelope, page, FilePageSize, rows.Length));
+            bool more = HasNextPage(envelope, page, FilePageSize, rows.Length);
+            if (serviceOrigin != null && rows.Any(row => !IsProjectFile(Dict(row), project)))
+                throw new InvalidDataException("CurseForge 文件列表包含不属于当前项目的文件。");
+            return (rows, more);
         }
 
         static IEnumerable<long> RequiredProjects(Dictionary<string, object> file) =>
@@ -617,28 +702,38 @@ namespace BlockCraftLauncher.Wpf.Services
             const long cap = 200L * 1024 * 1024;
             for (int redirects = 0; redirects < 5; redirects++)
             {
-                if (!AllowedDownload(uri.AbsoluteUri, allowMirror: false))
-                    throw new InvalidDataException("CurseForge 返回了非官方 CDN 地址。");
+                if (serviceOrigin == null)
+                {
+                    if (!AllowedDownload(uri.AbsoluteUri, allowMirror: false))
+                        throw new InvalidDataException("CurseForge 返回了非官方 CDN 地址。");
+                }
+                else if (!serviceOrigin.IsBaseOf(uri) || uri.Query.Length != 0 || uri.Fragment.Length != 0 ||
+                    uri.UserInfo.Length != 0 || !Regex.IsMatch(uri.AbsolutePath, @"^/v1/mods/[1-9][0-9]*/files/[1-9][0-9]*/download$"))
+                    throw new InvalidDataException("CurseForge 下载服务的文件地址无效。");
                 using (var request = new HttpRequestMessage(HttpMethod.Get, uri))
                 {
                     // Redirects are manual so the key is confined to the official edge host.
-                    if (string.Equals(uri.Host, "edge.forgecdn.net", StringComparison.OrdinalIgnoreCase))
+                    if (serviceOrigin == null && string.Equals(uri.Host, "edge.forgecdn.net", StringComparison.OrdinalIgnoreCase))
                         request.Headers.TryAddWithoutValidation("x-api-key", officialKey);
                     using (var response = await NetworkDownloader.SendWithHeaderTimeoutAsync(
                         official, request, TimeSpan.FromSeconds(12), ct).ConfigureAwait(false))
                     {
+                        CheckRateLimitAndAvailability(response);
                         int status = (int)response.StatusCode;
                         if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308)
                         {
+                            if (serviceOrigin != null)
+                                throw new InvalidDataException("CurseForge 下载服务不得重定向文件请求。");
                             var next = response.Headers.Location ??
                                 throw new IOException("CurseForge CDN 重定向缺少目标。");
                             uri = next.IsAbsoluteUri ? next : new Uri(uri, next);
                             continue;
                         }
                         if (status == 401 || status == 403)
-                            throw new InvalidOperationException(status == 401
-                                ? "CurseForge CDN 拒绝本机 API Key（HTTP 401）。"
-                                : "CurseForge CDN 拒绝此文件的第三方下载（HTTP 403）。");
+                            throw new InvalidOperationException(status == 403
+                                ? "CurseForge 拒绝此文件的第三方下载（HTTP 403）。"
+                                : serviceOrigin == null ? "CurseForge CDN 拒绝本机 API Key（HTTP 401）。"
+                                : "CurseForge 官方下载服务的授权不可用（HTTP 401）。");
                         if (!response.IsSuccessStatusCode)
                             throw new IOException("CurseForge CDN 下载失败（HTTP " + status + "）。");
                         using (var output = new FileStream(destination, FileMode.Create,
@@ -657,13 +752,20 @@ namespace BlockCraftLauncher.Wpf.Services
             string filename, CancellationToken ct)
         {
             var details = Dict(await ApiDataAsync("/mods/" + project, ct).ConfigureAwait(false));
-            if (details == null || Id(details, "id") != project)
+            if (details == null || Id(details, "id") != project ||
+                (serviceOrigin != null && !IsMinecraftMod(details)))
                 throw new InvalidDataException("CurseForge 项目信息与所选文件不一致。");
-            if (Equals(Value(details, "allowModDistribution"), false))
+            object distribution = Value(details, "allowModDistribution");
+            if (Equals(distribution, false) || (serviceOrigin != null && !Equals(distribution, true)))
                 throw new InvalidOperationException("作者限制第三方分发：" + Text(details, "name"));
+            if (serviceOrigin != null)
+                return new Uri(serviceOrigin, "/v1/mods/" + project + "/files/" +
+                    Id(file, "id") + "/download").AbsoluteUri;
 
             string direct = Text(file, "downloadUrl");
-            if (AllowedDownload(direct, useMirror)) return direct;
+            // With unspecified distribution permission, only a successful URL
+            // request for this exact file authorizes a direct official download.
+            if ((useMirror || Equals(distribution, true)) && AllowedDownload(direct, useMirror)) return direct;
             try
             {
                 direct = Convert.ToString(await ApiDataAsync("/mods/" + project + "/files/" +
@@ -680,8 +782,7 @@ namespace BlockCraftLauncher.Wpf.Services
             if (project < 1) throw new ArgumentOutOfRangeException(nameof(project));
             if (fileId < 1) throw new ArgumentOutOfRangeException(nameof(fileId));
             var file = Dict(await ApiDataAsync("/mods/" + project + "/files/" + fileId, ct).ConfigureAwait(false));
-            if (file == null || Id(file, "id") != fileId ||
-                (Text(file, "modId").Length > 0 && Id(file, "modId") != project))
+            if (!IsProjectFile(file, project) || Id(file, "id") != fileId)
                 throw new InvalidDataException("CurseForge 未返回所选项目的文件。");
             return file;
         }
@@ -764,7 +865,7 @@ namespace BlockCraftLauncher.Wpf.Services
             IProgress<string> progress, CancellationToken ct, long? selectedFileId = null,
             IProgress<DownloadBytes> bytes = null)
         {
-            RequireEnabled();
+            await RequireEnabledAsync(ct).ConfigureAwait(false);
             if (profile == null || string.IsNullOrWhiteSpace(profile.Directory) ||
                 string.IsNullOrWhiteSpace(profile.BaseVersion))
                 throw new InvalidOperationException("请先选择游戏实例。");

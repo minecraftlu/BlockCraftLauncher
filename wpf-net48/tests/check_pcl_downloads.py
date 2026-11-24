@@ -17,7 +17,7 @@ mod_downloads=(base/'MainWindow.ModDownloads.cs').read_text('utf8')
 for symbol in ('SearchPageAsync', 'ListCompatibleFilesAsync', 'ListModFilesAsync',
                'QueueCurseForgeInstall', 'modDetailsHost', 'ModSource.CurseForge'):
     assert symbol in mod_downloads, symbol
-assert 'Navigate("CurseForge")' not in main + mod_downloads
+assert 'case "CurseForge 官方":' in main and '"CurseForge 官方"' in main.split('case NavigationSection.Download:', 1)[1].split('break;', 1)[0]
 download=(base/'Services/NetworkDownloader.cs').read_text('utf8')
 for symbol in ('RangeHeaderValue', 'ContentRange', 'SHA1.Create()', 'RetryAfterMs',
                'MaxConnectionsPerServer', 'MirrorMojangUri', 'HttpCompletionOption.ResponseHeadersRead',
@@ -51,3 +51,4 @@ modrinth=(base/'Services/ModrinthClient.cs').read_text('utf8')
 for symbol in ('gameVersion', 'loader', 'sort', 'offset', 'SearchAsync', 'DownloadVerifiedDetailedAsync'):
     assert symbol in modrinth, symbol
 print('PASS: PCL-inspired download center migration contracts; real-world throughput not benchmarked')
+

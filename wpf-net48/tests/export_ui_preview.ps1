@@ -2,7 +2,7 @@ param([Parameter(Mandatory)][string]$CaptureDirectory, [Parameter(Mandatory)][st
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 $panels = @(
-    @('light-home.png', '启动'), @('light-mods.png', '模组下载'),
+    @('light-home.png', '启动'), @('light-curseforge.png', 'CurseForge 官方下载'),
     @('dark-skin-editor.png', '皮肤编辑'), @('startup-loading.png', '加载画面')
 )
 $tileWidth = 525

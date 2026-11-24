@@ -11,7 +11,7 @@ $wpf = (Resolve-Path -LiteralPath (Join-Path $project 'src/BlockCraftLauncher.Wp
 $onefile = @(Get-ChildItem -LiteralPath (Join-Path $project 'dist') -File -Filter 'BlockCraftLauncher-v*-WPF-OneFile-Windows-x64.exe')
 if ($onefile.Count -ne 1) { throw 'Expected a single freshly built Windows OneFile EXE.' }
 $pages = @('home', 'versions', 'version-settings', 'installed-mods', 'saves', 'game-download',
-    'manual-install', 'mods', 'resource-packs', 'shaders', 'modpacks', 'skins', 'skin-library',
+    'manual-install', 'mods', 'curseforge', 'resource-packs', 'shaders', 'modpacks', 'skins', 'skin-library',
     'tasks', 'servers', 'server-search', 'lan', 'start-settings', 'download-settings', 'appearance',
     'update-settings', 'about', 'updates', 'logs', 'skin-editor', 'resource-detail')
 
@@ -73,8 +73,9 @@ foreach ($build in @(@('wpf', $wpf), @('onefile', $onefile[0].FullName))) {
             }
         }
     }
+    Test-RenderedImage (Join-Path $folder 'curseforge-selected-file.png') 960 600
     foreach ($image in @('startup-loading', 'page-loading', 'game-launch-loading', 'dialog-account', 'dialog-skin')) {
         Test-RenderedImage (Join-Path $folder "$image.png")
     }
-    Write-Host "PASS $($build[0]): 25 navigable pages, resource details, both themes, startup, loading and two real dialogs."
+    Write-Host "PASS $($build[0]): $($pages.Count - 1) navigable pages, resource details, both themes, startup, loading and two real dialogs."
 }

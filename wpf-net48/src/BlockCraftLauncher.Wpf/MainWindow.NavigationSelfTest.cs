@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -115,6 +118,18 @@ namespace BlockCraftLauncher.Wpf
                         throw new InvalidOperationException("选择模组后未显示对应的项目详情。");
                     PageScroll.ScrollToTop();
                     ArrangeLayoutProbe(width, height, theme + "mods");
+                    Side("CurseForge 官方", "curseforge");
+                    if (SelectedModSource != ModSource.CurseForge)
+                        throw new InvalidOperationException("CurseForge 入口未选择官方来源。");
+                    if (resourceSearchButton.IsEnabled != CurseForgeMirrorClient.HasOfficialAccess)
+                        throw new InvalidOperationException("CurseForge 搜索按钮与官方服务可用状态不一致。");
+                    if (!resourceSearchButton.IsEnabled &&
+                        (modSourceStatus.Visibility != Visibility.Visible || !modSourceStatus.Text.Contains("CurseForge") ||
+                         resourceCounter.Visibility != Visibility.Visible || string.IsNullOrWhiteSpace(resourceCounter.Text) ||
+                         checkOfficialService.Visibility != Visibility.Visible || !checkOfficialService.IsEnabled ||
+                         browseOfficialMods.Visibility != Visibility.Visible || !browseOfficialMods.IsEnabled ||
+                         !FixtureButton(officialSourceActions, "下载 CurseForge 客户端").IsEnabled))
+                        throw new InvalidOperationException("官方服务不可用时缺少提示、重试、官网入口或客户端下载操作。");
                     Side("资源包", "resource-packs");
                     var sample = new ResourceHit { Name = "山间村落", Kind = "resourcepack",
                         ProjectId = "offline-fixture", Author = "BlockCraft", Description = "适用于 1.21.1 的资源包。" };
@@ -188,6 +203,129 @@ namespace BlockCraftLauncher.Wpf
                 ApplyTheme();
                 ApplyZoom();
                 Navigate("首页");
+            }
+        }
+
+        // Drive the ordinary official search, compatible-file pagination and
+        // install button. Every HTTP client in this window uses the fixture.
+        async Task VerifyCurseForgeQueueAsync()
+        {
+            const string variable = "BLOCKCRAFT_CURSEFORGE_API_KEY";
+            string previous = Environment.GetEnvironmentVariable(variable);
+            string root = Path.Combine(Path.GetTempPath(), "blockcraft-cf-ui-" + Guid.NewGuid().ToString("N"));
+            var profile = new GameProfile { Id = "cf-ui-fixture", Name = "Fabric 1.21.1",
+                BaseVersion = "1.21.1", LaunchVersion = "1.21.1", Loader = "fabric", Directory = root };
+            var fixture = new CurseForgeInstallSanityChecks.Fixture();
+            var lookup = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            CancellationToken lookupToken = default;
+            MainWindow window = null;
+            async Task Until(Func<bool> ready, string failure)
+            {
+                var timer = System.Diagnostics.Stopwatch.StartNew();
+                while (!ready())
+                {
+                    if (timer.Elapsed.TotalSeconds > 12) throw new InvalidOperationException("CurseForge 自检：" + failure);
+                    await Task.Delay(20);
+                }
+            }
+            try
+            {
+                window = new MainWindow(mirror => mirror
+                    ? throw new InvalidOperationException("官方安装意外选择了镜像。")
+                    : new CurseForgeMirrorClient(new LauncherConfig { DownloadRetries = 2 }, false,
+                        fixture, CurseForgeInstallSanityChecks.Key), (token, refresh) =>
+                    {
+                        lookupToken = token;
+                        return lookup.Task;
+                    })
+                { SuppressAutomaticUpdateCheck = true, Opacity = 0, ShowInTaskbar = false, ShowActivated = false };
+                window.settings.Profiles.Add(profile);
+                window.activeProfile = profile;
+                window.Show();
+                await Until(() => window.IsLoaded, "测试窗口未加载");
+                void Layout() => window.ArrangeLayoutProbe(960, 600);
+                Layout();
+                if (!CurseForgeMirrorClient.HasOfficialAccess)
+                {
+                    ClickFixtureAction(window.TopDownloadButton);
+                    Layout();
+                    ClickFixtureAction(window.sidebarButtons["CurseForge 官方"]);
+                    Layout();
+                    await Until(() => lookupToken.CanBeCanceled, "未开始检测公开服务地址");
+                    if (window.resourceSearchButton.IsEnabled ||
+                        !FixtureButton(window.officialSourceActions, "下载 CurseForge 客户端").IsEnabled)
+                        throw new InvalidOperationException("检测公开服务期间的客户端和模组操作状态错误。");
+                    var oldStatus = window.modSourceStatus;
+                    ClickFixtureAction(window.TopSettingsButton);
+                    string statusAfterLeaving = oldStatus.Text;
+                    if (!lookupToken.IsCancellationRequested)
+                        throw new InvalidOperationException("离开官方页面后未取消服务检测。");
+                    lookup.SetResult(true);
+                    await window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                    if (window.currentPage != "设置" || oldStatus.Text != statusAfterLeaving)
+                        throw new InvalidOperationException("较晚完成的服务检测更改了已离开的页面。");
+                    Layout();
+                }
+                Environment.SetEnvironmentVariable(variable, CurseForgeInstallSanityChecks.Key);
+                ClickFixtureAction(window.TopDownloadButton);
+                Layout();
+                ClickFixtureAction(window.sidebarButtons["CurseForge 官方"]);
+                Layout();
+                await Until(() => window.resourceCategory.Items.OfType<CurseForgeCategory>()
+                    .Any(category => category.Id == 409), "官方分类未载入");
+                window.modTarget.SelectedItem = profile;
+                var filters = FixtureVisuals(window.PageHost).OfType<Expander>()
+                    .First(expander => Equals(expander.Header, "版本、加载器与分类"));
+                filters.IsExpanded = true;
+                window.resourceMatchVersion.IsChecked = true;
+                window.resourceCategory.SelectedItem = window.resourceCategory.Items.OfType<CurseForgeCategory>()
+                    .Single(category => category.Id == 409);
+                window.resourceQuery.Text = "sodium";
+                Layout();
+                ClickFixtureAction(window.resourceSearchButton);
+                await Until(() => window.resourceResults.OfType<CurseForgeHit>().Any(hit => hit.Id == 101),
+                    "官方搜索未返回所选分类的项目");
+                window.resourceList.SelectedItem = window.resourceResults.OfType<CurseForgeHit>().Single();
+                Layout();
+                var picker = FixtureVisuals(window.modDetailsHost).OfType<ListBox>()
+                    .Single(list => AutomationProperties.GetName(list) == "兼容的模组文件");
+                await Until(() => picker.Items.OfType<ModDownloadFile>().Any(file => file.VersionId == "1001"),
+                    "兼容文件第一页未载入");
+                Layout();
+                ClickFixtureAction(FixtureButton(window.modDetailsHost, "更多版本"));
+                await Until(() => picker.Items.OfType<ModDownloadFile>().Any(file => file.VersionId == "1002"),
+                    "未载入后续页的兼容文件");
+                picker.SelectedItem = picker.Items.OfType<ModDownloadFile>().Single(file => file.VersionId == "1002");
+                Layout();
+                await Until(() => FixtureVisuals(window.modDetailsHost).OfType<TextBlock>()
+                    .Any(text => text.Text.Contains("Dependency")), "文件选择未显示必需前置名称");
+                filters.IsExpanded = false;
+                window.PageScroll.ScrollToTop();
+                window.ArrangeLayoutProbe(960, 600, "curseforge-selected-file");
+                ClickFixtureAction(FixtureButton(window.modDetailsHost, "安装所选版本"));
+                var job = window.downloads.Jobs.Single();
+                await Until(() => !job.IsRunning, "等待安装队列超时");
+                if (job.Status != "已完成" || job.Percent != 100)
+                    throw new InvalidOperationException("CurseForge 安装队列失败：" + job.Error);
+                string mods = Path.Combine(root, "mods");
+                if (!Directory.GetFiles(mods).Select(Path.GetFileName).OrderBy(name => name, StringComparer.Ordinal)
+                        .SequenceEqual(new[] { "chosen.jar", "dependency.jar" }))
+                    throw new InvalidOperationException("安装未精确使用选定文件和必需前置。");
+                foreach (string path in Directory.GetFiles(mods))
+                    using (var sha = SHA1.Create())
+                    using (var input = File.OpenRead(path))
+                    {
+                        string actual = BitConverter.ToString(sha.ComputeHash(input)).Replace("-", "");
+                        if (actual != fixture.ExpectedHash(Path.GetFileName(path)))
+                            throw new InvalidOperationException("实例中的 JAR 哈希与官方元数据不一致。");
+                    }
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(variable, previous);
+                window?.Close();
+                fixture.Dispose();
+                if (Directory.Exists(root)) Directory.Delete(root, true);
             }
         }
 
