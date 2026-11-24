@@ -1,5 +1,5 @@
 param([Parameter(Mandatory)][string]$CaptureDirectory, [Parameter(Mandatory)][string]$OutputFile,
-    [switch]$QwenDownloadPreview)
+    [switch]$QwenDownloadPreview, [switch]$QwenStudioPreview)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 $panels = @(
@@ -8,6 +8,12 @@ $panels = @(
 )
 if ($QwenDownloadPreview) {
     $panels[0] = @('qwen-download-action.png', '千问下载指令 · 离线示例')
+}
+if ($QwenStudioPreview) {
+    $panels = @(
+        @('qwen-chat-result.png', '连续对话 · 测试示例'), @('qwen-media.png', '图片与视频创作 · 测试示例'),
+        @('qwen-download-action.png', '模组下载指令'), @('dark-qwen-search.png', '千问 AI 助手 · 深色界面')
+    )
 }
 $tileWidth = 525
 $tileHeight = 315

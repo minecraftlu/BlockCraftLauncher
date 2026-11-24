@@ -80,6 +80,11 @@ namespace BlockCraftLauncher.Wpf
                 string.Equals(arg, "--qwen-search-selftest", StringComparison.OrdinalIgnoreCase));
             bool qwenDownloadSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--qwen-download-selftest", StringComparison.OrdinalIgnoreCase));
+            bool qwenChatSelfTest = e.Args.Any(arg =>
+                string.Equals(arg, "--qwen-chat-selftest", StringComparison.OrdinalIgnoreCase));
+            bool qwenMediaSelfTest = e.Args.Any(arg =>
+                string.Equals(arg, "--qwen-media-selftest", StringComparison.OrdinalIgnoreCase));
+            bool qwenUiCheck = qwenSearchSelfTest || qwenDownloadSelfTest || qwenChatSelfTest || qwenMediaSelfTest;
             bool qwenLiveDownload = e.Args.Any(arg =>
                 string.Equals(arg, "--qwen-download-live-check", StringComparison.OrdinalIgnoreCase));
             bool qwenLiveGame = e.Args.Any(arg =>
@@ -94,7 +99,7 @@ namespace BlockCraftLauncher.Wpf
                 string.Equals(arg, "--public-network-selftest", StringComparison.OrdinalIgnoreCase));
             smokeTest = publicNetworkSelfTest || authSelfTest || downloadSelfTest || dependencySelfTest ||
                 saveRestoreSelfTest || instanceDetectionSelfTest || modrinthSearchSelfTest ||
-                downloadPageSelfTest || layoutSelfTest || qwenSearchSelfTest || qwenDownloadSelfTest || qwenLiveDownload || qwenLiveGame || skinSelfTest ||
+                downloadPageSelfTest || layoutSelfTest || qwenUiCheck || qwenLiveDownload || qwenLiveGame || skinSelfTest ||
                 serverSearchSelfTest ||
                 relaunchWindowSelfTest ||
                 e.Args.Any(arg =>
@@ -300,14 +305,14 @@ namespace BlockCraftLauncher.Wpf
                     if (ordinaryStartup && !VerifyStartupComponents()) return;
                     bool publicQwenCheck = qwenLiveDownload || qwenLiveGame;
                     var window = publicQwenCheck ? BlockCraftLauncher.Wpf.MainWindow.CreateQwenLiveDownloadWindow() : new MainWindow();
-                    window.SuppressAutomaticUpdateCheck = qwenSearchSelfTest || qwenDownloadSelfTest || publicQwenCheck || relaunchWindowSelfTest ||
+                    window.SuppressAutomaticUpdateCheck = qwenUiCheck || publicQwenCheck || relaunchWindowSelfTest ||
                         directPreview || updateHandoff || rollback;
                     if (updateHandoff) window.BeginUpdateHandoff();
                     if (window.Content == null)
                         throw new InvalidOperationException("WPF 主窗口没有初始化内容");
                     if (smokeTest && !relaunchWindowSelfTest)
                     {
-                        if (qwenSearchSelfTest || qwenDownloadSelfTest || publicQwenCheck)
+                        if (qwenUiCheck || publicQwenCheck)
                         {
                             window.ShowActivated = false;
                             window.ShowInTaskbar = false;
@@ -321,6 +326,16 @@ namespace BlockCraftLauncher.Wpf
                             {
                                 result = await window.VerifyLiveQwenDownloadAsync();
                                 reportName = "qwen-live-download-check.txt";
+                            }
+                            else if (qwenChatSelfTest)
+                            {
+                                result = await window.VerifyQwenChatAsync();
+                                reportName = "qwen-chat-check.txt";
+                            }
+                            else if (qwenMediaSelfTest)
+                            {
+                                result = await window.VerifyQwenMediaAsync();
+                                reportName = "qwen-media-check.txt";
                             }
                             else if (qwenDownloadSelfTest)
                             {

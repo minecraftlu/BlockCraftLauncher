@@ -75,11 +75,8 @@ namespace BlockCraftLauncher.Wpf.Services
             question = question?.Trim();
             if (string.IsNullOrEmpty(question) || question.Length > MaxQuestionLength)
                 throw new QwenSearchException("请输入 1 到 2000 个字符的问题。");
-            if (!TryGetEndpoint(endpoint, out var address)) throw new QwenSearchException("请填写阿里云百炼北京或新加坡地域的 HTTPS 接口地址。");
-            if (!IsValidModel(model)) throw new QwenSearchException("请填写千问模型 ID，例如 qwen4-max。");
             apiKey = apiKey?.Trim();
-            if (string.IsNullOrEmpty(apiKey) || apiKey.Length > 1024 || apiKey.Any(c => c < '!' || c > '~'))
-                throw new QwenSearchException("请填写当前地域的百炼 API Key。");
+            var address = ValidateConnection(apiKey, endpoint, model);
 
             var serializer = new JavaScriptSerializer { MaxJsonLength = MaxResponseBytes, RecursionLimit = 32 };
             var payload = new {
@@ -117,7 +114,16 @@ namespace BlockCraftLauncher.Wpf.Services
             }
         }
 
-        static string StatusMessage(int status)
+        internal static Uri ValidateConnection(string apiKey, string endpoint, string model)
+        {
+            if (!TryGetEndpoint(endpoint, out var address)) throw new QwenSearchException("请填写阿里云百炼北京或新加坡地域的 HTTPS 接口地址。");
+            if (!IsValidModel(model)) throw new QwenSearchException("请填写千问模型 ID，例如 qwen4-max。");
+            if (string.IsNullOrEmpty(apiKey) || apiKey.Length > 1024 || apiKey.Any(c => c < '!' || c > '~'))
+                throw new QwenSearchException("请填写当前地域的百炼 API Key。");
+            return address;
+        }
+
+        internal static string StatusMessage(int status)
         {
             switch (status)
             {
@@ -131,27 +137,38 @@ namespace BlockCraftLauncher.Wpf.Services
             }
         }
 
-        static object Field(object obj, string key) => obj is Dictionary<string, object> fields && fields.TryGetValue(key, out var value) ? value : null;
-        static object[] Items(object obj, string key) => Field(obj, key) as object[] ?? Array.Empty<object>();
+        internal static object Field(object obj, string key) => obj is Dictionary<string, object> fields && fields.TryGetValue(key, out var value) ? value : null;
+        internal static object[] Items(object obj, string key) => Field(obj, key) as object[] ?? Array.Empty<object>();
 
-        static QwenSearchResult ParseResponse(JavaScriptSerializer serializer, string json)
+        internal static object ReadJson(JavaScriptSerializer serializer, string json)
         {
-            object data;
-            try { data = serializer.DeserializeObject(json); }
+            try { return serializer.DeserializeObject(json); }
             catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is FormatException || ex is OverflowException)
             {
                 throw new QwenSearchException("千问返回的数据格式无效，请稍后重试。");
             }
+        }
+
+        internal static QwenSearchResult ParseResponse(JavaScriptSerializer serializer, string json)
+        {
+            object data = ReadJson(serializer, json);
             var message = Field(Items(data, "choices").FirstOrDefault(), "message");
             string answer = Field(message, "content") as string;
             if (string.IsNullOrWhiteSpace(answer)) throw new QwenSearchException("千问没有返回回答，请确认模型支持联网搜索。");
-
-            // Chat Completions usually omits source metadata. Only expose structured links actually returned by the service.
             var sources = new List<QwenSearchSource>();
-            var seenUrls = new HashSet<Uri>();
-            var seenIndices = new HashSet<int>();
-            int nextIndex = 1;
+            AppendSources(data, message, sources);
+            return new QwenSearchResult(answer.Trim(), sources.AsReadOnly());
+        }
+
+        internal static void AppendSources(object data, object message, List<QwenSearchSource> sources)
+        {
+            // Citations are optional. Only expose structured links actually returned by the service.
             var searchInfo = Field(data, "search_info") ?? Field(message, "search_info");
+            if (sources.Count >= 48 || (searchInfo == null && Field(message, "annotations") == null)) return;
+            var seenUrls = new HashSet<Uri>(sources.Select(s => s.Url));
+            var seenIndices = new HashSet<int>(sources.Select(s => s.Index));
+            int nextIndex = 1;
+            while (seenIndices.Contains(nextIndex)) nextIndex++;
             var references = Items(searchInfo, "search_results").Concat(
                 Items(message, "annotations").Where(entry => Field(entry, "type") as string == "url_citation").Select(entry => Field(entry, "url_citation")));
             foreach (var entry in references)
@@ -166,7 +183,6 @@ namespace BlockCraftLauncher.Wpf.Services
                 if (string.IsNullOrEmpty(title)) title = url.Host;
                 sources.Add(new QwenSearchSource(index, title.Length > 200 ? title.Substring(0, 200) : title, url));
             }
-            return new QwenSearchResult(answer.Trim(), sources.AsReadOnly());
         }
 
         public static bool IsSafeSource(Uri url)

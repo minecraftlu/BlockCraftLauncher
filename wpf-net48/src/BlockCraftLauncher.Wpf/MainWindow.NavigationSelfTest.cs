@@ -81,6 +81,8 @@ namespace BlockCraftLauncher.Wpf
             };
             bool wasSuppressed = SuppressAutomaticUpdateCheck;
             SuppressAutomaticUpdateCheck = true;
+            qwenSettingsPath = Path.Combine(profile.Directory, "qwen-settings.json");
+            qwenHistoryPath = Path.Combine(profile.Directory, "qwen-history.json");
             bool dialogs = Environment.GetEnvironmentVariable("BLOCKCRAFT_UI_DIALOG_PROBE") == "1";
             settings.Profiles.Add(profile);
             activeProfile = profile;
@@ -122,7 +124,7 @@ namespace BlockCraftLauncher.Wpf
 
                     Navigate("首页");
                     Visit("首页", "home");
-                    Visit("千问 AI 搜索", "qwen-search", FixtureButton(PageHost, "千问 AI 搜索"));
+                    Visit("千问 AI 搜索", "qwen-search", FixtureButton(PageHost, NavLabel(QwenSearchPage)));
                     VerifyFixtureSidebar("千问 AI 搜索");
                     Visit("首页", "home", TopLaunchButton);
                     ClickFixtureAction(FixtureButton(PageHost, "CurseForge 官方"));

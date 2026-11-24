@@ -87,7 +87,8 @@ namespace BlockCraftLauncher.Wpf
                     new SettingsStore(Path.Combine(folder, "settings.test.json")))
                 {
                     SuppressAutomaticUpdateCheck = true, ShowActivated = false, ShowInTaskbar = false,
-                    qwenSettingsPath = Path.Combine(folder, "qwen.json"), preferredModSource = ModSource.CurseForge
+                    qwenSettingsPath = Path.Combine(folder, "qwen.json"), qwenHistoryPath = Path.Combine(folder, "history.json"),
+                    preferredModSource = ModSource.CurseForge
                 };
                 window.settings.Root = folder;
                 window.settings.DownloadDirectory = Path.Combine(folder, "downloads");
@@ -111,6 +112,11 @@ namespace BlockCraftLauncher.Wpf
                 };
                 int aiCalls = 0;
                 string suggested = "{\"keyword\":\"Sodium\"}";
+                window.qwenRunChat = (turns, key, endpoint, model, web, onDelta, ct) =>
+                {
+                    aiCalls++;
+                    throw new InvalidOperationException("下载指令意外进入普通聊天。");
+                };
                 window.qwenRunSearch = (question, key, endpoint, model, ct) =>
                 {
                     aiCalls++;
@@ -129,7 +135,7 @@ namespace BlockCraftLauncher.Wpf
                     {
                         ClickFixtureAction(window.TopLaunchButton);
                         await Layout();
-                        ClickFixtureAction(FixtureButton(window.PageHost, QwenSearchPage));
+                        ClickFixtureAction(FixtureButton(window.PageHost, NavLabel(QwenSearchPage)));
                         await Layout();
                     }
                     window.qwenQuery.Text = text;

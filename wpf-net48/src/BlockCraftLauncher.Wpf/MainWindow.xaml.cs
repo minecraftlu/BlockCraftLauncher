@@ -228,6 +228,7 @@ namespace BlockCraftLauncher.Wpf
             Closed += (sender, args) =>
             {
                 CloseQwenSearchPage();
+                DisposeQwenMediaPage();
                 SystemParameters.StaticPropertyChanged -= SystemAppearanceChanged;
                 downloads.JobsChanged -= OnDownloadJobsChanged;
                 gameProcessTimer.Stop();
@@ -413,6 +414,7 @@ namespace BlockCraftLauncher.Wpf
                 case "设置": return "启动设置";
                 case "多人联机": return "服务器";
                 case "更新设置": return "启动器更新";
+                case QwenSearchPage: return "千问 AI 助手";
                 default: return page;
             }
         }
@@ -1238,7 +1240,7 @@ namespace BlockCraftLauncher.Wpf
             }
             var library = Card(Col(Txt("游戏下载", 16, true), Shortcut("安装游戏", "游戏版本"),
                 Shortcut("CurseForge 官方", "CurseForge 官方"), Shortcut("下载整合包", "整合包")));
-            var tools = Card(Col(Txt("常用工具", 16, true), Shortcut("千问 AI 搜索", "千问 AI 搜索"),
+            var tools = Card(Col(Txt("常用工具", 16, true), Shortcut(NavLabel(QwenSearchPage), QwenSearchPage),
                 Shortcut("管理皮肤", "皮肤库"), Shortcut("服务器", "多人联机"), Shortcut("启动设置", "设置")));
             RefreshGameProcessStatus();
             return Col(overview, homeUpdateCard, PageColumns(library, tools, 255));

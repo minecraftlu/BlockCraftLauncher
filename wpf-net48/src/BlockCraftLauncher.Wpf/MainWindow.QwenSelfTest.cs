@@ -53,7 +53,8 @@ namespace BlockCraftLauncher.Wpf
                     CheckQwen(request.Method == HttpMethod.Post && request.RequestUri.AbsoluteUri == QwenFixtureEndpoint &&
                         request.Headers.Authorization?.Scheme == "Bearer" &&
                         request.Headers.Authorization?.Parameter == QwenFixtureKey &&
-                        Equals(body["model"], QwenSearchService.DefaultModel) && Equals(body["enable_search"], true) &&
+                        Equals(body["model"], QwenSearchService.DefaultModel) && Equals(body["stream"], true) &&
+                        Equals(body["enable_search"], true) &&
                         Equals(((Dictionary<string, object>)body["search_options"])["forced_search"], true) &&
                         hasQuestion && !content.Contains(QwenFixtureKey), "请求地址、模型、问题、鉴权或联网搜索参数错误。");
                 }
@@ -95,11 +96,12 @@ namespace BlockCraftLauncher.Wpf
             Directory.CreateDirectory(folder);
             qwenSettingsPath = Path.Combine(folder, "launcher.json");
             qwenCompanionPath = Path.Combine(folder, "companion.json");
+            qwenHistoryPath = Path.Combine(folder, "history.json");
             const string environmentKey = "DASHSCOPE_API_KEY";
             string previousKey = Environment.GetEnvironmentVariable(environmentKey);
             var fixture = new QwenFixtureHandler();
-            using var client = new QwenSearchService(fixture);
-            qwenRunSearch = client.SearchAsync;
+            using var client = new QwenChatService(fixture);
+            qwenRunChat = client.ChatAsync;
             var opened = new List<Uri>();
             qwenOpenUri = opened.Add;
             async Task Layout()
@@ -109,8 +111,9 @@ namespace BlockCraftLauncher.Wpf
             }
             async Task SearchAndWait()
             {
+                qwenQuery.Text = QwenFixtureQuestion;
                 ClickFixtureAction(qwenSubmit);
-                await WaitForQwenAsync(() => qwenSubmit.IsEnabled && !qwenCancel.IsEnabled, "搜索完成");
+                await WaitForQwenAsync(() => qwenRequest == null && !qwenCancel.IsEnabled, "搜索完成");
                 await Layout();
             }
 
@@ -123,9 +126,10 @@ namespace BlockCraftLauncher.Wpf
                 if (!IsVisible) Show();
                 Navigate("首页");
                 await Layout();
-                ClickFixtureAction(FixtureButton(PageHost, QwenSearchPage));
+                ClickFixtureAction(FixtureButton(PageHost, NavLabel(QwenSearchPage)));
                 await Layout();
                 VerifyFixtureSidebar(QwenSearchPage);
+                qwenWebSearch.IsChecked = true;
                 CheckQwen(qwenModel.Text == QwenSearchService.DefaultModel &&
                     qwenEndpoint.Text == QwenSearchService.DefaultEndpoint, "首次打开的模型或服务地址错误。");
                 var serializer = new JavaScriptSerializer();
@@ -174,9 +178,8 @@ namespace BlockCraftLauncher.Wpf
 
                 fixture.OmitSources = true;
                 await SearchAndWait();
-                CheckQwen(qwenAnswer.Text == QwenFixtureAnswer && !FixtureVisuals(qwenSources).OfType<Button>().Any() &&
-                    FixtureVisuals(qwenSources).OfType<TextBlock>().Any(label => label.Text.Contains("未附来源")),
-                    "缺少来源元数据时未保留回答和对应说明。");
+                CheckQwen(qwenAnswer.Text == QwenFixtureAnswer && !FixtureVisuals(qwenSources).OfType<Button>().Any(),
+                    "缺少来源元数据时未保留回答，或生成了额外的链接。");
                 foreach (var code in new[] { HttpStatusCode.Unauthorized, (HttpStatusCode)429 })
                 {
                     fixture.ResponseCode = code;
@@ -188,6 +191,7 @@ namespace BlockCraftLauncher.Wpf
                 }
                 CheckQwen(fixture.Requests == 4 && fixture.ValidationFailure == null, "错误响应未走真实搜索入口。");
                 fixture.WaitForCancellation = true;
+                qwenQuery.Text = QwenFixtureQuestion;
                 ClickFixtureAction(qwenSubmit);
                 await WaitForQwenAsync(() => fixture.Requests == 5, "启动可取消的 HTTP 请求");
                 ClickFixtureAction(qwenCancel);
@@ -202,7 +206,7 @@ namespace BlockCraftLauncher.Wpf
                 Environment.SetEnvironmentVariable(environmentKey, previousKey);
                 Navigate("首页");
                 qwenOpenUri = null;
-                qwenRunSearch = null;
+                qwenRunChat = null;
                 if (Directory.Exists(folder)) Directory.Delete(folder, true);
             }
         }
@@ -211,7 +215,8 @@ namespace BlockCraftLauncher.Wpf
         {
             var waiting = new TaskCompletionSource<QwenSearchResult>(TaskCreationOptions.RunContinuationsAsynchronously);
             CancellationToken seen = default;
-            qwenRunSearch = (question, key, endpoint, model, token) => { seen = token; return waiting.Task; };
+            qwenRunChat = (turns, key, endpoint, model, web, delta, token) => { seen = token; return waiting.Task; };
+            qwenQuery.Text = QwenFixtureQuestion;
             ClickFixtureAction(qwenSubmit);
             CheckQwen(seen.CanBeCanceled && !qwenSubmit.IsEnabled && qwenCancel.IsEnabled, "正在搜索时的操作状态错误。");
             ClickFixtureAction(qwenCancel);
@@ -219,6 +224,7 @@ namespace BlockCraftLauncher.Wpf
 
             var previous = waiting;
             waiting = new TaskCompletionSource<QwenSearchResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            qwenQuery.Text = QwenFixtureQuestion;
             ClickFixtureAction(qwenSubmit);
             previous.SetResult(new QwenSearchResult("old response", new QwenSearchSource[0]));
             await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
@@ -229,7 +235,7 @@ namespace BlockCraftLauncher.Wpf
             waiting.SetResult(new QwenSearchResult("stale navigation", new QwenSearchSource[0]));
             await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
             ArrangeLayoutProbe(960, 600);
-            ClickFixtureAction(FixtureButton(PageHost, QwenSearchPage));
+            ClickFixtureAction(FixtureButton(PageHost, NavLabel(QwenSearchPage)));
             await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
             CheckQwen(qwenSubmit.IsEnabled && !qwenCancel.IsEnabled && qwenAnswer.Text != "stale navigation",
                 "离开后完成的请求覆盖了重新打开的搜索页。");

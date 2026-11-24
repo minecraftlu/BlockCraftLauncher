@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -15,8 +16,8 @@ namespace BlockCraftLauncher.Wpf
         const string QwenSearchPage = "千问 AI 搜索";
         StackPanel qwenPage, qwenSources;
         Border qwenResult;
-        TextBox qwenQuery, qwenEndpoint, qwenModel;
-        TextBlock qwenSearchStatus, qwenAnswer;
+        TextBox qwenQuery, qwenEndpoint, qwenModel, qwenAnswer;
+        TextBlock qwenSearchStatus;
         PasswordBox qwenApiKey;
         CheckBox qwenRememberKey;
         Expander qwenConnection;
@@ -36,9 +37,9 @@ namespace BlockCraftLauncher.Wpf
             {
                 AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 64,
                 MaxHeight = 140, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                MaxLength = QwenSearchService.MaxQuestionLength
+                MaxLength = QwenChatInputLimit
             };
-            ApplySearchInputStyle(qwenQuery, "例如：下载 Minecraft 1.21.1、给当前实例装钠。按 Ctrl + Enter 提交");
+            ApplySearchInputStyle(qwenQuery, "输入问题或指令，例如「下载 Minecraft 1.21.1」「给当前实例装钠」。");
             AutomationProperties.SetName(qwenQuery, "问题或下载指令");
             qwenQuery.PreviewKeyDown += async (sender, args) =>
             {
@@ -46,35 +47,12 @@ namespace BlockCraftLauncher.Wpf
                 args.Handled = true;
                 await OpenQwenPageAsync();
             };
-            qwenSubmit = Btn("搜索", async () => await OpenQwenPageAsync(), true);
-            qwenCancel = Btn("取消搜索", CancelQwenSearch);
+            qwenSubmit = Btn("发送", async () => await OpenQwenPageAsync(), true);
+            qwenCancel = Btn("停止", CancelQwenSearch);
             qwenCancel.IsEnabled = false;
             qwenCancel.Visibility = Visibility.Collapsed;
-            var clear = Btn("清空", () =>
-            {
-                CancelQwenSearch();
-                qwenQuery.Clear();
-                ClearQwenResult();
-                SetQwenSearchStatus("");
-                qwenQuery.Focus();
-            });
-            var searchCard = Card(Col(Txt("问题或下载指令", 16, true),
-                Txt("试试「下载 Minecraft 1.21.1」或「给当前实例装钠」。", 12, false, true), qwenQuery,
-                Row(qwenSubmit, qwenCancel, clear), qwenSearchStatus));
-
-            qwenAnswer = Txt("", 14);
-            AutomationProperties.SetName(qwenAnswer, "千问回答");
-            qwenSources = new StackPanel();
-            var copy = Btn("复制回答", () =>
-            {
-                try { Clipboard.SetText(qwenAnswer.Text); SetQwenSearchStatus("已复制回答。"); }
-                catch (System.Runtime.InteropServices.ExternalException) { SetQwenSearchStatus("剪贴板正被占用，请重试。"); }
-            });
-            qwenResult = Card(Col(Txt("千问回答", 16, true), qwenAnswer, qwenSources, copy));
-            qwenResult.Visibility = Visibility.Collapsed;
             qwenConnection = BuildQwenConnection();
-            qwenPage = Col(PageHeading(QwenSearchPage, "游戏和模组指令由启动器处理。向千问提问或请它推荐模组时，将使用你的百炼账户。"),
-                searchCard, qwenConnection, qwenResult);
+            qwenPage = BuildQwenAssistant();
             return qwenPage;
         }
 
@@ -113,7 +91,7 @@ namespace BlockCraftLauncher.Wpf
                     var desktop = QwenConnectionSettings.ImportCompanion(qwenCompanionPath);
                     qwenEndpoint.Text = desktop.Endpoint;
                     qwenModel.Text = desktop.Model;
-                    SetQwenSearchStatus("已填入桌面伙伴的接口和模型。填写自己的密钥后即可搜索。");
+                    SetQwenSearchStatus("已填入桌面伙伴的接口和模型。填写自己的百炼密钥后即可对话。");
                 }
                 catch (InvalidOperationException ex) { SetQwenSearchStatus(ex.Message); }
                 catch (Exception) { SetQwenSearchStatus("读取桌面伙伴配置失败，请手动填写接口和模型。"); }
@@ -147,20 +125,22 @@ namespace BlockCraftLauncher.Wpf
             ApiKey = qwenApiKey.Password.Trim(), RememberApiKey = qwenRememberKey.IsChecked == true
         };
 
-        async Task OpenQwenPageAsync()
+        Task OpenQwenPageAsync() => SubmitQwenAsync(qwenQuery.Text.Trim(), false);
+
+        async Task SubmitQwenAsync(string question, bool regenerate)
         {
             if (qwenPage == null || currentPage != QwenSearchPage || qwenRequest != null) return;
-            string question = qwenQuery.Text.Trim();
-            if (question.Length == 0 || question.Length > QwenSearchService.MaxQuestionLength)
+            if (question.Length == 0 || question.Length > QwenChatInputLimit)
             {
-                SetQwenSearchStatus("请输入 1 至 " + QwenSearchService.MaxQuestionLength + " 字的问题。");
+                SetQwenSearchStatus("请输入 1 至 " + QwenChatInputLimit + " 字的问题。");
                 qwenQuery.Focus();
                 return;
             }
-            bool isCommand = LauncherSearchCommand.TryParse(question, out var command);
+            if (!regenerate && TryOpenQwenCreativeDraft(question)) return;
+            LauncherSearchCommand command = null;
+            bool isCommand = !regenerate && LauncherSearchCommand.TryParse(question, out command);
             if (isCommand && command.Kind == LauncherSearchKind.Invalid)
             {
-                ClearQwenResult();
                 SetQwenSearchStatus(command.Error);
                 return;
             }
@@ -174,18 +154,13 @@ namespace BlockCraftLauncher.Wpf
             qwenSubmit.IsEnabled = false;
             qwenCancel.IsEnabled = true;
             qwenCancel.Visibility = Visibility.Visible;
-            ClearQwenResult();
-            SetQwenSearchStatus(useModel ? "正在搜索…" : "正在启动器内查找…");
+            qwenRegenerate.IsEnabled = false;
+            SetQwenSearchStatus(useModel ? "正在等待千问回答…" : "正在启动器内查找…");
             try
             {
                 if (!isCommand)
                 {
-                    var result = await AskQwenAsync(question, key, connection, operation.Token);
-                    if (ReferenceEquals(qwenRequest, operation))
-                    {
-                        ShowQwenResult(result);
-                        SetQwenSearchStatus("");
-                    }
+                    await RunQwenChatAsync(question, regenerate, key, connection, operation);
                     return;
                 }
 
@@ -210,7 +185,7 @@ namespace BlockCraftLauncher.Wpf
             }
             catch (OperationCanceledException)
             {
-                if (ReferenceEquals(qwenRequest, operation)) SetQwenSearchStatus("搜索已取消。");
+                if (ReferenceEquals(qwenRequest, operation)) SetQwenSearchStatus("请求已取消。");
             }
             catch (QwenSearchException ex)
             {
@@ -219,29 +194,33 @@ namespace BlockCraftLauncher.Wpf
             catch (Exception)
             {
                 if (ReferenceEquals(qwenRequest, operation)) SetQwenSearchStatus(isCommand
-                    ? "启动器未能完成指令，请检查网络后重试。" : "暂时无法完成搜索，请稍后重试。");
+                    ? "启动器未能完成指令，请检查网络后重试。" : "千问暂时未能完成回答，请稍后重试。");
             }
             finally
             {
-                if (ReferenceEquals(qwenRequest, operation)) ResetQwenSearch();
+                if (ReferenceEquals(qwenRequest, operation))
+                {
+                    ResetQwenSearch();
+                    if (!isCommand) RenderQwenConversation();
+                }
                 operation.Dispose();
             }
         }
 
-        bool TryReadQwenCredentials(out QwenConnectionSettings connection, out string key)
+        bool TryReadQwenCredentials(out QwenConnectionSettings connection, out string key, bool requireChatModel = true)
         {
             connection = ReadQwenConnection();
             key = null;
             if (!QwenSearchService.TryGetEndpoint(connection.Endpoint, out _))
             {
-                qwenConnection.IsExpanded = true;
+                OpenQwenConnectionSettings();
                 SetQwenSearchStatus("请填写阿里云百炼北京或新加坡地域的 HTTPS 接口地址。");
                 qwenEndpoint.Focus();
                 return false;
             }
-            if (!QwenSearchService.IsValidModel(connection.Model))
+            if (requireChatModel && !QwenSearchService.IsValidModel(connection.Model))
             {
-                qwenConnection.IsExpanded = true;
+                OpenQwenConnectionSettings();
                 SetQwenSearchStatus("请填写有效的千问模型 ID，例如 qwen4-max。");
                 qwenModel.Focus();
                 return false;
@@ -249,8 +228,8 @@ namespace BlockCraftLauncher.Wpf
             key = connection.ResolveApiKey();
             if (string.IsNullOrWhiteSpace(key))
             {
-                qwenConnection.IsExpanded = true;
-                SetQwenSearchStatus("请在连接设置中填写自己的 API 密钥，再点搜索。");
+                OpenQwenConnectionSettings();
+                SetQwenSearchStatus("请在连接设置中填写自己的百炼 API 密钥。");
                 qwenApiKey.Focus();
                 return false;
             }
@@ -276,21 +255,20 @@ namespace BlockCraftLauncher.Wpf
             Navigate(page);
         }
 
-        void ShowQwenResult(QwenSearchResult result)
+        void RenderQwenSources(StackPanel list, IReadOnlyList<QwenSearchSource> sources)
         {
-            qwenAnswer.Text = result.Answer;
-            foreach (var source in result.Sources)
+            list.Children.Clear();
+            foreach (var source in sources)
             {
                 if (!QwenSearchService.IsSafeSource(source.Url)) continue;
                 var uri = source.Url;
                 var link = Btn("[" + source.Index + "] " + source.Title, () => OpenQwenSource(uri));
                 link.HorizontalAlignment = HorizontalAlignment.Left;
                 link.ToolTip = uri.AbsoluteUri;
-                qwenSources.Children.Add(link);
+                list.Children.Add(link);
             }
-            qwenSources.Children.Insert(0, qwenSources.Children.Count == 0
-                ? Txt("此回答未附来源链接。", 12, false, true) : Txt("参考来源", 14, true));
-            qwenResult.Visibility = Visibility.Visible;
+            if (list.Children.Count != 0)
+                list.Children.Insert(0, Txt("参考来源", 12, true, true));
         }
 
         void OpenQwenSource(Uri uri)
@@ -304,23 +282,21 @@ namespace BlockCraftLauncher.Wpf
             catch (Exception) { SetQwenSearchStatus("无法打开链接，请检查 Windows 的默认浏览器设置。"); }
         }
 
-        void ClearQwenResult()
-        {
-            qwenAnswer.Text = "";
-            qwenSources.Children.Clear();
-            qwenResult.Visibility = Visibility.Collapsed;
-        }
-
         void CancelQwenSearch()
         {
             var operation = qwenRequest;
             if (operation == null) return;
             ResetQwenSearch();
-            SetQwenSearchStatus("搜索已取消。");
+            SetQwenSearchStatus("请求已取消。");
             operation.Cancel();
+            RenderQwenConversation();
         }
 
-        void CloseQwenSearchPage() => CancelQwenSearch();
+        void CloseQwenSearchPage()
+        {
+            CancelQwenSearch();
+            CloseQwenMediaPage();
+        }
 
         void ResetQwenSearch()
         {
@@ -328,6 +304,7 @@ namespace BlockCraftLauncher.Wpf
             qwenSubmit.IsEnabled = true;
             qwenCancel.IsEnabled = false;
             qwenCancel.Visibility = Visibility.Collapsed;
+            qwenRegenerate.IsEnabled = qwenConversations.Current.Turns.Count != 0;
         }
 
         void SetQwenSearchStatus(string message)
