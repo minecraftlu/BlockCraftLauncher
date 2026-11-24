@@ -180,6 +180,7 @@ namespace BlockCraftLauncher.Wpf.Services
                     DisplayName = string.IsNullOrWhiteSpace(file.Title) ? file.Filename : file.Title,
                     FileName = file.Filename,
                     Published = date.Length > 10 ? date.Substring(0, 10) : date,
+                      PublishedTimestamp = date,
                     Release = release == "release" ? "正式版" : release == "beta" ? "Beta" : "Alpha",
                     RequiredDependencies = (Array(version, "dependencies") ?? System.Array.Empty<object>())
                         .OfType<Dictionary<string, object>>()
@@ -313,3 +314,4 @@ namespace BlockCraftLauncher.Wpf.Services
         }
     }
 }
+

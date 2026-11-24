@@ -16,7 +16,7 @@ namespace BlockCraftLauncher.OneFile
     {
         private const string ResourceName = "BlockCraftLauncher.Payload.zip";
         private const string GameExe = "BlockCraftLauncher.Wpf.exe";
-        private const string Release = "v0.9.58";
+        private const string Release = "v0.9.59";
         private const string Ready = ".blockcraft-ready";
 
         [STAThread]
@@ -30,7 +30,7 @@ namespace BlockCraftLauncher.OneFile
                 "--download-selftest", "--modrinth-search-selftest", "--public-network-selftest",
                 "--modrinth-deps-selftest", "--saves-restore-selftest",
                 "--instance-detection-selftest", "--auth-selftest",
-                "--skin-selftest", "--qwen-search-selftest"
+                "--skin-selftest", "--qwen-search-selftest", "--qwen-download-selftest", "--qwen-download-live-check"
             }.Any(flag => string.Equals(flag, args[0], StringComparison.OrdinalIgnoreCase))) ||
                 (args.Length >= 3 && args.Length <= 4 &&
                  args[0] == "--after-update" &&

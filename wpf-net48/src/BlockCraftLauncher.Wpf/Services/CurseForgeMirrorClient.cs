@@ -391,6 +391,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 {
                     Id = id,
                     ProjectId = id.ToString(),
+                    Slug = Truncated(Text(obj, "slug"), 200),
                     Kind = "mod",
                     Source = useMirror ? "MCIM" : "CurseForge",
                     Name = Truncated(Text(obj, "name"), 120),
@@ -595,6 +596,7 @@ namespace BlockCraftLauncher.Wpf.Services
                         FileName = Text(file, "fileName"),
                         DisplayName = name.Length > 0 ? name : Truncated(Text(file, "fileName"), 95),
                         Published = Truncated(Text(file, "fileDate"), 10),
+                        PublishedTimestamp = Text(file, "fileDate"),
                         Release = Text(file, "releaseType") == "1" ? "正式版" :
                             Text(file, "releaseType") == "2" ? "Beta" : "Alpha",
                         RequiredDependencies = dependencies.Length,

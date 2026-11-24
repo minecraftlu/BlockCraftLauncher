@@ -16,6 +16,7 @@ namespace BlockCraftLauncher.Wpf.Services
     public class ResourceHit
     {
         public string ProjectId { get; set; }
+        public string Slug { get; set; }
         public string Name { get; set; }
         public string Description { get; set; }
         public string Kind { get; set; }
@@ -206,6 +207,7 @@ namespace BlockCraftLauncher.Wpf.Services
                     long.TryParse(Convert.ToString(rawDownloads, CultureInfo.InvariantCulture), out downloads);
                 hits.Add(new ResourceHit {
                     ProjectId = projectId,
+                    Slug = Get(p, "slug"),
                     Name = Get(p, "title"), Description = Get(p, "description"),
                     Kind = type, Author = Get(p, "author"),
                     IconUrl = ModrinthSearchMetadata.TrustedIconUrl(Get(p, "icon_url")),
@@ -438,3 +440,4 @@ namespace BlockCraftLauncher.Wpf.Services
         public void Dispose() => network.Dispose();
     }
 }
+

@@ -30,7 +30,7 @@ namespace BlockCraftLauncher.Wpf
 
         SkinStudioView skinStudio;
 
-        readonly SettingsStore store = new SettingsStore();
+        readonly SettingsStore store;
         readonly List<Ellipse> avatarVisuals = new List<Ellipse>();
         readonly LauncherConfig settings;
         readonly LauncherAutoUpdateService autoUpdater;
@@ -140,7 +140,8 @@ namespace BlockCraftLauncher.Wpf
         public MainWindow() : this(null) { }
 
         internal MainWindow(Func<bool, CurseForgeMirrorClient> curseForgeFactory,
-            Func<CancellationToken, bool, Task<bool>> discoverCurseForgeAccess = null)
+            Func<CancellationToken, bool, Task<bool>> discoverCurseForgeAccess = null,
+            SettingsStore settingsStore = null)
         {
             InitializeComponent();
             downloads.JobsChanged += OnDownloadJobsChanged;
@@ -148,6 +149,7 @@ namespace BlockCraftLauncher.Wpf
             // cannot resize or maximize it. On a small or high-DPI screen,
             // reduce the initial bounds once so the close button remains usable.
             ConfigureFixedLauncherWindow();
+            store = settingsStore ?? new SettingsStore();
             settings = store.Load();
             openCurseForgeClient = curseForgeFactory ?? (mirror => new CurseForgeMirrorClient(settings, mirror));
             discoverOfficialAccess = discoverCurseForgeAccess ?? ((token, refresh) =>
@@ -232,6 +234,7 @@ namespace BlockCraftLauncher.Wpf
                 updateCancellation.Cancel();
                 localModIconLoad?.Cancel();
                 CancelAndDetach(ref resourceSearchCancellation);
+                CancelAndDetach(ref qwenModActionCancellation);
                 CancelAndDetach(ref officialServiceCancellation);
                 CancelAndDetach(ref modCategoryCancellation);
                 CancelAndDetach(ref modFileCancellation);
@@ -701,6 +704,7 @@ namespace BlockCraftLauncher.Wpf
             if (selectOfficialSource) preferredModSource = ModSource.CurseForge;
             CancelAndDetach(ref localModIconLoad);
             CancelAndDetach(ref resourceSearchCancellation);
+            CancelAndDetach(ref qwenModActionCancellation);
             CancelAndDetach(ref officialServiceCancellation);
             CancelAndDetach(ref modCategoryCancellation);
             CancelAndDetach(ref modFileCancellation);
@@ -1542,18 +1546,22 @@ namespace BlockCraftLauncher.Wpf
                 versionCancelButton.IsEnabled = running;
         }
 
-        async Task InstallSelectedVersionAsync()
+        Task InstallSelectedVersionAsync()
         {
-            if (!(versionList?.SelectedItem is MinecraftVersionEntry selected) ||
-                versionInstallJob?.IsRunning == true)
-                return;
-            string version = selected.Id;
-            string loader = Convert.ToString(versionLoader?.SelectedItem) ?? "原版";
+            if (versionList?.SelectedItem is MinecraftVersionEntry selected && versionInstallJob?.IsRunning != true)
+                QueueGameInstall(selected.Id, Convert.ToString(versionLoader?.SelectedItem) ?? "原版");
+            return Task.CompletedTask;
+        }
 
+        void QueueGameInstall(string version, string loader,
+            Func<string, string, IProgress<string>, IProgress<DownloadBytes>, CancellationToken, Task<GameProfile>> installer = null)
+        {
             versionInstallJob = downloads.Enqueue("游戏", version + " · " + loader, async (token, progress, bytes) =>
             {
                 progress.Report("正在安装游戏及依赖：" + version);
-                var profile = await modLoaders.InstallAsync(version, loader, null, progress, bytes, token);
+                var profile = installer == null
+                    ? await modLoaders.InstallAsync(version, loader, null, progress, bytes, token)
+                    : await installer(version, loader, progress, bytes, token);
                 token.ThrowIfCancellationRequested();
                 var registered = settings.Profiles.FirstOrDefault(p => p.LaunchVersion == profile.LaunchVersion);
                 if (registered == null)
@@ -1572,7 +1580,6 @@ namespace BlockCraftLauncher.Wpf
             };
             RefreshVersionActions();
             Status("已加入下载任务：" + version + " · " + loader);
-            await Task.CompletedTask;
         }
 
         UIElement BuildDownloadCenter()

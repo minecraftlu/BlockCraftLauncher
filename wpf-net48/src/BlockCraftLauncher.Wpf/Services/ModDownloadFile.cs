@@ -6,6 +6,7 @@ namespace BlockCraftLauncher.Wpf.Services
         public string DisplayName { get; set; }
         public string FileName { get; set; }
         public string Published { get; set; }
+        public string PublishedTimestamp { get; set; }
         public string Release { get; set; }
         public int RequiredDependencies { get; set; }
 
@@ -27,3 +28,4 @@ namespace BlockCraftLauncher.Wpf.Services
         }
     }
 }
+

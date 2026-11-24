@@ -38,8 +38,8 @@ namespace BlockCraftLauncher.Wpf
                 MaxHeight = 140, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 MaxLength = QwenSearchService.MaxQuestionLength
             };
-            ApplySearchInputStyle(qwenQuery, "输入问题，按 Ctrl + Enter 搜索");
-            AutomationProperties.SetName(qwenQuery, "搜索问题");
+            ApplySearchInputStyle(qwenQuery, "例如：下载 Minecraft 1.21.1、给当前实例装钠。按 Ctrl + Enter 提交");
+            AutomationProperties.SetName(qwenQuery, "问题或下载指令");
             qwenQuery.PreviewKeyDown += async (sender, args) =>
             {
                 if (args.Key != Key.Enter || Keyboard.Modifiers != ModifierKeys.Control) return;
@@ -58,7 +58,8 @@ namespace BlockCraftLauncher.Wpf
                 SetQwenSearchStatus("");
                 qwenQuery.Focus();
             });
-            var searchCard = Card(Col(Txt("搜索问题", 16, true), qwenQuery,
+            var searchCard = Card(Col(Txt("问题或下载指令", 16, true),
+                Txt("试试「下载 Minecraft 1.21.1」或「给当前实例装钠」。", 12, false, true), qwenQuery,
                 Row(qwenSubmit, qwenCancel, clear), qwenSearchStatus));
 
             qwenAnswer = Txt("", 14);
@@ -72,7 +73,7 @@ namespace BlockCraftLauncher.Wpf
             qwenResult = Card(Col(Txt("千问回答", 16, true), qwenAnswer, qwenSources, copy));
             qwenResult.Visibility = Visibility.Collapsed;
             qwenConnection = BuildQwenConnection();
-            qwenPage = Col(PageHeading(QwenSearchPage, "搜索时会将问题发送给所选接口，费用按服务商规则计算。"),
+            qwenPage = Col(PageHeading(QwenSearchPage, "游戏和模组指令由启动器处理。向千问提问或请它推荐模组时，将使用你的百炼账户。"),
                 searchCard, qwenConnection, qwenResult);
             return qwenPage;
         }
@@ -156,29 +157,17 @@ namespace BlockCraftLauncher.Wpf
                 qwenQuery.Focus();
                 return;
             }
-            var connection = ReadQwenConnection();
-            if (!QwenSearchService.TryGetEndpoint(connection.Endpoint, out _))
+            bool isCommand = LauncherSearchCommand.TryParse(question, out var command);
+            if (isCommand && command.Kind == LauncherSearchKind.Invalid)
             {
-                qwenConnection.IsExpanded = true;
-                SetQwenSearchStatus("请填写阿里云百炼北京或新加坡地域的 HTTPS 接口地址。");
-                qwenEndpoint.Focus();
+                ClearQwenResult();
+                SetQwenSearchStatus(command.Error);
                 return;
             }
-            if (!QwenSearchService.IsValidModel(connection.Model))
-            {
-                qwenConnection.IsExpanded = true;
-                SetQwenSearchStatus("请填写有效的千问模型 ID，例如 qwen4-max。");
-                qwenModel.Focus();
-                return;
-            }
-            string key = connection.ResolveApiKey();
-            if (string.IsNullOrWhiteSpace(key))
-            {
-                qwenConnection.IsExpanded = true;
-                SetQwenSearchStatus("请在连接设置中填写自己的 API 密钥，再点搜索。");
-                qwenApiKey.Focus();
-                return;
-            }
+            bool useModel = !isCommand || command.Kind == LauncherSearchKind.ModRecommendation;
+            QwenConnectionSettings connection = null;
+            string key = null;
+            if (useModel && !TryReadQwenCredentials(out connection, out key)) return;
 
             var operation = new CancellationTokenSource();
             qwenRequest = operation;
@@ -186,20 +175,38 @@ namespace BlockCraftLauncher.Wpf
             qwenCancel.IsEnabled = true;
             qwenCancel.Visibility = Visibility.Visible;
             ClearQwenResult();
-            SetQwenSearchStatus("正在搜索…");
+            SetQwenSearchStatus(useModel ? "正在搜索…" : "正在启动器内查找…");
             try
             {
-                QwenSearchResult result;
-                if (qwenRunSearch != null)
-                    result = await qwenRunSearch(question, key, connection.Endpoint, connection.Model, operation.Token);
-                else
-                    using (var search = new QwenSearchService(settings))
-                        result = await search.SearchAsync(question, key, connection.Endpoint, connection.Model, operation.Token);
-                if (ReferenceEquals(qwenRequest, operation))
+                if (!isCommand)
                 {
-                    ShowQwenResult(result);
-                    SetQwenSearchStatus("");
+                    var result = await AskQwenAsync(question, key, connection, operation.Token);
+                    if (ReferenceEquals(qwenRequest, operation))
+                    {
+                        ShowQwenResult(result);
+                        SetQwenSearchStatus("");
+                    }
+                    return;
                 }
+
+                string status;
+                if (command.Kind == LauncherSearchKind.Game)
+                    status = await RunQwenGameActionAsync(command.Query, command.Loader, command.Install, operation.Token);
+                else
+                {
+                    string query = command.Query;
+                    bool install = command.Install;
+                    if (command.Kind == LauncherSearchKind.ModRecommendation)
+                    {
+                        query = await QwenModRecommendationService.RecommendKeywordAsync(question,
+                            (prompt, ct) => AskQwenAsync(prompt, key, connection, ct), operation.Token);
+                        operation.Token.ThrowIfCancellationRequested();
+                        install = false;
+                    }
+                    status = await RunQwenModActionAsync(query, install, command.GameVersion, command.Loader,
+                        command.InstanceName, command.SourceName);
+                }
+                if (ReferenceEquals(qwenRequest, operation)) SetQwenSearchStatus(status);
             }
             catch (OperationCanceledException)
             {
@@ -211,13 +218,62 @@ namespace BlockCraftLauncher.Wpf
             }
             catch (Exception)
             {
-                if (ReferenceEquals(qwenRequest, operation)) SetQwenSearchStatus("暂时无法完成搜索，请稍后重试。");
+                if (ReferenceEquals(qwenRequest, operation)) SetQwenSearchStatus(isCommand
+                    ? "启动器未能完成指令，请检查网络后重试。" : "暂时无法完成搜索，请稍后重试。");
             }
             finally
             {
                 if (ReferenceEquals(qwenRequest, operation)) ResetQwenSearch();
                 operation.Dispose();
             }
+        }
+
+        bool TryReadQwenCredentials(out QwenConnectionSettings connection, out string key)
+        {
+            connection = ReadQwenConnection();
+            key = null;
+            if (!QwenSearchService.TryGetEndpoint(connection.Endpoint, out _))
+            {
+                qwenConnection.IsExpanded = true;
+                SetQwenSearchStatus("请填写阿里云百炼北京或新加坡地域的 HTTPS 接口地址。");
+                qwenEndpoint.Focus();
+                return false;
+            }
+            if (!QwenSearchService.IsValidModel(connection.Model))
+            {
+                qwenConnection.IsExpanded = true;
+                SetQwenSearchStatus("请填写有效的千问模型 ID，例如 qwen4-max。");
+                qwenModel.Focus();
+                return false;
+            }
+            key = connection.ResolveApiKey();
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                qwenConnection.IsExpanded = true;
+                SetQwenSearchStatus("请在连接设置中填写自己的 API 密钥，再点搜索。");
+                qwenApiKey.Focus();
+                return false;
+            }
+
+            return true;
+        }
+
+        async Task<QwenSearchResult> AskQwenAsync(string question, string key, QwenConnectionSettings connection, CancellationToken token)
+        {
+            if (qwenRunSearch != null)
+                return await qwenRunSearch(question, key, connection.Endpoint, connection.Model, token);
+            using (var search = new QwenSearchService(settings))
+                return await search.SearchAsync(question, key, connection.Endpoint, connection.Model, token);
+        }
+
+        void NavigateToQwenActionPage(string page)
+        {
+            if (currentPage == QwenSearchPage && qwenRequest != null)
+            {
+                ResetQwenSearch();
+                SetQwenSearchStatus("已打开启动器的下载页面。");
+            }
+            Navigate(page);
         }
 
         void ShowQwenResult(QwenSearchResult result)

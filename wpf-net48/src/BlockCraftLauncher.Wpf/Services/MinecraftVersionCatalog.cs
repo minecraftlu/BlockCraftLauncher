@@ -15,6 +15,7 @@ namespace BlockCraftLauncher.Wpf.Services
         public string Id { get; set; }
         public string Type { get; set; }
         public DateTime Released { get; set; }
+        public bool IsLatestRelease { get; set; }
         public string Category
         {
             get
@@ -65,6 +66,8 @@ namespace BlockCraftLauncher.Wpf.Services
                 !(value is object[] items) || items.Length == 0 || items.Length > 10000)
                 throw new InvalidDataException("Mojang 版本索引格式不正确");
             var output = new List<MinecraftVersionEntry>();
+            string latestRelease = parsed.TryGetValue("latest", out var latest) && latest is Dictionary<string, object> identifiers
+                ? Field(identifiers, "release") : "";
             var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var raw in items)
             {
@@ -78,7 +81,8 @@ namespace BlockCraftLauncher.Wpf.Services
                 DateTime release;
                 if (!DateTime.TryParse(Field(item, "releaseTime"), out release))
                     release = DateTime.MinValue;
-                output.Add(new MinecraftVersionEntry { Id = id, Type = type, Released = release });
+                output.Add(new MinecraftVersionEntry { Id = id, Type = type, Released = release,
+                    IsLatestRelease = type == "release" && id == latestRelease });
             }
             if (output.Count == 0)
                 throw new InvalidDataException("Minecraft 版本索引没有可用记录");
@@ -154,3 +158,4 @@ namespace BlockCraftLauncher.Wpf.Services
         }
     }
 }
+

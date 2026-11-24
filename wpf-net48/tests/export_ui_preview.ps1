@@ -1,10 +1,14 @@
-param([Parameter(Mandatory)][string]$CaptureDirectory, [Parameter(Mandatory)][string]$OutputFile)
+param([Parameter(Mandatory)][string]$CaptureDirectory, [Parameter(Mandatory)][string]$OutputFile,
+    [switch]$QwenDownloadPreview)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 $panels = @(
     @('light-home.png', '启动'), @('curseforge-selected-file.png', '模组 · CurseForge 官方'),
     @('qwen-search-result.png', '千问 AI 搜索 · 离线示例'), @('dark-qwen-search.png', '千问 AI 搜索 · 深色界面')
 )
+if ($QwenDownloadPreview) {
+    $panels[0] = @('qwen-download-action.png', '千问下载指令 · 离线示例')
+}
 $tileWidth = 525
 $tileHeight = 315
 $padding = 14

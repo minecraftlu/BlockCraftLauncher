@@ -78,6 +78,10 @@ namespace BlockCraftLauncher.Wpf
                 string.Equals(arg, "--ui-layout-selftest", StringComparison.OrdinalIgnoreCase));
             bool qwenSearchSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--qwen-search-selftest", StringComparison.OrdinalIgnoreCase));
+            bool qwenDownloadSelfTest = e.Args.Any(arg =>
+                string.Equals(arg, "--qwen-download-selftest", StringComparison.OrdinalIgnoreCase));
+            bool qwenLiveDownload = e.Args.Any(arg =>
+                string.Equals(arg, "--qwen-download-live-check", StringComparison.OrdinalIgnoreCase));
             bool skinSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--skin-selftest", StringComparison.OrdinalIgnoreCase));
             bool serverSearchSelfTest = e.Args.Any(arg =>
@@ -88,7 +92,7 @@ namespace BlockCraftLauncher.Wpf
                 string.Equals(arg, "--public-network-selftest", StringComparison.OrdinalIgnoreCase));
             smokeTest = publicNetworkSelfTest || authSelfTest || downloadSelfTest || dependencySelfTest ||
                 saveRestoreSelfTest || instanceDetectionSelfTest || modrinthSearchSelfTest ||
-                downloadPageSelfTest || layoutSelfTest || qwenSearchSelfTest || skinSelfTest ||
+                downloadPageSelfTest || layoutSelfTest || qwenSearchSelfTest || qwenDownloadSelfTest || qwenLiveDownload || skinSelfTest ||
                 serverSearchSelfTest ||
                 relaunchWindowSelfTest ||
                 e.Args.Any(arg =>
@@ -292,24 +296,39 @@ namespace BlockCraftLauncher.Wpf
                 try
                 {
                     if (ordinaryStartup && !VerifyStartupComponents()) return;
-                    var window = new MainWindow();
-                    window.SuppressAutomaticUpdateCheck = qwenSearchSelfTest || relaunchWindowSelfTest ||
+                    var window = qwenLiveDownload ? BlockCraftLauncher.Wpf.MainWindow.CreateQwenLiveDownloadWindow() : new MainWindow();
+                    window.SuppressAutomaticUpdateCheck = qwenSearchSelfTest || qwenDownloadSelfTest || qwenLiveDownload || relaunchWindowSelfTest ||
                         directPreview || updateHandoff || rollback;
                     if (updateHandoff) window.BeginUpdateHandoff();
                     if (window.Content == null)
                         throw new InvalidOperationException("WPF 主窗口没有初始化内容");
                     if (smokeTest && !relaunchWindowSelfTest)
                     {
-                        if (qwenSearchSelfTest)
+                        if (qwenSearchSelfTest || qwenDownloadSelfTest || qwenLiveDownload)
                         {
                             window.ShowActivated = false;
                             window.ShowInTaskbar = false;
-                            string result = await window.VerifyQwenSearchAsync();
+                            string result, reportName;
+                            if (qwenLiveDownload)
+                            {
+                                result = await window.VerifyLiveQwenDownloadAsync();
+                                reportName = "qwen-live-download-check.txt";
+                            }
+                            else if (qwenDownloadSelfTest)
+                            {
+                                result = await window.VerifyQwenDownloadsAsync();
+                                reportName = "qwen-download-check.txt";
+                            }
+                            else
+                            {
+                                result = await window.VerifyQwenSearchAsync();
+                                reportName = "qwen-check.txt";
+                            }
                             string capture = Environment.GetEnvironmentVariable("BLOCKCRAFT_UI_CAPTURE_DIR");
                             if (!string.IsNullOrWhiteSpace(capture))
                             {
                                 Directory.CreateDirectory(capture);
-                                File.WriteAllText(Path.Combine(capture, "qwen-check.txt"), result);
+                                File.WriteAllText(Path.Combine(capture, reportName), result);
                             }
                         }
                         if (downloadPageSelfTest)

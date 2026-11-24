@@ -61,6 +61,7 @@ namespace BlockCraftLauncher.Wpf
         WrapPanel officialSourceActions;
         Button checkOfficialService, browseOfficialMods;
         bool modFiltersExpanded;
+        Task modDiscovery = Task.CompletedTask;
         CancellationTokenSource modCategoryCancellation, modFileCancellation, modDependencyCancellation, officialServiceCancellation;
 
         ModSource SelectedModSource => resourceType == "mod" && resourceSource?.SelectedIndex >= 0
@@ -88,7 +89,7 @@ namespace BlockCraftLauncher.Wpf
             if (SelectedModSource != ModSource.CurseForge)
                 resourceSource.SelectedIndex = (int)ModSource.CurseForge;
             else
-                _ = CheckOfficialServiceAsync();
+                modDiscovery = CheckOfficialServiceAsync();
         }
 
         void OpenOfficialModCatalog()
@@ -217,7 +218,7 @@ namespace BlockCraftLauncher.Wpf
             ShowModSourceStatus();
             RefreshModFilters();
             if (source == ModSource.CurseForge && !CurseForgeMirrorClient.HasOfficialAccess)
-                _ = CheckOfficialServiceAsync();
+                modDiscovery = CheckOfficialServiceAsync();
         }
 
         void ShowModSourceStatus()
@@ -344,9 +345,14 @@ namespace BlockCraftLauncher.Wpf
             resourceNextButton.IsEnabled = idle && resourceHasMore;
         }
 
-        async Task SearchResourcesAsync(int page = 0)
+        async Task<bool> SearchResourcesAsync(int page = 0, CancellationToken commandToken = default)
         {
-            if (page < 0 || !CanSearchResources()) return;
+            if (!commandToken.CanBeCanceled)
+            {
+                CancelAndDetach(ref qwenModActionCancellation);
+                if (resourceType == "mod") ShowModSourceStatus();
+            }
+            if (page < 0 || !CanSearchResources()) return false;
             bool isMod = resourceType == "mod";
             var source = SelectedModSource;
             var profile = isMod ? modTarget.SelectedItem as GameProfile : activeProfile;
@@ -367,12 +373,13 @@ namespace BlockCraftLauncher.Wpf
             if (IsCurseForgeSource(source) && loader != null && string.IsNullOrWhiteSpace(version))
             {
                 resourceCounter.Text = "按加载器筛选 CurseForge 时，请同时选择 Minecraft 版本。";
-                return;
+                return false;
             }
 
             CancelAndDetach(ref resourceSearchCancellation);
-            using (var request = new CancellationTokenSource(TimeSpan.FromSeconds(40)))
+            using (var request = CancellationTokenSource.CreateLinkedTokenSource(commandToken))
             {
+                request.CancelAfter(TimeSpan.FromSeconds(40));
                 resourceSearchCancellation = request;
                 UpdateResourcePaging();
                 string name = ModSourceName(source);
@@ -414,7 +421,7 @@ namespace BlockCraftLauncher.Wpf
                     }
 
                     if (request.IsCancellationRequested ||
-                        !ReferenceEquals(resourceSearchCancellation, request)) return;
+                        !ReferenceEquals(resourceSearchCancellation, request)) return false;
                     resourcePage = page;
                     resourceHasMore = hasMore;
                     resourceSearchFilters = filters;
@@ -422,6 +429,7 @@ namespace BlockCraftLauncher.Wpf
                     foreach (var hit in hits) resourceResults.Add(hit);
                     resourceCounter.Text = hits.Count == 0 ? "当前页没有匹配项目。" :
                         name + " · 第 " + (page + 1) + " 页 · " + hits.Count + " 项";
+                    return true;
                 }
                 catch (OperationCanceledException)
                 {
@@ -442,6 +450,7 @@ namespace BlockCraftLauncher.Wpf
                     }
                 }
             }
+            return false;
         }
 
         void RefreshModDetails()
@@ -624,23 +633,7 @@ namespace BlockCraftLauncher.Wpf
                     loadingFiles.IsIndeterminate = true;
                     try
                     {
-                        IReadOnlyList<ModDownloadFile> rows;
-                        bool hasMore = false;
-                        if (curseForge != null)
-                        {
-                            using (var client = openCurseForgeClient(hit.Source == "MCIM"))
-                            {
-                                var result = await client.ListCompatibleFilesAsync(
-                                    curseForge.Id, filter, page, request.Token);
-                                rows = result.Files;
-                                hasMore = result.HasMore;
-                            }
-                        }
-                        else
-                        {
-                            using (var client = new ModrinthClient(settings))
-                                rows = await client.ListModFilesAsync(hit, profile, request.Token);
-                        }
+                        var (rows, hasMore) = await LoadModFilesPageAsync(hit, filter, page, request.Token);
                         if (request.IsCancellationRequested || !ReferenceEquals(modFileCancellation, request)) return;
                         var loadedIds = new HashSet<string>(files.Select(file => file.VersionId), StringComparer.Ordinal);
                         foreach (var row in rows)
@@ -688,6 +681,16 @@ namespace BlockCraftLauncher.Wpf
             actions.Children.Add(more);
             details.Children.Add(actions);
             if (IsLoaded) _ = LoadFilesAsync();
+        }
+
+        async Task<(IReadOnlyList<ModDownloadFile> Files, bool HasMore)> LoadModFilesPageAsync(
+            ResourceHit hit, GameProfile target, int page, CancellationToken token)
+        {
+            if (hit is CurseForgeHit project)
+                using (var client = openCurseForgeClient(hit.Source == "MCIM"))
+                    return await client.ListCompatibleFilesAsync(project.Id, target, page, token);
+            using (var client = new ModrinthClient(settings))
+                return (await client.ListModFilesAsync(hit, target, token), false);
         }
 
         async Task PreviewCurseForgeDependenciesAsync(CurseForgeDownloadFile file,
