@@ -62,6 +62,8 @@ namespace BlockCraftLauncher.Wpf
             string postUpdateToken = smokeTest && !relaunchWindowSelfTest ? null :
                 LauncherRelaunchSignal.ReadToken(e.Args);
             bool directPreview = e.Args.Contains("--direct-open", StringComparer.OrdinalIgnoreCase);
+            bool rollback = !smokeTest && postUpdateToken != null &&
+                e.Args.Contains("--update-rollback", StringComparer.OrdinalIgnoreCase);
             bool updateHandoff = !smokeTest && postUpdateToken != null && !directPreview &&
                 e.Args.Contains(LauncherRelaunchSignal.HandoffFlag, StringComparer.OrdinalIgnoreCase);
 
@@ -236,7 +238,7 @@ namespace BlockCraftLauncher.Wpf
                 try
                 {
                     var window = new MainWindow();
-                    window.SuppressAutomaticUpdateCheck = relaunchWindowSelfTest || directPreview || updateHandoff;
+                    window.SuppressAutomaticUpdateCheck = relaunchWindowSelfTest || directPreview || updateHandoff || rollback;
                     if (updateHandoff) window.BeginUpdateHandoff();
                     if (window.Content == null)
                         throw new InvalidOperationException("WPF 主窗口没有初始化内容");
@@ -275,6 +277,7 @@ namespace BlockCraftLauncher.Wpf
                                     else if (!relaunchWindowSelfTest)
                                     {
                                         if (directPreview) window.ShowDirectOpenNotice();
+                                        else if (rollback) window.ShowUpdateRollback();
                                         else window.ShowPostUpdateSuccess();
                                     }
                                 }

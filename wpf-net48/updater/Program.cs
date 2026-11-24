@@ -156,6 +156,8 @@ namespace BlockCraftLauncher.Updater
                                 ExpectHash(fallbackExe, fallbackSha256);
                                 recovered = Restart(fallbackExe, out _, recovery: true);
                             });
+                        if (previousClosed && !recovered)
+                            desktop?.PreserveVerifiedCandidate();
                         BestEffortCleanup(() => LauncherRelaunchSignal.WriteHandoffResult(handoff,
                             previousClosed && !recovered ? LauncherRelaunchSignal.Failed : LauncherRelaunchSignal.Rejected,
                             error.GetBaseException().Message));

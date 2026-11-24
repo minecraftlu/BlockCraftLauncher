@@ -728,6 +728,12 @@ namespace BlockCraftLauncher.Wpf
         {
             Status("一个已结束的搜索或下载任务被重复取消，已跳过。启动器可以继续使用；如有问题请重试该操作。");
         }
+        internal void ShowUpdateRollback()
+        {
+            Title = "BlockCraft Launcher · " + LauncherAutoUpdateService.CurrentTag + " · 已恢复旧版";
+            Status("更新未能完成，已重新打开旧版。可在启动器更新页查看日志并重试。");
+        }
+
         internal void ShowPostUpdateSuccess(string installedExe = null)
         {
             Title = "BlockCraft Launcher · " + LauncherAutoUpdateService.CurrentTag + " · 更新完成";

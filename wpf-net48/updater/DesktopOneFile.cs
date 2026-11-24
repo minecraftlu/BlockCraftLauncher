@@ -193,6 +193,13 @@ namespace BlockCraftLauncher.Updater
                 RetryWhileLocked(() => DeleteVerifiedFile(source, oldDigest, oldIdentity));
             }
 
+            // If the original window is already gone and recovery could not
+            // be confirmed, keep the verified desktop copy available to open.
+            public void PreserveVerifiedCandidate()
+            {
+                if (desktopLease != null) keepDesktop = true;
+            }
+
             public void Dispose()
             {
                 if (desktopLease != null) desktopLease.Dispose();
