@@ -10,14 +10,14 @@
         Icon="Assets/blockcraft_icon.ico"
         UseLayoutRounding="True" SnapsToDevicePixels="True">
   <shell:WindowChrome.WindowChrome>
-    <shell:WindowChrome CaptionHeight="46" ResizeBorderThickness="0"
+    <shell:WindowChrome CaptionHeight="48" ResizeBorderThickness="0"
                         GlassFrameThickness="0" CornerRadius="6" UseAeroCaptionButtons="False"/>
   </shell:WindowChrome.WindowChrome>
   <Grid>
     <Grid.RowDefinitions>
-      <RowDefinition Height="46"/>
+      <RowDefinition Height="48"/>
       <RowDefinition Height="*"/>
-      <RowDefinition Height="26"/>
+      <RowDefinition Height="28"/>
     </Grid.RowDefinitions>
 
     <Border Background="{DynamicResource TitleBarBrush}">
@@ -29,7 +29,7 @@
         </Grid.ColumnDefinitions>
 
         <DockPanel x:Name="HeaderBrand" VerticalAlignment="Center" Margin="2,0,8,0" IsHitTestVisible="False">
-          <Image DockPanel.Dock="Left" Source="Assets/blockcraft_icon.png" Width="23" Height="23" Margin="0,0,7,0"/>
+          <Image DockPanel.Dock="Left" Source="Assets/blockcraft_icon.png" Width="27" Height="27" Margin="0,0,8,0"/>
           <TextBlock Text="BlockCraft Launcher" FontSize="14" FontWeight="SemiBold"
                      Foreground="{DynamicResource HeaderTextBrush}" VerticalAlignment="Center"
                      TextTrimming="CharacterEllipsis"/>
@@ -125,7 +125,23 @@
             </ScrollViewer>
           </Grid>
         </Border>
-        <ScrollViewer x:Name="PageScroll" Grid.Column="1"
+        <Grid Grid.Column="1">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+          </Grid.RowDefinitions>
+          <Border x:Name="PageActivityBand" Background="{DynamicResource PanelAltBrush}"
+                  BorderBrush="{DynamicResource SoftDividerBrush}" BorderThickness="0,0,0,1"
+                  Padding="16,5" Visibility="Collapsed">
+            <DockPanel LastChildFill="True">
+              <ProgressBar x:Name="PageActivityIndicator" DockPanel.Dock="Right" Width="82" Height="4"
+                           Margin="12,0,0,0" VerticalAlignment="Center" IsIndeterminate="True"
+                           AutomationProperties.Name="当前页面加载进度" Foreground="{DynamicResource AccentBrush}"/>
+              <TextBlock x:Name="PageActivityLabel" FontSize="12" Foreground="{DynamicResource TextBrush}"
+                         TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite"/>
+            </DockPanel>
+          </Border>
+          <ScrollViewer x:Name="PageScroll" Grid.Row="1"
                       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                       Padding="16,14,16,8">
           <Grid>
@@ -134,7 +150,8 @@
             <ContentControl x:Name="DetailHost" HorizontalContentAlignment="Stretch"
                             VerticalContentAlignment="Top" Visibility="Collapsed"/>
           </Grid>
-        </ScrollViewer>
+          </ScrollViewer>
+        </Grid>
       </Grid>
     </Border>
 
@@ -145,7 +162,7 @@
                 AutomationProperties.Name="打开下载任务">
           <StackPanel Orientation="Horizontal">
             <TextBlock Text="&#xE896;" FontFamily="Segoe MDL2 Assets" FontSize="13" Margin="0,0,6,0"/>
-            <TextBlock Text="下载任务"/>
+            <TextBlock x:Name="TaskShortcutLabel" Text="下载任务"/>
           </StackPanel>
         </Button>
         <Button x:Name="PostponeUpdateButton" DockPanel.Dock="Right"
@@ -161,3 +178,4 @@
     </Border>
   </Grid>
 </Window>
+

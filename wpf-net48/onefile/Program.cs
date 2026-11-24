@@ -16,7 +16,7 @@ namespace BlockCraftLauncher.OneFile
     {
         private const string ResourceName = "BlockCraftLauncher.Payload.zip";
         private const string GameExe = "BlockCraftLauncher.Wpf.exe";
-        private const string Release = "v0.9.54";
+        private const string Release = "v0.9.55";
         private const string Ready = ".blockcraft-ready";
 
         [STAThread]
@@ -38,6 +38,7 @@ namespace BlockCraftLauncher.OneFile
                  (args.Length == 3 || args.Contains("--direct-open")));
             bool updateHandoff = args.Length == 3 && args[0] == "--after-update" &&
                 args[2] == "--update-handoff";
+            using var startup = args.Length == 0 ? BootstrapSplash.TryStart() : null;
             try
             {
                 var package = ReadPackage();
@@ -75,6 +76,9 @@ namespace BlockCraftLauncher.OneFile
                 // would silently leave the outer executable unchanged.
                 options.EnvironmentVariables["BLOCKCRAFT_SINGLEFILE_BOOTSTRAP"] =
                     Assembly.GetExecutingAssembly().Location;
+                options.EnvironmentVariables.Remove(BlockCraftLauncher.Wpf.StartupLoadingWindow.ReadyVariable);
+                if (startup != null)
+                    options.EnvironmentVariables[BlockCraftLauncher.Wpf.StartupLoadingWindow.ReadyVariable] = startup.Token;
                 using (var process = Process.Start(options))
                 {
                     if (process == null) throw new IOException("无法启动 WPF 主程序。");
@@ -87,11 +91,13 @@ namespace BlockCraftLauncher.OneFile
                         }
                         return process.ExitCode;
                     }
+                    startup?.WaitUntilRendered(process);
                 }
                 return 0;
             }
             catch (Exception error)
             {
+                startup?.Hide();
                 string path = WriteError(error);
                 if (!probe && !updateHandoff)
                     MessageBox.Show("BlockCraft Launcher 单文件启动失败：\n" + error.GetBaseException().Message +

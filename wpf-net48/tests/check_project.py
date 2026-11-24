@@ -27,7 +27,9 @@ def main():
         source = csharp.read_text('utf-8')
         assert source.count('{') == source.count('}'), csharp
     print('[OK] C# lexical brace count (not compiler verification)')
-    settings = (PRJ / 'Services/SettingsStore.cs').read_text('utf-8')
+    store = (PRJ / 'Services/SettingsStore.cs').read_text('utf-8')
+    assert 'LauncherSettingsFiles.ReadCandidates(FilePath)' in store
+    settings = (PRJ / 'Services/LauncherSettingsFiles.cs').read_text('utf-8')
     assert 'settings.wpf-preview.json' in settings
     assert 'settings.json' in settings
     print('[OK] legacy settings read with independent preview output')
@@ -38,3 +40,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

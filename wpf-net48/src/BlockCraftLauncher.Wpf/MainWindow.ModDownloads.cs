@@ -55,6 +55,7 @@ namespace BlockCraftLauncher.Wpf
         ComboBox modTarget;
         TextBlock modSourceStatus;
         ContentControl modDetailsHost;
+        bool modFiltersExpanded;
         CancellationTokenSource modCategoryCancellation, modFileCancellation, modDependencyCancellation;
 
         ModSource SelectedModSource => resourceType == "mod" && resourceSource?.SelectedIndex >= 0
@@ -116,24 +117,55 @@ namespace BlockCraftLauncher.Wpf
                 RefreshModFilters();
                 RefreshModDetails();
             };
-            void Open() => modDetailsHost.BringIntoView();
-            var details = Btn("查看详情", Open);
+            void Open()
+            {
+                modDetailsHost.BringIntoView();
+                modDetailsHost.Focus();
+            }
+            modDetailsHost.Focusable = true;
+            AutomationProperties.SetName(modDetailsHost, "模组详情和兼容文件");
+            var details = Btn("查看文件", Open);
             WireResultActions(resourceList, Open, details);
 
-            var search = SearchCard(Col(Txt(title, 17, true),
-                SearchFields(("名称", resourceQuery), ("来源", resourceSource),
-                    ("版本", resourceVersion), ("加载器", resourceLoader),
-                    ("分类", resourceCategory), ("排序", resourceSort), ("安装到", modTarget),
-                    ("", resourceMatchVersion)),
-                modSourceStatus, actions));
+            actions.Children.Remove(resourceSearchButton);
+            var searchBar = new DockPanel { LastChildFill = true };
+            resourceSearchButton.MinWidth = 84;
+            resourceSearchButton.Margin = new Thickness(8, 0, 0, 0);
+            DockPanel.SetDock(resourceSearchButton, Dock.Right);
+            searchBar.Children.Add(resourceSearchButton);
+            resourceQuery.Margin = new Thickness(0);
+            var keywordField = new Grid();
+            keywordField.Children.Add(resourceQuery);
+            AutomationProperties.SetName(resourceQuery, "模组名称或关键词");
+            var prompt = Txt("输入模组名称或关键词", 13, false, true);
+            prompt.Margin = new Thickness(11, 0, 4, 0);
+            prompt.VerticalAlignment = VerticalAlignment.Center;
+            prompt.IsHitTestVisible = false;
+            keywordField.Children.Add(prompt);
+            resourceQuery.TextChanged += (sender, args) =>
+                prompt.Visibility = resourceQuery.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+            searchBar.Children.Add(keywordField);
+
+            var filters = new Expander
+            {
+                Header = "版本、加载器与分类",
+                IsExpanded = modFiltersExpanded,
+                Margin = new Thickness(0, 8, 0, 0),
+                Content = Col(SearchFields(("游戏版本", resourceVersion), ("加载器", resourceLoader),
+                    ("分类", resourceCategory), ("排序", resourceSort)), Row(resourceMatchVersion), actions)
+            };
+            filters.SetResourceReference(Control.ForegroundProperty, "TextBrush");
+            filters.Expanded += (sender, args) => modFiltersExpanded = true;
+            filters.Collapsed += (sender, args) => modFiltersExpanded = false;
+            var search = SearchCard(Col(searchBar,
+                SearchFields(("下载源", resourceSource), ("安装到实例", modTarget)),
+                modSourceStatus, filters));
             var results = ProjectResults(resourceCounter, resourceList, Row(details),
                 resourcePrevButton, resourceNextButton);
-            var content = PageColumns(results, modDetailsHost, 320);
+            var content = PageColumns(results, modDetailsHost, 292);
             RefreshModSource();
             RefreshModDetails();
-            return Col(PageHeading("Mod 下载",
-                "选择下载源、兼容版本和目标实例，按需查看文件与依赖。"),
-                search, content);
+            return Col(PageHeading(title, null), search, content);
         }
 
         void RefreshModSource()
@@ -261,6 +293,7 @@ namespace BlockCraftLauncher.Wpf
                 UpdateResourcePaging();
                 string name = ModSourceName(source);
                 resourceCounter.Text = "正在搜索 " + name + "…";
+                using var activity = BeginPageActivity(currentPage, resourceCounter.Text);
                 try
                 {
                     IReadOnlyList<ResourceHit> hits;
@@ -335,14 +368,35 @@ namespace BlockCraftLauncher.Wpf
             var hit = resourceList.SelectedItem as ResourceHit;
             if (hit == null)
             {
-                modDetailsHost.Content = Card(Txt("选择一个模组查看详情和文件版本。", 13, false, true));
+                modDetailsHost.Content = Card(Col(Txt("项目文件", 16, true),
+                    Txt("从搜索结果选择一个模组，查看兼容版本与依赖。", 13, false, true)));
                 return;
             }
 
             var profile = modTarget.SelectedItem as GameProfile;
             var meta = string.Join(" · ", new[] { hit.SourceLabel, hit.Author, hit.DownloadsLabel }
                 .Where(value => !string.IsNullOrWhiteSpace(value)));
-            var details = Col(Txt(hit.Name, 17, true), Txt(meta, 12, false, true));
+            var identity = new DockPanel { LastChildFill = true };
+            var artwork = new Grid { Width = 42, Height = 42 };
+            var fallback = new TextBlock {
+                Text = "\uE8B7", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 19,
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
+            };
+            fallback.SetResourceReference(TextBlock.ForegroundProperty, "AccentInkBrush");
+            artwork.Children.Add(fallback);
+            if (!string.IsNullOrWhiteSpace(hit.IconUrl))
+            {
+                var icon = new Image { Stretch = Stretch.UniformToFill, ToolTip = hit.IconDescription };
+                icon.SetBinding(Image.SourceProperty, new Binding(nameof(ResourceHit.IconUrl)) { Source = hit });
+                artwork.Children.Add(icon);
+            }
+            var thumbnail = new Border { Child = artwork, CornerRadius = new CornerRadius(6),
+                Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Top };
+            thumbnail.SetResourceReference(Border.BackgroundProperty, "BadgeBrush");
+            DockPanel.SetDock(thumbnail, Dock.Left);
+            identity.Children.Add(thumbnail);
+            identity.Children.Add(Col(Txt(hit.Name, 17, true), Txt(meta, 12, false, true)));
+            var details = Col(identity);
             if (!string.IsNullOrWhiteSpace(hit.Description))
             {
                 var summary = Txt(hit.Description, 13);
@@ -420,6 +474,8 @@ namespace BlockCraftLauncher.Wpf
             ScrollViewer.SetHorizontalScrollBarVisibility(picker, ScrollBarVisibility.Disabled);
             AutomationProperties.SetName(picker, "兼容的模组文件");
             var status = Txt("兼容文件版本", 12, false, true);
+            var loadingFiles = new ProgressBar { Height = 3, Visibility = Visibility.Collapsed };
+            AutomationProperties.SetName(loadingFiles, "正在读取模组文件");
             var dependencyStatus = Txt("", 12, false, true);
             int page = 0;
             var curseForge = hit as CurseForgeHit;
@@ -479,6 +535,8 @@ namespace BlockCraftLauncher.Wpf
                     modFileCancellation = request;
                     more.IsEnabled = false;
                     status.Text = "正在读取兼容文件…";
+                    loadingFiles.Visibility = Visibility.Visible;
+                    loadingFiles.IsIndeterminate = true;
                     try
                     {
                         IReadOnlyList<ModDownloadFile> rows;
@@ -523,6 +581,8 @@ namespace BlockCraftLauncher.Wpf
                         {
                             modFileCancellation = null;
                             more.IsEnabled = true;
+                            loadingFiles.IsIndeterminate = false;
+                            loadingFiles.Visibility = Visibility.Collapsed;
                         }
                     }
                 }
@@ -534,6 +594,7 @@ namespace BlockCraftLauncher.Wpf
                 details.Children.Add(Txt(profile.Name + " · " + profile.BaseVersion + " / " + profile.Loader,
                     12, true));
             details.Children.Add(status);
+            details.Children.Add(loadingFiles);
             details.Children.Add(picker);
             details.Children.Add(dependencyStatus);
             var actions = Row();

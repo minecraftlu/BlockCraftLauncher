@@ -41,6 +41,8 @@ namespace BlockCraftLauncher.Wpf
         bool libraryMode;
         internal bool LibraryMode => libraryMode;
         readonly ListBox libraryEntries = new ListBox();
+        readonly TextBlock libraryCount = Label("已保存的皮肤", 16, true);
+        readonly TextBlock libraryEmpty = Label("皮肤库还是空的。下载一张皮肤，或在 DIY 中保存作品。");
         readonly ComboBox libraryArms = new ComboBox();
         readonly Skin3DPreview library3D = new Skin3DPreview();
         readonly TextBlock libraryTitle = Label("选择一张已保存的皮肤", 16, true);
@@ -170,11 +172,10 @@ namespace BlockCraftLauncher.Wpf
             return p;
         }
 
-        static Border Card(UIElement content, bool search = false)
+        static Border Card(UIElement content, string style = "Panel")
         {
             var border = new Border { Child = content };
-            border.SetResourceReference(FrameworkElement.StyleProperty,
-                search ? "SearchPanel" : "Panel");
+            border.SetResourceReference(FrameworkElement.StyleProperty, style);
             return border;
         }
 
@@ -252,14 +253,14 @@ namespace BlockCraftLauncher.Wpf
 
         void Build()
         {
-            var page = Column(Card(Column(
-                Label("皮肤 DIY", 16, true),
+            var page = Column(MainWindow.PageHeading("皮肤 DIY", "绘制 64 × 64 贴图，实时查看角色效果。"),
+                Card(
                 Row(ActionButton("导入 PNG", ImportPng),
                     ActionButton("保存到皮肤库", SaveToLibrary, true),
                     ActionButton("导出 PNG", ExportPng),
                     ActionButton("新建皮肤", ResetTemplate),
                     ActionButton("进入我的皮肤库", GoLibrary),
-                    ActionButton("前往皮肤下载", () => openDownloads?.Invoke())))));
+                    ActionButton("前往皮肤下载", () => openDownloads?.Invoke())), "SearchPanel"));
             // Keep the online catalog out of the DIY editing page.
             // Both navigation entries reuse this one instance so unsaved
             // edits and the selected search result survive page switches.
@@ -318,17 +319,25 @@ namespace BlockCraftLauncher.Wpf
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 Height = 413, Content = paintingSurface
             };
-            viewport.SetResourceReference(Control.BackgroundProperty, "PreviewFloorBrush");
+            viewport.SetResourceReference(Control.BackgroundProperty, "PanelAltBrush");
+            // A transparent checkerboard stays visible in either theme. Paint
+            // only the atlas, so the scrollable space beyond it remains distinct.
+            var squares = new GeometryDrawing(new SolidColorBrush(Color.FromArgb(34, 123, 128, 133)),
+                null, Geometry.Parse("M0,0 H6 V6 H0 Z M6,6 H12 V12 H6 Z"));
+            var checker = new DrawingBrush(squares) { TileMode = TileMode.Tile,
+                ViewportUnits = BrushMappingMode.Absolute, Viewport = new Rect(0, 0, 12, 12) };
+            checker.Freeze();
+            paintingSurface.Background = checker;
             var canvasFrame = new Border
             {
-                Child = viewport, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4),
+                Child = viewport, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8),
                 Margin = new Thickness(0, 4, 0, 7), ClipToBounds = true
             };
             canvasFrame.SetResourceReference(Border.BorderBrushProperty, "BorderBrushTheme");
             var editor = Card(Column(Label("像素画布", 16, true),
-                toolRow, history,
+                toolRow,
                 Row(Label("缩放"), zoom, Label("画笔大小"), brush, showGrid),
-                canvasFrame, pointInfo, info,
+                canvasFrame, history, pointInfo, info,
                 Label("蓝线标记基础层，金线标记外层。")));
 
             var rightPanel = Column();
@@ -345,7 +354,7 @@ namespace BlockCraftLauncher.Wpf
             showOuter.Checked += (sender, args) => RefreshImages();
             showOuter.Unchecked += (sender, args) => RefreshImages();
             rightPanel.Children.Add(Card(Column(Label("人物预览", 16, true),
-                armModel, showOuter, BuildPreview())));
+                armModel, showOuter, BuildPreview()), "FeaturePanel"));
 
             hex.Width = 124; hex.MaxLength = 9;
             StyleSearch(hex);
@@ -468,17 +477,16 @@ namespace BlockCraftLauncher.Wpf
 
         UIElement BuildLibraryPage()
         {
-            var top = Card(Column(
-                Label("我的皮肤库", 18, true),
-                Label("从已下载或 DIY 保存的皮肤中选择，预览后直接应用到 Minecraft Java 正版账号，无需先导入编辑器。"),
-                Row(ActionButton("刷新皮肤库", RefreshLibrary),
-                    ActionButton("打开皮肤文件夹", OpenSkinLibrary),
-                    ActionButton("下载更多皮肤", () => openDownloads?.Invoke()))));
-            libraryEntries.MinHeight = 290;
+            var top = MainWindow.PageHeading("我的皮肤库", "管理本机保存的皮肤，预览或应用到 Minecraft Java 正版账号。");
+            libraryEntries.MinHeight = 180;
             libraryEntries.MaxHeight = 440;
             libraryEntries.SelectionChanged += (sender, args) => RefreshLibraryPreview();
-            var list = Card(Column(Label("已保存的皮肤", 16, true), libraryEntries,
-                Label("文件仅保存在本地，不会自动同步账号。")));
+            System.Windows.Automation.AutomationProperties.SetName(libraryEntries, "已保存的皮肤");
+            libraryEmpty.Margin = new Thickness(0, 8, 0, 14);
+            var list = Card(Column(libraryCount, libraryEntries, libraryEmpty,
+                Row(ActionButton("刷新皮肤库", RefreshLibrary),
+                    ActionButton("打开皮肤文件夹", OpenSkinLibrary),
+                    ActionButton("下载更多皮肤", () => openDownloads?.Invoke()))), "ResultsPanel");
 
             libraryArms.ItemsSource = new[] { "Steve · 经典宽臂", "Alex · 纤细手臂" };
             libraryArms.SelectedIndex = 0;
@@ -493,13 +501,11 @@ namespace BlockCraftLauncher.Wpf
             libraryUseButton = ActionButton("使用此皮肤（正版）", async () => await ApplyLibrarySkinAsync(), true);
             libraryEditButton = ActionButton("导入 DIY 编辑", EditSelectedLibrary);
             libraryUseButton.IsEnabled = libraryEditButton.IsEnabled = false;
-            var preview = Card(Column(libraryTitle, Label("手臂模型"), libraryArms,
+            var preview = Card(Column(libraryTitle,
                 library3D,
-                Row(ActionButton("正面", library3D.ShowFront),
-                    ActionButton("背面", library3D.ShowBack),
-                    ActionButton("复位视角", library3D.ResetView)),
+                PreviewControls(library3D), Label("手臂模型"), libraryArms,
                 Row(libraryUseButton, libraryEditButton), libraryStatus,
-                Label("离线账号：原版 Minecraft 不能直接读取本地 PNG。需要兼容的皮肤模组才能在游戏中显示，不会自动安装第三方模组。")));
+                Label("离线账号需要兼容的皮肤模组才能在游戏中显示本地皮肤。")), "FeaturePanel");
             return Column(top, MainWindow.PageColumns(list, preview, 315, 13));
         }
 
@@ -642,7 +648,7 @@ namespace BlockCraftLauncher.Wpf
         // selected preview/detail -> download/apply, similar to mod search.
         UIElement BuildOnlineSearch()
         {
-            var root = Column();
+            var root = Column(MainWindow.PageHeading("皮肤下载", "按名称、模型或许可搜索皮肤，下载前可旋转预览。"));
             var libraryActions = Row(ActionButton("我的皮肤库", GoLibrary),
                 ActionButton("皮肤 DIY", () => openEditor?.Invoke()));
             if (openDownloadTasks != null)
@@ -696,9 +702,9 @@ namespace BlockCraftLauncher.Wpf
             });
             onlineCancelSearch = ActionButton("取消搜索", () => onlineSearchCancellation?.Cancel());
             onlineCancelSearch.Visibility = Visibility.Collapsed;
-            var search = Column(Label("皮肤下载", 16, true), filters,
+            var search = Column(filters,
                 onlineOpenOnly, Row(onlineSearchButton, reset, onlineCancelSearch));
-            root.Children.Add(Card(search, true));
+            root.Children.Add(Card(search, "SearchPanel"));
 
             onlineResults.MinHeight = 132;
             onlineResults.MaxHeight = 348;
@@ -720,7 +726,7 @@ namespace BlockCraftLauncher.Wpf
                 await SearchOnlineAsync(onlinePage + 1));
             onlinePrevButton.IsEnabled = onlineNextButton.IsEnabled = false;
             var results = Column(Label("搜索结果", 16, true), onlinePageStatus,
-                onlineResults, Row(onlinePrevButton, onlineNextButton));
+                onlineResults, Row(onlinePrevButton, onlineNextButton), libraryActions);
 
             foreach (var image in new[] { onlinePreview, onlinePreviewBack })
             {
@@ -773,21 +779,19 @@ namespace BlockCraftLauncher.Wpf
             previewStage.Children.Add(onlinePreviewMessage);
             var stageFrame = new Border
             {
-                Child = previewStage, CornerRadius = new CornerRadius(5),
+                Child = previewStage, CornerRadius = new CornerRadius(8),
                 Margin = new Thickness(0, 3, 0, 9)
             };
             stageFrame.SetResourceReference(Border.BackgroundProperty, "PanelAltBrush");
             onlineModelInfo = Row(PreviewBadge(onlineSkinSource), PreviewBadge(onlineSkinModel));
             onlineDownloadProgress.SetResourceReference(ProgressBar.ForegroundProperty, "AccentBrush");
             onlineDownloadFeedback = Column(onlineDownloadStatus, onlineDownloadProgress);
-            var selected = Column(onlineSkinTitle, onlineModelInfo,
-                Row(onlineSaveButton, onlineEditButton, onlineDetailButton),
-                stageFrame, Row(onlinePreviewMode, onlineExpandPreview, onlineOuter, onlineRetryPreview),
-                onlineOrbitControls, onlineAttribution, onlineDownloadFeedback);
-            onlineDetailPanel = Card(selected);
-            ((Border)onlineDetailPanel).SetResourceReference(StyleProperty, "FeaturePanel");
-            root.Children.Add(MainWindow.PageColumns(Card(results), onlineDetailPanel, 320, 13));
-            root.Children.Add(Card(libraryActions));
+            var selected = Column(onlineSkinTitle, onlineModelInfo, stageFrame,
+                Row(onlineSaveButton, onlineEditButton, onlineDetailButton), onlineDownloadFeedback,
+                Row(onlinePreviewMode, onlineExpandPreview, onlineOuter, onlineRetryPreview),
+                onlineOrbitControls, onlineAttribution);
+            onlineDetailPanel = Card(selected, "FeaturePanel");
+            root.Children.Add(MainWindow.PageColumns(Card(results, "ResultsPanel"), onlineDetailPanel, 320, 13));
 
             onlineStatus.TextWrapping = TextWrapping.Wrap;
             onlineStatus.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
@@ -1130,14 +1134,13 @@ namespace BlockCraftLauncher.Wpf
         void OpenExpandedPreview()
         {
             if (selectedOnlineTexture == null || selectedOnlineSkin == null) return;
-            var viewer = new Skin3DPreview { Height = double.NaN, Margin = new Thickness(14, 0, 14, 10) };
+            var viewer = new Skin3DPreview { Height = double.NaN, Margin = new Thickness(0, 0, 0, 12) };
             viewer.SetSkin(selectedOnlineTexture, selectedOnlineSkin.SlimArms, onlineOuter.IsChecked != false);
             var (dialog, body) = LauncherDialog.Create(Window.GetWindow(this),
                 selectedOnlineSkin.Name + " · 皮肤预览", 622, 552);
             var content = new DockPanel();
             var controls = Column(PreviewControls(viewer),
                 Label("拖动旋转，聚焦后滚轮缩放。双击复位。"));
-            controls.Margin = new Thickness(14, 0, 14, 6);
             DockPanel.SetDock(controls, Dock.Bottom);
             content.Children.Add(controls);
             content.Children.Add(viewer);
@@ -1840,6 +1843,9 @@ namespace BlockCraftLauncher.Wpf
                 if (saved.Count > 0)
                     savedSkins.SelectedItem = saved.FirstOrDefault(x => x.Path == previousEditor) ?? saved[0];
                 libraryEntries.ItemsSource = items;
+                libraryCount.Text = "已保存的皮肤 · " + items.Count;
+                libraryEmpty.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+                libraryEntries.Visibility = items.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
                 if (items.Count > 0)
                     libraryEntries.SelectedItem = items.FirstOrDefault(x => x.Path == previousLibrary) ?? items[0];
                 else RefreshLibraryPreview();

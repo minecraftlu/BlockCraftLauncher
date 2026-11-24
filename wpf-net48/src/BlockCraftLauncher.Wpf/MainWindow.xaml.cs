@@ -78,7 +78,8 @@ namespace BlockCraftLauncher.Wpf
         readonly List<string> logs = new List<string>();
         readonly MultiplayerService multiplayer = new MultiplayerService();
         readonly GameProcessTracker gameProcesses = new GameProcessTracker();
-        readonly HashSet<GameProfile> launchingProfiles = new HashSet<GameProfile>();
+        readonly Dictionary<GameProfile, string> launchStages = new Dictionary<GameProfile, string>();
+        readonly List<PageActivity> pageActivities = new List<PageActivity>();
         readonly DispatcherTimer gameProcessTimer = new DispatcherTimer(DispatcherPriority.Background);
         TextBlock gameProcessText;
         Button homeLaunchButton;
@@ -149,10 +150,18 @@ namespace BlockCraftLauncher.Wpf
             TopLaunchButton.Click += (sender, args) => Navigate("首页");
             TopDownloadButton.Click += (sender, args) => Navigate("游戏版本");
             TopMultiplayerButton.Click += (sender, args) => Navigate("多人联机");
-            TopMultiplayerButton.Visibility = Visibility.Collapsed; // PCL-style four main tabs
             TopSettingsButton.Click += (sender, args) => Navigate("设置");
             TopMoreButton.Click += (sender, args) => Navigate("关于");
             TaskShortcut.Click += (sender, args) => Navigate("下载管理");
+            PreviewKeyDown += (sender, args) =>
+            {
+                if (args.SystemKey == Key.Left && Keyboard.Modifiers == ModifierKeys.Alt &&
+                    ContextNavigation.Visibility == Visibility.Visible)
+                {
+                    args.Handled = true;
+                    BackButton_Click(this, new RoutedEventArgs());
+                }
+            };
             PostponeUpdateButton.Click += (sender, args) =>
             {
                 postponeAutomaticRestart = true;
@@ -179,6 +188,7 @@ namespace BlockCraftLauncher.Wpf
             // before WPF has actually opened the user-facing window.
             Loaded += async (sender, args) =>
             {
+                SystemParameters.StaticPropertyChanged += SystemAppearanceChanged;
                 gameProcessTimer.Start();
                 if (!SuppressAutomaticUpdateCheck)
                     await CheckLauncherUpdatesAsync(false);
@@ -204,6 +214,7 @@ namespace BlockCraftLauncher.Wpf
             };
             Closed += (sender, args) =>
             {
+                SystemParameters.StaticPropertyChanged -= SystemAppearanceChanged;
                 downloads.JobsChanged -= OnDownloadJobsChanged;
                 gameProcessTimer.Stop();
                 updateCancellation.Cancel();
@@ -236,23 +247,38 @@ namespace BlockCraftLauncher.Wpf
             return label;
         }
 
-        static UIElement PageHeading(string title, string summary)
+        static Border GlyphPlate(string glyph, double size)
         {
-            var heading = Txt(title, 17, true);
-            heading.Margin = new Thickness(0, 0, 0, 3);
+            var symbol = new TextBlock
+            {
+                Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = size * 0.48,
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
+            };
+            symbol.SetResourceReference(TextBlock.ForegroundProperty, "AccentInkBrush");
+            var plate = new Border { Width = size, Height = size, Child = symbol,
+                VerticalAlignment = VerticalAlignment.Center, CornerRadius = new CornerRadius(9) };
+            plate.SetResourceReference(Border.BackgroundProperty, "BadgeBrush");
+            return plate;
+        }
+
+        internal static UIElement PageHeading(string title, string summary)
+        {
+            var heading = Txt(title, 20, true);
+            heading.Margin = new Thickness(0);
             var content = Col(heading);
+            content.VerticalAlignment = VerticalAlignment.Center;
             if (!string.IsNullOrWhiteSpace(summary))
             {
                 var description = Txt(summary, 12, false, true);
-                description.Margin = new Thickness(0);
+                description.Margin = new Thickness(0, 3, 0, 0);
                 content.Children.Add(description);
             }
-            var header = new Border
-            {
-                Child = content, BorderThickness = new Thickness(3, 0, 0, 0),
-                Padding = new Thickness(10, 1, 0, 0), Margin = new Thickness(0, 1, 0, 12)
-            };
-            header.SetResourceReference(Border.BorderBrushProperty, "AccentBrush");
+            var header = new DockPanel { Margin = new Thickness(0, 0, 0, 12) };
+            var plate = GlyphPlate(NavGlyph(title), 38);
+            plate.Margin = new Thickness(0, 0, 10, 0);
+            DockPanel.SetDock(plate, Dock.Left);
+            header.Children.Add(plate);
+            header.Children.Add(content);
             return header;
         }
 
@@ -399,27 +425,39 @@ namespace BlockCraftLauncher.Wpf
             switch (page)
             {
                 case "版本选择":
+                case "自动安装":
                 case "游戏版本": return "\uE7B8";
+                case "手动安装包":
                 case "手动安装": return "\uE8B7";
                 case "版本设置": return "\uE8A5";
                 case "存档管理": return "\uE74E";
                 case "下载管理": return "\uE896";
+                case "下载任务": return "\uE896";
                 case "资源中心":
+                case "模组下载":
+                case "模组与资源":
                 case "模组更新": return "\uE8B7";
+                case "光影包":
                 case "光影引擎":
                 case "个性化": return "\uE790";
                 case "资源包": return "\uE8A7";
                 case "整合包": return "\uE8F1";
                 case "皮肤 DIY": return "\uE70F";
                 case "皮肤下载": return "\uE8B7";
+                case "我的皮肤库":
                 case "皮肤库": return "\uE8A7";
                 case "多人联机":
+                case "服务器收藏":
+                case "局域网世界":
                 case "查找服务器":
                 case "局域网": return "\uE902";
                 case "启动器更新":
                 case "更新设置": return "\uE777";
                 case "下载设置": return "\uE774";
                 case "设置": return "\uE713";
+                case "启动设置": return "\uE713";
+                case "启动器更新设置": return "\uE777";
+                case "关于": return "\uE946";
                 case "运行日志": return "\uE9F9";
                 default: return "\uE946";
             }
@@ -476,27 +514,34 @@ namespace BlockCraftLauncher.Wpf
                     break;
                 case NavigationSection.Download:
                     AddNavSection("Minecraft", "游戏版本", "手动安装");
-                    AddNavSection("资源", "资源中心", "整合包", "资源包", "光影引擎", "皮肤下载", "皮肤库");
+                    AddNavSection("游戏内容", "资源中心", "整合包", "资源包", "光影引擎");
+                    AddNavSection("玩家外观", "皮肤下载", "皮肤库");
                     AddNavSection("任务", "下载管理");
                     break;
                 case NavigationSection.Multiplayer:
-                    AddNavSection("Minecraft Java", "多人联机", "查找服务器", "局域网");
+                    AddNavSection("在线服务器", "多人联机", "查找服务器");
+                    AddNavSection("本地网络", "局域网");
                     break;
                 case NavigationSection.Settings:
                     AddNavSection("设置", "设置", "个性化", "下载设置", "更新设置");
                     break;
                 case NavigationSection.More:
-                    AddNavSection("联机", "多人联机", "查找服务器", "局域网");
-                    AddNavSection("工具", "皮肤 DIY", "启动器更新", "运行日志");
-                    AddNavSection("信息", "关于");
+                    AddNavSection("玩家工具", "皮肤 DIY");
+                    AddNavSection("启动器", "启动器更新", "运行日志", "关于");
                     break;
             }
             if (sidebarButtons.TryGetValue(page, out var active))
+            {
                 active.SetResourceReference(FrameworkElement.StyleProperty, "SidebarItemActive");
+                AutomationProperties.SetItemStatus(active, "当前页面");
+            }
         }
 
-        static void SetHeaderTab(Button button, bool active) =>
+        static void SetHeaderTab(Button button, bool active)
+        {
             button.SetResourceReference(FrameworkElement.StyleProperty, active ? "HeaderTabActive" : "HeaderTab");
+            AutomationProperties.SetItemStatus(button, active ? "当前分类" : "");
+        }
 
         void UpdateHeader(NavigationSection section)
         {
@@ -514,8 +559,7 @@ namespace BlockCraftLauncher.Wpf
             SetHeaderTab(TopDownloadButton, section == NavigationSection.Download);
             SetHeaderTab(TopMultiplayerButton, section == NavigationSection.Multiplayer);
             SetHeaderTab(TopSettingsButton, section == NavigationSection.Settings);
-            SetHeaderTab(TopMoreButton, section == NavigationSection.More ||
-                section == NavigationSection.Multiplayer);
+            SetHeaderTab(TopMoreButton, section == NavigationSection.More);
         }
 
         void BackButton_Click(object sender, RoutedEventArgs e)
@@ -643,6 +687,7 @@ namespace BlockCraftLauncher.Wpf
             detailTrigger = null;
             avatarVisuals.Clear();
             currentPage = page;
+            RefreshPageActivity();
             var section = SectionFor(page);
             if (section != NavigationSection.Settings) settingsPages = null;
             gameProcessText = null;
@@ -718,6 +763,38 @@ namespace BlockCraftLauncher.Wpf
                 session.AccessToken, png, slim, updateCancellation.Token);
             Status("已上传当前皮肤至 Minecraft 官方账户：" + session.Username +
                 "（" + (slim ? "Alex" : "Steve") + "）");
+        }
+
+        sealed class PageActivity : IDisposable
+        {
+            readonly MainWindow window;
+            internal readonly string Page;
+            internal readonly string Message;
+
+            internal PageActivity(MainWindow window, string page, string message)
+            {
+                this.window = window; Page = page; Message = message;
+            }
+
+            public void Dispose()
+            {
+                if (window.pageActivities.Remove(this)) window.RefreshPageActivity();
+            }
+        }
+
+        internal IDisposable BeginPageActivity(string ownerPage, string message)
+        {
+            var activity = new PageActivity(this, ownerPage, message);
+            pageActivities.Add(activity);
+            RefreshPageActivity();
+            return activity;
+        }
+
+        void RefreshPageActivity()
+        {
+            var current = pageActivities.LastOrDefault(activity => activity.Page == currentPage);
+            PageActivityLabel.Text = current?.Message ?? "";
+            PageActivityBand.Visibility = current == null ? Visibility.Collapsed : Visibility.Visible;
         }
 
         void Status(string message) { StatusText.Text = message; Log(message); }
@@ -804,6 +881,11 @@ namespace BlockCraftLauncher.Wpf
                 "。此方式不覆盖桌面上的旧版 EXE；需要永久更新请使用“下载并安装”。");
         }
         void Log(string text) { logs.Add(DateTime.Now.ToString("HH:mm:ss") + "  " + text); }
+        void SystemAppearanceChanged(object sender, System.ComponentModel.PropertyChangedEventArgs args)
+        {
+            if (args.PropertyName == nameof(SystemParameters.HighContrast)) ApplyTheme();
+        }
+
         void ApplyTheme()
         {
             bool light = settings.Theme == "浅色";
@@ -816,29 +898,46 @@ namespace BlockCraftLauncher.Wpf
                 (byte)Math.Round(from.B * (1 - weight) + to.B * weight));
             double Luminance(Color color) => 0.2126 * color.ScR + 0.7152 * color.ScG + 0.0722 * color.ScB;
 
-            Set("WindowBrush", light ? "#F6F9FF" : "#172233");
-            Set("PageBrush", light ? "#E8F1FD" : "#141E2D");
-            Set("SidebarBrush", light ? "#FCFDFF" : "#1C2839");
-            Set("PanelBrush", light ? "#FFFFFF" : "#223146");
-            Set("PanelAltBrush", light ? "#F2F7FF" : "#293B54");
-            Set("TextBrush", light ? "#374258" : "#EEF4FC");
-            Set("MutedBrush", light ? "#637389" : "#ACBED5");
-            Set("BorderBrushTheme", light ? "#CBD9EB" : "#3C526E");
-            Set("InputBorderBrush", light ? "#B8C9DF" : "#536D8E");
-            Set("HoverBrush", light ? "#EAF2FE" : "#2E4563");
-            Set("SelectedBrush", light ? "#DBEAFE" : "#324D70");
-            Set("BadgeBrush", light ? "#E0EAFD" : "#304A6B");
-            Set("SoftDividerBrush", light ? "#E2EAF5" : "#374C65");
-            Set("SearchSurfaceBrush", light ? "#FFFFFF" : "#223146");
-            Set("PreviewFloorBrush", light ? "#DAE8FB" : "#243B56");
-            Set("SuccessBrush", light ? "#24785D" : "#82DAB8");
-            Set("DangerBrush", light ? "#BA4052" : "#FF9DA9");
-            Set("WarningBrush", light ? "#8C5D0A" : "#FFD178");
+            if (SystemParameters.HighContrast)
+            {
+                foreach (var key in new[] { "WindowBrush", "PageBrush", "SidebarBrush", "PanelBrush",
+                    "PanelAltBrush", "SearchSurfaceBrush", "PreviewFloorBrush", "FeaturePanelBrush",
+                    "BadgeBrush", "HoverBrush", "SelectedBrush" }) resources[key] = SystemColors.WindowBrush;
+                foreach (var key in new[] { "TextBrush", "MutedBrush", "BorderBrushTheme", "InputBorderBrush",
+                    "SoftDividerBrush", "SuccessBrush", "WarningBrush", "DangerBrush", "AccentInkBrush" })
+                    resources[key] = SystemColors.WindowTextBrush;
+                foreach (var key in new[] { "TitleBarBrush", "AccentBrush", "SecondaryAccentBrush",
+                    "HeaderSelectionTextBrush" }) resources[key] = SystemColors.HighlightBrush;
+                foreach (var key in new[] { "AccentTextBrush", "HeaderTextBrush", "HeaderSelectionBrush" })
+                    resources[key] = SystemColors.HighlightTextBrush;
+                return;
+            }
+            Set("HeaderTextBrush", "#FFFFFF");
+            Set("HeaderSelectionBrush", "#FFFFFF");
+            Set("WindowBrush", light ? "#F7FAFC" : "#15212B");
+            Set("PageBrush", light ? "#F1F5F8" : "#111B24");
+            Set("SidebarBrush", light ? "#FBFDFE" : "#172631");
+            Set("PanelBrush", light ? "#FFFFFF" : "#1D2E3A");
+            Set("PanelAltBrush", light ? "#F4F8FA" : "#233844");
+            Set("TextBrush", light ? "#1D3040" : "#EBF3F6");
+            Set("MutedBrush", light ? "#526779" : "#ADC2CD");
+            Set("BorderBrushTheme", light ? "#CCD9E1" : "#405665");
+            Set("InputBorderBrush", light ? "#91A6B4" : "#678393");
+            Set("HoverBrush", light ? "#E9F2F6" : "#293F4C");
+            Set("SelectedBrush", light ? "#DFF0F6" : "#294954");
+            Set("BadgeBrush", light ? "#E6F2F6" : "#294550");
+            Set("SoftDividerBrush", light ? "#DCE5EA" : "#304754");
+            Set("SearchSurfaceBrush", light ? "#FFFFFF" : "#1D2E3A");
+            Set("PreviewFloorBrush", light ? "#DCECF1" : "#253F4B");
+            Set("SuccessBrush", light ? "#17684E" : "#85DAB0");
+            Set("DangerBrush", light ? "#A93643" : "#FFA8AF");
+            Set("WarningBrush", light ? "#805010" : "#FFD18A");
 
             bool defaultAccent = !IsHexColor(settings.Accent) ||
                 string.Equals(settings.Accent, "#1875CE", StringComparison.OrdinalIgnoreCase);
-            var accent = (Color)ColorConverter.ConvertFromString(defaultAccent ? "#1370F3" : settings.Accent);
-            var header = Luminance(accent) > 0.35 ? Blend(accent, Colors.Black, 0.20) : accent;
+            var accent = (Color)ColorConverter.ConvertFromString(defaultAccent ? "#116A91" : settings.Accent);
+            var header = accent;
+            while (Luminance(header) > 0.17) header = Blend(header, Colors.Black, 0.10);
             SetBrush("AccentBrush", accent);
             Set("AccentTextBrush", Luminance(accent) > 0.179 ? "#000000" : "#FFFFFF");
             SetBrush("AccentInkBrush", light ? Blend(accent, Colors.Black, Luminance(accent) > 0.35 ? 0.55 : 0.19)
@@ -846,11 +945,11 @@ namespace BlockCraftLauncher.Wpf
             SetBrush("HeaderSelectionTextBrush", Blend(header, Colors.Black, 0.15));
             SetBrush("SecondaryAccentBrush", Blend(accent, Colors.White, 0.23));
             resources["TitleBarBrush"] = new LinearGradientBrush(
-                Blend(header, Colors.Black, light ? 0.03 : 0.32),
-                Blend(header, light ? Colors.White : Colors.Black, light ? 0.10 : 0.16), 0);
+                defaultAccent ? Color.FromRgb(21, 61, 97) : Blend(header, Colors.Black, 0.30),
+                defaultAccent ? Color.FromRgb(20, 108, 133) : header, 0);
             resources["FeaturePanelBrush"] = new LinearGradientBrush(
-                (Color)ColorConverter.ConvertFromString(light ? "#FFFFFF" : "#253A53"),
-                (Color)ColorConverter.ConvertFromString(light ? "#F1F7FF" : "#223146"), 25);
+                (Color)ColorConverter.ConvertFromString(light ? "#FFFFFF" : "#233B48"),
+                (Color)ColorConverter.ConvertFromString(light ? "#EAF5F7" : "#1D2E3A"), 25);
         }
         static bool IsHexColor(string s) => s != null && s.Length == 7 && s[0] == '#' && s.Skip(1).All(c => Uri.IsHexDigit(c));
         void ApplyZoom()
@@ -961,23 +1060,28 @@ namespace BlockCraftLauncher.Wpf
                 bool signedIn = settings.AccountMode == (official ? "microsoft" : "offline");
                 string name = official ? settings.AccountName : settings.OfflineName;
                 if (account.Content is StackPanel previousControls)
-                    avatarVisuals.RemoveAll(avatar => previousControls.Children.Contains(avatar));
-                var portrait = AvatarVisual(61);
-                portrait.HorizontalAlignment = HorizontalAlignment.Center;
-                portrait.Margin = new Thickness(0, 0, 0, 12);
+                    avatarVisuals.RemoveAll(avatar => previousControls.IsAncestorOf(avatar));
+                var portrait = AvatarVisual(46);
+                portrait.Margin = new Thickness(0, 0, 9, 0);
                 portrait.Cursor = Cursors.Hand;
                 portrait.ToolTip = "点击更换启动器头像";
                 portrait.MouseLeftButtonUp += (sender, args) => ChooseCustomAvatar();
                 var identity = Txt(signedIn && !string.IsNullOrWhiteSpace(name) ? name :
-                    official ? "未登录" : "离线账号", 18, true);
-                identity.TextAlignment = TextAlignment.Center;
+                    official ? "未登录" : "离线账号", 16, true);
+                identity.Margin = new Thickness(0);
                 var method = Txt(official ? "Microsoft 账号" : "Minecraft 离线玩家", 12, false, true);
-                method.TextAlignment = TextAlignment.Center;
+                method.Margin = new Thickness(0, 2, 0, 0);
+                var identityRow = new DockPanel { Margin = new Thickness(0, 0, 0, 7) };
+                DockPanel.SetDock(portrait, Dock.Left);
+                identityRow.Children.Add(portrait);
+                var identityText = Col(identity, method);
+                identityText.VerticalAlignment = VerticalAlignment.Center;
+                identityRow.Children.Add(identityText);
                 var login = official
                     ? Btn(signedIn ? "切换账号" : "微软正版登录", async () => await LoginMicrosoftAsync(), true)
                     : Btn(signedIn ? "更改玩家名" : "离线登录", EditOfflineAccount, true);
                 login.Margin = new Thickness(0, 7, 0, 6);
-                var controls = Col(portrait, identity, method, login);
+                var controls = Col(identityRow, login);
                 var changeAvatar = Btn("更换头像", ChooseCustomAvatar);
                 changeAvatar.Margin = new Thickness(0, 0, 0, 4);
                 controls.Children.Add(changeAvatar);
@@ -1038,7 +1142,7 @@ namespace BlockCraftLauncher.Wpf
             versionButtons.Children.Add(select);
             versionButtons.Children.Add(manage);
 
-            var actions = Col(homeLaunchProgress, gameProcessText, homeLaunchButton, versionButtons);
+            var actions = Col(homeLaunchButton, versionButtons);
             actions.Margin = new Thickness(16, 8, 16, 15);
             var pane = new Grid();
             pane.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -1052,25 +1156,27 @@ namespace BlockCraftLauncher.Wpf
 
         UIElement BuildHome()
         {
-            homeProfileName = Txt("", 18, true);
+            homeProfileName = Txt("", 25, true);
             homeProfileInfo = Txt("", 12, false, true);
             var emblem = new Border
             {
-                Width = 42, Height = 42, CornerRadius = new CornerRadius(5),
-                VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0, 0, 12, 0),
+                Width = 66, Height = 66, CornerRadius = new CornerRadius(12),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(12, 0, 0, 0),
                 Child = new Image { Source = new BitmapImage(new Uri(
-                    "pack://application:,,,/Assets/blockcraft_icon.png")), Margin = new Thickness(7) }
+                    "pack://application:,,,/Assets/blockcraft_icon.png")), Margin = new Thickness(10) }
             };
             emblem.SetResourceReference(Border.BackgroundProperty, "BadgeBrush");
-            var heading = new DockPanel { Margin = new Thickness(0, 1, 0, 6) };
-            DockPanel.SetDock(emblem, Dock.Left);
+            var heading = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
+            DockPanel.SetDock(emblem, Dock.Right);
             heading.Children.Add(emblem);
-            heading.Children.Add(Col(homeProfileName, homeProfileInfo));
-            var overview = Card(Col(Txt("游戏版本", 16, true), heading,
+            heading.Children.Add(Col(Txt("当前游戏实例", 12, true, true), homeProfileName, homeProfileInfo));
+            gameProcessText.TextAlignment = TextAlignment.Left;
+            var overview = Card(Col(heading, homeLaunchProgress, gameProcessText,
                 Row(Btn("版本设置", () => OpenVersionSettings("首页")),
                     Btn("打开游戏目录", OpenGameFolder),
                     Btn("运行日志", () => Navigate("运行日志")))));
+            overview.SetResourceReference(StyleProperty, "FeaturePanel");
 
             homeUpdateText = Txt("", 12, false, true);
             homeUpdateCard = Card(Col(Txt("启动器更新", 16, true), homeUpdateText,
@@ -1100,19 +1206,12 @@ namespace BlockCraftLauncher.Wpf
                 button.Content = row;
                 return button;
             }
-            var actions = new System.Windows.Controls.Primitives.UniformGrid { Columns = 2 };
-            foreach (var action in new[] {
-                Shortcut("下载游戏", "游戏版本"), Shortcut("模组下载", "资源中心"),
-                Shortcut("皮肤下载", "皮肤下载"), Shortcut("皮肤 DIY", "皮肤 DIY"),
-                Shortcut("多人联机", "多人联机"), Shortcut("启动器设置", "设置") })
-                actions.Children.Add(action);
-            actions.SizeChanged += (sender, args) =>
-            {
-                if (args.WidthChanged) actions.Columns = args.NewSize.Width >= 332 ? 2 : 1;
-            };
-            var shortcuts = Card(Col(Txt("快捷入口", 16, true), actions));
+            var library = Card(Col(Txt("游戏内容", 16, true), Shortcut("下载游戏", "游戏版本"),
+                Shortcut("模组下载", "资源中心"), Shortcut("皮肤下载", "皮肤下载")));
+            var tools = Card(Col(Txt("玩家工具", 16, true), Shortcut("多人联机", "多人联机"),
+                Shortcut("皮肤 DIY", "皮肤 DIY"), Shortcut("启动器设置", "设置")));
             RefreshGameProcessStatus();
-            return Col(homeUpdateCard, overview, shortcuts);
+            return Col(overview, homeUpdateCard, PageColumns(library, tools, 255));
         }
 
         void OpenVersionSettings(string returnPage)
@@ -1144,19 +1243,34 @@ namespace BlockCraftLauncher.Wpf
             };
             var use = Btn("选择此版本", () => SelectProfile(false), true);
             var manage = Btn("版本设置", () => SelectProfile(true));
-            void RefreshSelection() => use.IsEnabled = manage.IsEnabled = profileList.SelectedItem != null;
+            var selectedName = Txt("", 18, true);
+            var selectedVersion = Txt("", 12, false, true);
+            void RefreshSelection()
+            {
+                var profile = profileList.SelectedItem as GameProfile;
+                use.IsEnabled = manage.IsEnabled = profile != null;
+                selectedName.Text = profile == null ? "尚未选择版本" : profile.Name;
+                selectedVersion.Text = profile == null ? "在版本列表中选择一个游戏实例。" : ProfileVersion(profile);
+            }
             profileList.SelectionChanged += (sender, args) => RefreshSelection();
+            profileList.KeyDown += (sender, args) =>
+            {
+                if (args.Key == Key.Enter && profileList.SelectedItem != null)
+                {
+                    args.Handled = true;
+                    SelectProfile(false);
+                }
+            };
             RefreshSelection();
-            return Col(
-                PageHeading("版本选择", "选择本次启动使用的 Minecraft 版本。"),
-                Card(Col(Txt("已安装版本", 16, true),
-                    Txt(settings.Profiles.Count == 0 ? "暂无游戏版本。可安装新版本或导入本地游戏。"
-                        : "双击列表中的版本可直接选用。", 12, false, true),
-                    profileList, Row(use, manage))),
-                Card(Col(Txt("添加版本", 16, true),
+            var library = ResultsCard(Col(Txt("已安装版本", 16, true), profileList,
                     Row(Btn("下载游戏", () => Navigate("游戏版本")),
                         Btn("导入本地版本", ImportLocalGame),
-                        Btn("打开游戏目录", OpenGameFolder)))));
+                        Btn("打开游戏目录", OpenGameFolder))));
+            var selection = Card(Col(selectedName, selectedVersion, Row(use, manage)));
+            selection.SetResourceReference(StyleProperty, "FeaturePanel");
+            selection.VerticalAlignment = VerticalAlignment.Top;
+            return Col(PageHeading("版本选择", "选中游戏实例后可设置或启动。双击或按 Enter 直接选用。"),
+                PageColumns(library, selection, 242));
         }
 
         void UseInstalledProfile(GameProfile profile)
@@ -1189,26 +1303,24 @@ namespace BlockCraftLauncher.Wpf
             };
             foreach (var field in fields)
             {
-                var row = new Grid { Margin = new Thickness(0, 0, 8, 6) };
+                var row = new StackPanel { Margin = new Thickness(0, 0, 8, 7) };
                 bool labeled = !string.IsNullOrWhiteSpace(field.Label);
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(labeled ? 58 : 0) });
-                row.ColumnDefinitions.Add(new ColumnDefinition());
                 if (labeled)
                 {
                     var label = new Label
                     {
-                        Content = field.Label, Target = field.Input, FontSize = 12.5,
-                        Padding = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center
+                        Content = field.Label, Target = field.Input, FontSize = 12, FontWeight = FontWeights.SemiBold,
+                        Padding = new Thickness(0, 0, 0, 3)
                     };
-                    label.SetResourceReference(Control.ForegroundProperty, "TextBrush");
+                    label.SetResourceReference(Control.ForegroundProperty, "MutedBrush");
                     AutomationProperties.SetLabeledBy(field.Input, label);
-                    Place(row, label, 0, 0);
+                    row.Children.Add(label);
                 }
                 field.Input.Margin = new Thickness(0);
                 field.Input.MaxHeight = 32;
                 field.Input.VerticalAlignment = VerticalAlignment.Center;
                 field.Input.HorizontalAlignment = HorizontalAlignment.Stretch;
-                Place(row, field.Input, 0, 1);
+                row.Children.Add(field.Input);
                 form.Children.Add(row);
             }
             return form;
@@ -1255,7 +1367,7 @@ namespace BlockCraftLauncher.Wpf
                     Btn("导入资源包 ZIP", () => ImportManualResource("资源包")),
                     Btn("导入光影包 ZIP", () => ImportManualResource("光影")))));
             return Col(PageHeading("手动安装包", "本机已有的版本、整合包和资源文件均可直接导入。"),
-                game, packs, resources);
+                PageColumns(game, packs, 280), resources);
         }
 
         void ImportManualResource(string kind)
@@ -1359,6 +1471,7 @@ namespace BlockCraftLauncher.Wpf
         async Task LoadVersionsAsync()
         {
             if (loadingVersions) return;
+            using var activity = BeginPageActivity("游戏版本", "正在读取 Minecraft 版本列表…");
             loadingVersions = true;
             versionLoadError = null;
             versionReloadButton.IsEnabled = false;
@@ -1432,7 +1545,7 @@ namespace BlockCraftLauncher.Wpf
 
         UIElement BuildDownloadCenter()
         {
-            var root = Col(PageHeading("下载任务", "查看正在运行、已完成和失败的任务，可取消或重试。"));
+            var root = Col(PageHeading("下载任务", ""));
             downloadSearchQuery = new TextBox();
             ApplySearchInputStyle(downloadSearchQuery, "按名称或资源类型查找任务");
             downloadStatusFilter = new ComboBox
@@ -1441,26 +1554,32 @@ namespace BlockCraftLauncher.Wpf
                 SelectedIndex = 0
             };
             ApplySearchInputStyle(downloadStatusFilter, "按任务状态筛选");
-            root.Children.Add(SearchCard(Col(Txt("下载任务", 16, true),
+            var filters = Col(
                 SearchFields(("名称", downloadSearchQuery), ("状态", downloadStatusFilter)),
                 Row(Btn("刷新列表", ApplyDownloadFilter),
                     Btn("重置条件", () =>
                     {
                         downloadSearchQuery.Clear();
                         downloadStatusFilter.SelectedIndex = 0;
-                    })))));
+                    })));
             downloadCounter = Txt("", 12, false, true);
             downloadList = new ListBox
             {
                 ItemsSource = downloads.Jobs, MinHeight = 134, MaxHeight = 294,
                 ItemTemplate = (DataTemplate)FindResource("DownloadItemTemplate")
             };
+            AutomationProperties.SetName(downloadList, "下载队列");
             downloadSearchQuery.TextChanged += (sender, args) => ApplyDownloadFilter();
             downloadStatusFilter.SelectionChanged += (sender, args) => ApplyDownloadFilter();
             ApplyDownloadFilter();
-            var taskList = ResultsCard(Col(Txt("任务列表", 16, true), downloadCounter, downloadList));
+            var taskList = ResultsCard(Col(filters, downloadCounter, downloadList));
 
-            var heading = Txt("任务详情", 16, true);
+            var heading = Txt("", 16, true);
+            heading.SetBinding(TextBlock.TextProperty, new Binding("SelectedItem.Title")
+            {
+                Source = downloadList, Mode = BindingMode.OneWay,
+                FallbackValue = "任务详情", TargetNullValue = "任务详情"
+            });
             var status = Txt("", 14);
             status.SetBinding(TextBlock.TextProperty, new Binding("SelectedItem.Status")
             {
@@ -1507,11 +1626,11 @@ namespace BlockCraftLauncher.Wpf
                 { Source = downloadList, Mode = BindingMode.OneWay, FallbackValue = false });
             retry.SetBinding(IsEnabledProperty, new Binding("SelectedItem.CanRetry")
                 { Source = downloadList, Mode = BindingMode.OneWay, FallbackValue = false });
-            var taskDetail = Card(Col(heading, status, detail, downloadProgressBar,
-                Row(bytesLabel, speedLabel, percentLabel),
-                Row(cancel, retry, Btn("返回游戏下载", () => Navigate("游戏版本")),
-                    Btn("皮肤下载", () => Navigate("皮肤下载")))));
-            root.Children.Add(PageColumns(taskList, taskDetail, 286));
+            var taskDetail = Card(Col(heading, status, downloadProgressBar,
+                Row(percentLabel, bytesLabel, speedLabel), detail, Row(cancel, retry)));
+            root.Children.Add(PageColumns(taskList, taskDetail, 250));
+            root.Children.Add(Row(Btn("返回游戏下载", () => Navigate("游戏版本")),
+                Btn("皮肤下载", () => Navigate("皮肤下载"))));
             if (downloadList.Items.Count > 0)
                 downloadList.SelectedIndex = 0;
             return root;
@@ -1571,6 +1690,30 @@ namespace BlockCraftLauncher.Wpf
                 homeLaunchButton.TranslatePoint(new Point(0, 0), LaunchPane).Y < LaunchPane.ActualHeight / 2 ||
                 !ReferenceEquals(homeLaunchButton.Style, FindResource("LaunchButton")))
                 throw new InvalidOperationException("顶部导航或底部启动按钮未正确对齐。");
+
+            launchStages.Add(sampleProfile, "正在准备 Java 游戏进程…");
+            try
+            {
+                RefreshGameProcessStatus();
+                if (homeLaunchProgress.Visibility != Visibility.Visible || homeLaunchButton.IsEnabled ||
+                    gameProcessText.Text != launchStages[sampleProfile])
+                    throw new InvalidOperationException("启动阶段未同步到当前实例。");
+                ArrangeLayoutProbe(960, 600, "game-launch-loading");
+            }
+            finally { launchStages.Remove(sampleProfile); RefreshGameProcessStatus(); }
+            var firstRead = BeginPageActivity("游戏版本", "正在读取游戏版本目录…");
+            using (BeginPageActivity("游戏版本", "正在刷新游戏版本目录…"))
+            {
+                firstRead.Dispose();
+                if (PageActivityBand.Visibility == Visibility.Visible)
+                    throw new InvalidOperationException("其他页面的加载状态遮挡首页。");
+                Navigate("游戏版本");
+                if (PageActivityBand.Visibility != Visibility.Visible || PageActivityLabel.Text != "正在刷新游戏版本目录…")
+                    throw new InvalidOperationException("较早任务的完成覆盖了当前加载状态。");
+                ArrangeLayoutProbe(960, 600, "page-loading");
+            }
+            if (PageActivityBand.Visibility != Visibility.Collapsed)
+                throw new InvalidOperationException("页面任务结束后仍然显示加载状态。");
 
             Navigate("版本选择");
             if (profileList?.ItemTemplate == null || profileList.SelectedItem != sampleProfile ||
@@ -1640,9 +1783,15 @@ namespace BlockCraftLauncher.Wpf
             }
             ArrangeLayoutProbe(850, 560);
             if (resourceList.Items.Count != 2 || resourceSource.SelectedIndex != 0 ||
-                resourceMatchVersion == null || resourceQuery.ActualWidth < 140 ||
-                Math.Abs(resourceQuery.ActualWidth - resourceSource.ActualWidth) > 2)
+                resourceMatchVersion == null || resourceQuery.ActualWidth < 140 || resourceSource.ActualWidth < 100)
                 throw new InvalidOperationException("资源列表或窄窗口筛选网格布局错误");
+            DependencyObject filterParent = resourceVersion;
+            while (filterParent != null && !(filterParent is Expander))
+                filterParent = LogicalTreeHelper.GetParent(filterParent);
+            if (!(filterParent is Expander advancedFilters))
+                throw new InvalidOperationException("找不到模组的高级搜索选项。");
+            advancedFilters.IsExpanded = true;
+            ArrangeLayoutProbe(850, 560);
             var versionEditor = resourceVersion.Template.FindName("PART_EditableTextBox", resourceVersion) as TextBox;
             foreach (var input in new[] { resourceQuery, versionEditor })
             {
@@ -1650,6 +1799,7 @@ namespace BlockCraftLauncher.Wpf
                     host.ActualHeight - host.Padding.Top - host.Padding.Bottom < input.FontSize)
                     throw new InvalidOperationException("筛选输入框的文字高度不足。");
             }
+            advancedFilters.IsExpanded = false;
             var unifiedPage = PageHost.Content;
             if (modDetailsHost.Content == null || DetailHost.Content != null ||
                 PageHost.Visibility != Visibility.Visible || resourceQuery.Text != "示例筛选" ||
@@ -1980,6 +2130,8 @@ namespace BlockCraftLauncher.Wpf
                 Dispatcher.BeginInvoke(new Action(() => OnDownloadJobsChanged(sender, args)));
                 return;
             }
+            int active = downloads.Jobs.Count(job => job.IsRunning);
+            TaskShortcutLabel.Text = active == 0 ? "下载任务" : "下载任务 · " + active;
             if (currentPage != "下载管理" || downloadList == null || downloadFilterRefreshPending)
                 return;
             downloadFilterRefreshPending = true;
@@ -2462,6 +2614,7 @@ namespace BlockCraftLauncher.Wpf
         async Task SearchModpacksAsync()
         {
             if (packSearchResults == null) return;
+            using var activity = BeginPageActivity("整合包", "正在查找兼容的整合包…");
             CancelAndDetach(ref packSearchCancellation);
             using (var request = new CancellationTokenSource(TimeSpan.FromSeconds(35)))
             {
@@ -2621,7 +2774,7 @@ namespace BlockCraftLauncher.Wpf
                     Btn("更新选中", async () => await ApplyManagedUpdatesAsync(false)),
                     Btn("更新全部", async () => await ApplyManagedUpdatesAsync(true)))));
             _ = RefreshLocalResourceListAsync();
-            return Col(PageHeading("模组与资源", "当前版本  " + activeProfile.Name), local, updates);
+            return Col(PageHeading("模组与资源", "当前版本  " + activeProfile.Name), PageColumns(local, updates, 254));
         }
         async Task CheckManagedUpdatesAsync()
         {
@@ -2629,6 +2782,7 @@ namespace BlockCraftLauncher.Wpf
             var results = modUpgradeResults;
             if (profile == null || results == null) return;
             if (currentOperation != null) { MessageBox.Show("已有安装操作进行中"); return; }
+            using var activity = BeginPageActivity("模组更新", "正在检查已安装资源的更新…");
             currentOperation = new CancellationTokenSource();
             try
             {
@@ -2760,22 +2914,32 @@ namespace BlockCraftLauncher.Wpf
             };
             serverName = new TextBox { ToolTip = "服务器在收藏列表中的名称" };
             serverAddress = new TextBox { ToolTip = "输入域名或 IP，可附加端口" };
-            var saved = Card(Col(Txt("服务器收藏", 16, true), serverList,
-                Row(Btn("新增服务器", () =>
-                    {
-                        serverList.UnselectAll();
-                        serverName.Clear();
-                        serverAddress.Clear();
-                        serverName.Focus();
-                    }),
-                    Btn("复制地址", CopyServerAddress), Btn("删除收藏", DeleteServer))));
-            var form = Card(Col(Txt("服务器信息", 16, true),
-                SearchFields(("名称", serverName), ("地址", serverAddress)),
-                Row(Btn("加入服务器", async () => await JoinServerAsync(), true),
-                    Btn("查找服务器", () => Navigate("查找服务器")),
-                    Btn("保存收藏", SaveServer),
-                    Btn("检测连接", async () => await CheckServerAsync()),
-                    Btn("启动当前版本", async () => await LaunchAsync()))));
+            ApplySearchInputStyle(serverName, "服务器收藏名称");
+            ApplySearchInputStyle(serverAddress, "服务器域名或 IP，可附加端口");
+            AutomationProperties.SetName(serverList, "收藏的服务器");
+            var editorTitle = Txt("快速连接", 16, true);
+            var join = Btn("加入服务器", async () => await JoinServerAsync(), true);
+            var ping = Btn("检测连接", async () => await CheckServerAsync());
+            var copy = Btn("复制地址", CopyServerAddress);
+            var save = Btn("保存收藏", SaveServer);
+            var remove = Btn("删除收藏", DeleteServer);
+            var add = Btn("新增服务器", () =>
+            {
+                serverList.UnselectAll();
+                serverName.Clear();
+                serverAddress.Clear();
+                serverName.Focus();
+            });
+            void RefreshActions()
+            {
+                bool hasAddress = !string.IsNullOrWhiteSpace(serverAddress.Text);
+                join.IsEnabled = copy.IsEnabled = ping.IsEnabled = hasAddress;
+                save.IsEnabled = hasAddress && !string.IsNullOrWhiteSpace(serverName.Text);
+                remove.IsEnabled = serverList.SelectedItem is ServerEntry;
+                editorTitle.Text = remove.IsEnabled ? "编辑收藏" : "快速连接";
+            }
+            serverAddress.TextChanged += (sender, args) => RefreshActions();
+            serverName.TextChanged += (sender, args) => RefreshActions();
             serverList.SelectionChanged += (sender, args) =>
             {
                 if (serverList.SelectedItem is ServerEntry selected)
@@ -2783,9 +2947,17 @@ namespace BlockCraftLauncher.Wpf
                     serverName.Text = selected.Name;
                     serverAddress.Text = selected.Address;
                 }
+                RefreshActions();
             };
+            var saved = ResultsCard(Col(Txt("我的收藏", 16, true),
+                Row(add, remove), serverList,
+                Row(Btn("查找服务器", () => Navigate("查找服务器")))));
+            var form = Card(Col(editorTitle, Txt("服务器地址", 12, false, true), serverAddress,
+                Row(join, ping, copy), Txt("收藏名称", 12, false, true), serverName, Row(save)));
             RefreshServers();
-            return PageColumns(saved, form, 306);
+            RefreshActions();
+            return Col(PageHeading("服务器收藏", ""), PageColumns(saved, form, 300),
+                Row(Btn("启动当前版本", async () => await LaunchAsync())));
         }
 
         UIElement BuildServerFinder()
@@ -2825,11 +2997,16 @@ namespace BlockCraftLauncher.Wpf
             };
             serverFinderSearchButton = Btn("搜索服务器", async () =>
                 await SearchServersAsync(1), true);
+            var options = new Expander
+            {
+                Header = "筛选与排序",
+                IsExpanded = false,
+                Content = Col(SearchFields(("来源", serverFinderProvider),
+                    ("游戏版本", serverFinderVersion), ("排序", serverFinderSort)), serverFinderOnlineOnly)
+            };
+            options.SetResourceReference(Control.ForegroundProperty, "TextBrush");
             var form = SearchCard(Col(
-                Txt("服务器查找", 16, true),
-                SearchFields(("名称 / IP", serverFinderQuery), ("来源", serverFinderProvider),
-                    ("游戏版本", serverFinderVersion), ("排序", serverFinderSort)),
-                serverFinderOnlineOnly,
+                SearchFields(("名称 / IP", serverFinderQuery)), options,
                 Row(serverFinderSearchButton, Btn("清除筛选", () =>
                 {
                     serverFinderQuery.Clear();
@@ -2838,14 +3015,13 @@ namespace BlockCraftLauncher.Wpf
                     serverFinderSort.SelectedIndex = 0;
                     serverFinderOnlineOnly.IsChecked = true;
                     serverFinderStatus.Text = "已清除筛选，点击“搜索服务器”浏览公开目录。";
-                }), Btn("我的服务器收藏", () => Navigate("多人联机"))),
-                Txt("目录信息可能延迟；服务器由第三方运营，不代表启动器官方推荐。仅列出 Java 或可使用 Java 加入的公开服务器。",
-                    12, false, true)));
+                }), Btn("我的服务器收藏", () => Navigate("多人联机")))));
             serverFinderResults = new ListBox
             {
-                MinHeight = 290, MaxHeight = 490,
+                MinHeight = 150, MaxHeight = 320,
                 ItemTemplate = (DataTemplate)FindResource("PublicServerResultTemplate")
             };
+            AutomationProperties.SetName(serverFinderResults, "公开服务器搜索结果");
             serverFinderStatus = Txt("输入关键词并点击搜索，或留空浏览。不会自动联网。",
                 12, false, true);
             serverFinderDetails = Txt("请选择一个结果查看地址、版本、玩家人数和来源。",
@@ -2875,10 +3051,13 @@ namespace BlockCraftLauncher.Wpf
                     serverFinderCopyButton, serverFinderSourceButton),
                 Txt("直接连接需要已安装 Minecraft Java 实例。目录记录不保证实时可连接，版本与账号权限以目标服务器为准。",
                     12, false, true)));
-            return Col(form, PageColumns(results, actions, 290),
-                Card(Col(Txt("数据来源", 14, true),
-                    Txt("服务器资料来自 MC Monitor、minecraftserve.rs、minecraftserver.id（MSID）。不发送微软登录令牌。数据缓存至少 60 秒，失败可切换来源，内容以第三方为准。",
-                        12, false, true))));
+            var sources = new Expander
+            {
+                Header = "查看目录数据来源",
+                Content = Txt("MC Monitor、minecraftserve.rs、minecraftserver.id（MSID）。目录会缓存至少 60 秒，若来源暂时不可用，可展开筛选切换来源。", 12, false, true)
+            };
+            sources.SetResourceReference(Control.ForegroundProperty, "TextBrush");
+            return Col(PageHeading("查找服务器", ""), form, PageColumns(results, actions, 270), sources);
         }
 
         void RefreshServerFinderSelection()
@@ -2908,6 +3087,7 @@ namespace BlockCraftLauncher.Wpf
         async Task SearchServersAsync(int page)
         {
             if (serverFinderSearching || page < 1 || page > 200) return;
+            using var activity = BeginPageActivity("查找服务器", "正在读取服务器目录…");
             string query = serverFinderQuery.Text.Trim();
             string version = serverFinderVersion.Text.Trim();
             string provider = Convert.ToString(serverFinderProvider.SelectedItem);
@@ -3049,10 +3229,30 @@ namespace BlockCraftLauncher.Wpf
                 MinHeight = 150, MaxHeight = 300,
                 ItemTemplate = (DataTemplate)FindResource("ServerItemTemplate")
             };
-            return Card(Col(Txt("局域网世界", 16, true),
-                Row(Btn("查找局域网世界", async () => await ScanLanWorldsAsync(), true),
-                    Btn("加入选中世界", async () => await JoinLanWorldAsync())),
-                lanWorldList));
+            AutomationProperties.SetName(lanWorldList, "发现的局域网世界");
+            var join = Btn("加入选中世界", async () => await JoinLanWorldAsync(), true);
+            var selected = Txt("选择列表中的世界以加入。", 13);
+            var list = lanWorldList;
+            void RefreshSelection()
+            {
+                var entry = list.SelectedItem as ServerEntry;
+                join.IsEnabled = entry != null;
+                selected.Text = entry == null ? "选择列表中的世界以加入。" :
+                    entry.Name + Environment.NewLine + entry.Address;
+            }
+            list.SelectionChanged += (sender, args) => RefreshSelection();
+            RefreshSelection();
+            Button scan = null;
+            scan = Btn("查找局域网世界", async () =>
+            {
+                scan.IsEnabled = false;
+                try { await ScanLanWorldsAsync(); }
+                finally { scan.IsEnabled = true; }
+            }, true);
+            var worlds = ResultsCard(Col(Txt("可用世界", 16, true), Row(scan), list));
+            var connection = Card(Col(Txt("加入世界", 16, true), selected, Row(join)));
+            return Col(PageHeading("局域网", "同一网络中的玩家在游戏内选择“对局域网开放”后，可在这里查找。"),
+                PageColumns(worlds, connection, 232));
         }
 
         void RefreshServers()
@@ -3110,6 +3310,7 @@ namespace BlockCraftLauncher.Wpf
         async Task ScanLanWorldsAsync()
         {
             var list = lanWorldList;
+            using var activity = BeginPageActivity("局域网", "正在监听局域网世界公告…");
             try
             {
                 Status("正在扫描 Minecraft 局域网公告...");
@@ -3158,7 +3359,6 @@ namespace BlockCraftLauncher.Wpf
                 Txt(package + "  ·  " + LauncherAutoUpdateService.BuildChannelLabel + "  ·  Windows x64",
                     12, false, true)));
             versionCard.SetResourceReference(StyleProperty, "FeaturePanel");
-            root.Children.Add(versionCard);
 
             updateStatusText = Txt("", 14, true);
             updateProgressBar = new ProgressBar
@@ -3185,11 +3385,11 @@ namespace BlockCraftLauncher.Wpf
                 updateInstallButton.ToolTip = "新版打开并校验成功后，清理启动本次更新的旧 EXE。";
             updateDirectOpenButton = Btn("临时试用（不替换）", async () =>
                 await OpenDownloadedUpdateDirectlyAsync());
-            root.Children.Add(Card(Col(Txt("更新状态", 16, true),
+            var updateActions = Card(Col(Txt("更新状态", 16, true),
                 updateStatusText, updateProgressBar,
-                Row(updateCheckButton, updateInstallButton, updateDirectOpenButton),
-                notes)));
-            root.Children.Add(Card(Col(Txt("更新选项", 16, true),
+                Row(updateCheckButton, updateInstallButton, updateDirectOpenButton)));
+            root.Children.Add(PageColumns(updateActions, versionCard, 235));
+            root.Children.Add(Card(Col(Txt("发布说明", 16, true), notes,
                 Row(Btn("更新设置", () => Navigate("更新设置")),
                     Btn("查看更新日志", OpenUpdateLog),
                     Btn("查看发布记录", () => LauncherReleaseService.OpenOfficialRelease(
@@ -3213,7 +3413,7 @@ namespace BlockCraftLauncher.Wpf
         bool UpdateHandoffActive => updateHandoffStarting || updateHandoffPending;
 
         bool UpdateIsBusy => UpdateHandoffActive || updateChecking || updatePreparing || updateCancellation.IsCancellationRequested ||
-            currentOperation != null || changingAccount || loadingVersions || launchingProfiles.Count > 0 ||
+            currentOperation != null || changingAccount || loadingVersions || launchStages.Count > 0 ||
             downloads.Jobs.Any(job => job.IsRunning) || skinStudio?.HasActiveOperation == true ||
             settings.Profiles.Any(profile => gameProcesses.GetState(profile).Status == GameProcessStatus.Running);
 
@@ -3342,6 +3542,7 @@ namespace BlockCraftLauncher.Wpf
             updateChecking = true;
             updateCheckFailed = false;
             string channel = settings.UpdateChannel;
+            using var activity = BeginPageActivity("启动器更新", "正在检查所选通道的新版本…");
             RefreshLauncherUpdatePanel();
             try
             {
@@ -3617,11 +3818,17 @@ namespace BlockCraftLauncher.Wpf
         {
             if (settingsPages != null) return settingsPages[page];
             settingsPages = new Dictionary<string, UIElement>();
-            StackPanel AddPage(string key, string title, Grid form, params Button[] links)
+            UIElement Section(string title, Grid fields, params Button[] links)
             {
-                var actions = Row(Btn("保存设置", SaveSettings, true));
-                foreach (var link in links) actions.Children.Add(link);
-                var content = Col(Card(Col(Txt(title, 16, true), form, actions)));
+                var content = Col(Txt(title, 16, true), fields);
+                if (links.Length > 0) content.Children.Add(Row(links));
+                return Card(content);
+            }
+            StackPanel AddPage(string key, string title, params UIElement[] sections)
+            {
+                var content = Col(PageHeading(title, ""));
+                foreach (var section in sections) content.Children.Add(section);
+                content.Children.Add(Row(Btn("保存设置", SaveSettings, true)));
                 settingsPages.Add(key, content);
                 return content;
             }
@@ -3635,11 +3842,10 @@ namespace BlockCraftLauncher.Wpf
                 ApplyTheme();
             };
             SettingRow(appearance, "界面主题", settingsTheme);
-            var avatarOptions = Row(AvatarVisual(72), Col(
-                Txt("仅更改启动器头像，不影响 Microsoft 账号或 Minecraft 皮肤。", 12, false, true),
-                Row(Btn("选择图片", ChooseCustomAvatar, true),
-                    Btn("恢复默认头像", ResetCustomAvatar))));
-            SettingRow(appearance, "玩家头像", avatarOptions,
+            var avatar = SettingsForm();
+            var avatarOptions = Row(AvatarVisual(60),
+                Col(Btn("选择图片", ChooseCustomAvatar, true), Btn("恢复默认头像", ResetCustomAvatar)));
+            SettingRow(avatar, "本地头像", avatarOptions,
                 "支持 PNG / JPG / JPEG，最大 12 MB；自动居中裁剪为圆形显示，保存在本机。");
 
             zoomValue = Txt(settings.Zoom + "%", 13, true);
@@ -3649,7 +3855,8 @@ namespace BlockCraftLauncher.Wpf
             {
                 Minimum = 80, Maximum = 140, TickFrequency = 10,
                 IsSnapToTickEnabled = true, Value = settings.Zoom,
-                Width = 265, VerticalAlignment = VerticalAlignment.Center
+                MaxWidth = 265, VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Stretch
             };
             settingsZoom.ValueChanged += (sender, args) =>
             {
@@ -3657,12 +3864,16 @@ namespace BlockCraftLauncher.Wpf
                 ApplyZoom();
                 if (zoomValue != null) zoomValue.Text = settings.Zoom + "%";
             };
-            var zoomRow = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
+            var zoomRow = new Grid { VerticalAlignment = VerticalAlignment.Center, MaxWidth = 330 };
+            zoomRow.ColumnDefinitions.Add(new ColumnDefinition());
+            zoomRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(zoomValue, 1);
             zoomRow.Children.Add(settingsZoom);
             zoomRow.Children.Add(zoomValue);
             SettingRow(appearance, "界面缩放", zoomRow, "调整页面内容和侧栏的大小。");
-            AddPage("个性化", "界面", appearance,
-                Btn("恢复默认缩放", () => settingsZoom.Value = 100));
+            AddPage("个性化", "个性化", Section("主题与缩放", appearance,
+                Btn("恢复默认缩放", () => settingsZoom.Value = 100)),
+                Section("启动器头像", avatar));
 
             var gameDirectories = SettingsForm();
             settingsRoot = new TextBox { Text = settings.Root, ToolTip = "Minecraft 根目录（含 versions、libraries 等）" };
@@ -3676,10 +3887,9 @@ namespace BlockCraftLauncher.Wpf
             SettingRow(game, "离线玩家名", settingsPlayer, "3～16 位字母、数字或下划线。");
             settingsMemory = new TextBox { Text = settings.MemoryMb.ToString(), MaxWidth = 180 };
             SettingRow(game, "游戏内存（MB）", settingsMemory, "至少 512 MB，例如 4096。");
-            var gamePage = AddPage("设置", "游戏运行", game);
-            gamePage.Children.Insert(0, Card(Col(Txt("游戏目录", 16, true), gameDirectories,
-                Row(Btn("同盘设置游戏与下载目录", ChooseSameDiskPaths),
-                    Btn("打开游戏目录", OpenGameFolder)))));
+            AddPage("设置", "启动设置", Section("游戏目录", gameDirectories,
+                Btn("同盘设置游戏与下载目录", ChooseSameDiskPaths),
+                Btn("打开游戏目录", OpenGameFolder)), Section("游戏运行", game));
 
             var network = SettingsForm();
             var routes = new[]
@@ -3706,10 +3916,11 @@ namespace BlockCraftLauncher.Wpf
             SettingRow(downloadDirectories, "下载缓存目录",
                 DirectoryEditor(settingsDownloadDirectory),
                 "存放启动器更新包和整合包缓存。可与游戏根目录共用本地磁盘、U 盘或移动硬盘上的父文件夹。");
+            var transfers = SettingsForm();
             settingsDownloadThreads = new TextBox { Text = settings.DownloadThreads.ToString(), MaxWidth = 130 };
-            SettingRow(network, "并发连接", settingsDownloadThreads, "2～32 个连接");
+            SettingRow(transfers, "并发连接", settingsDownloadThreads, "2～32 个连接");
             settingsDownloadRetries = new TextBox { Text = settings.DownloadRetries.ToString(), MaxWidth = 130 };
-            SettingRow(network, "失败重试", settingsDownloadRetries, "1～6 次");
+            SettingRow(transfers, "失败重试", settingsDownloadRetries, "1～6 次");
             settingsProxy = new TextBox { Text = settings.Proxy, ToolTip = "例如 http://127.0.0.1:7890" };
             SettingRow(network, "下载代理", settingsProxy, "留空沿用 Windows 系统代理。");
             settingsMcim = new CheckBox
@@ -3753,8 +3964,7 @@ namespace BlockCraftLauncher.Wpf
                 catch (Exception ex) { probeText.Text = "检测失败：" + ex.Message; }
                 finally { probe.IsEnabled = true; }
             });
-            var networkPage = AddPage("下载设置", "下载线路", network,
-                probe,
+            var cacheSection = Section("下载缓存", downloadDirectories,
                 Btn("同盘设置游戏与下载目录", ChooseSameDiskPaths),
                 Btn("恢复默认下载路径", () =>
                 {
@@ -3770,8 +3980,8 @@ namespace BlockCraftLauncher.Wpf
                     else
                         Status("下载目录尚未创建或路径无效，请先保存设置。");
                 }));
-            networkPage.Children.Insert(0, Card(Col(Txt("下载目录", 16, true), downloadDirectories)));
-            networkPage.Children.Add(probeCard);
+            AddPage("下载设置", "下载设置", Section("下载线路", network, probe), probeCard,
+                Section("传输限制与重试", transfers), cacheSection);
 
             var updates = SettingsForm();
             var channels = new[]
@@ -3805,6 +4015,7 @@ namespace BlockCraftLauncher.Wpf
                 LauncherAutoUpdateService.InstallMode == "onefile"
                     ? "新版校验通过后保存到桌面，EXE 文件名包含版本号。"
                     : "下载并校验可用版本。");
+            var installUpdates = SettingsForm();
             settingsAutoRestartAfterDownload = new CheckBox
             {
                 IsChecked = settings.AutoRestartAfterUpdateDownload,
@@ -3814,7 +4025,7 @@ namespace BlockCraftLauncher.Wpf
                     TextWrapping = TextWrapping.Wrap
                 }
             };
-            SettingRow(updates, "自动重启", settingsAutoRestartAfterDownload,
+            SettingRow(installUpdates, "自动重启", settingsAutoRestartAfterDownload,
                 "新版下载校验后，空闲时约 2 秒自动关闭旧窗口并打开新版。游戏、下载和未保存内容会延后安装。");
             settingsAutoInstallOnExit = new CheckBox
             {
@@ -3825,12 +4036,12 @@ namespace BlockCraftLauncher.Wpf
                     TextWrapping = TextWrapping.Wrap
                 }
             };
-            SettingRow(updates, "自动安装", settingsAutoInstallOnExit,
+            SettingRow(installUpdates, "自动安装", settingsAutoInstallOnExit,
                 LauncherAutoUpdateService.InstallMode == "onefile"
                     ? "新版会安装到桌面。确认新版成功打开后，清理启动本次更新的旧 EXE。"
                     : "校验完成后，正常关闭时安装并打开新版。");
-            AddPage("更新设置", "启动器更新", updates,
-                Btn("查看更新", () => Navigate("启动器更新")));
+            AddPage("更新设置", "更新设置", Section("检查与下载", updates,
+                Btn("查看更新", () => Navigate("启动器更新"))), Section("安装时机", installUpdates));
             return settingsPages[page];
         }
         void ChooseSameDiskPaths()
@@ -3985,10 +4196,12 @@ namespace BlockCraftLauncher.Wpf
         UIElement BuildLogs()
         {
             var box = new TextBox { Text = string.Join(Environment.NewLine, logs), IsReadOnly = true,
-                AcceptsReturn = true, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Height = 450,
+                AcceptsReturn = true, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MinHeight = 170, MaxHeight = 326,
+                FontFamily = new FontFamily("Consolas, Microsoft YaHei UI"), FontSize = 12,
                 TextWrapping = TextWrapping.Wrap };
-            return Card(Col(Txt("运行日志", 16, true),
-                Row(Btn("刷新日志", () => Navigate("运行日志")),
+            AutomationProperties.SetName(box, "本次会话的日志");
+            return Col(PageHeading("运行日志", "本次启动器会话的操作与运行记录。"),
+                ResultsCard(Col(box, Row(Btn("刷新日志", () => Navigate("运行日志")),
                     Btn("复制日志", () =>
                     {
                         if (!string.IsNullOrEmpty(box.Text))
@@ -3996,14 +4209,14 @@ namespace BlockCraftLauncher.Wpf
                             Clipboard.SetText(box.Text);
                             Status("日志已复制。");
                         }
-                    })),
-                box));
+                    })))));
         }
 
         void EditOfflineAccount()
         {
             var (dialog, body) = LauncherDialog.Create(this, "离线登录", 408);
             var entry = new TextBox { Text = settings.OfflineName, MaxLength = 16 };
+            ApplySearchInputStyle(entry, "离线玩家名");
             AutomationProperties.SetName(entry, "玩家名");
             var hint = Txt("玩家名可使用 3～16 位字母、数字或下划线。", 12, false, true);
             var confirm = Btn("使用此玩家名", () =>
@@ -4030,7 +4243,13 @@ namespace BlockCraftLauncher.Wpf
             }, true);
             confirm.IsDefault = true;
             var cancel = new Button { Content = "取消", IsCancel = true };
-            body.Content = Col(Txt("玩家名", 14, true), entry, hint, Row(confirm, cancel));
+            var actions = Row(confirm, cancel);
+            actions.HorizontalAlignment = HorizontalAlignment.Right;
+            var nameLabel = new Label { Content = "玩家名", Target = entry,
+                Padding = new Thickness(0, 0, 0, 4) };
+            nameLabel.SetResourceReference(Control.ForegroundProperty, "TextBrush");
+            AutomationProperties.SetLabeledBy(entry, nameLabel);
+            body.Content = Col(nameLabel, entry, hint, actions);
             dialog.Loaded += (sender, args) => { entry.Focus(); entry.SelectAll(); };
             if (dialog.ShowDialog() == true) Navigate("首页");
         }
@@ -4093,7 +4312,7 @@ namespace BlockCraftLauncher.Wpf
             if (currentPage != "首页" || gameProcessText == null) return;
             var profile = activeProfile;
             bool hasProfile = profile != null;
-            homeProfileName.Text = hasProfile ? profile.Name : "尚未选择游戏版本";
+            homeProfileName.Text = hasProfile ? profile.Name : "选择游戏版本";
             homeProfileInfo.Text = hasProfile ? ProfileVersion(profile) : "从左侧选择已安装的版本，或先下载游戏。";
             homeVersionCaption.Text = hasProfile ? profile.Name : "Minecraft Java 版";
             if (!hasProfile)
@@ -4107,13 +4326,13 @@ namespace BlockCraftLauncher.Wpf
             }
 
             var state = gameProcesses.GetState(profile);
-            bool launching = launchingProfiles.Contains(profile);
+            bool launching = launchStages.TryGetValue(profile, out var stage);
             bool running = state.Status == GameProcessStatus.Running;
             homeLaunchButton.IsEnabled = !launching && !running;
             homeLaunchLabel.Text = launching ? "正在启动…" : running ? "游戏运行中" : "启动游戏";
             AutomationProperties.SetName(homeLaunchButton, homeLaunchLabel.Text);
             if (launching)
-                gameProcessText.Text = "正在准备游戏文件与运行环境。";
+                gameProcessText.Text = stage;
             else if (running)
                 gameProcessText.Text = "进程 " + state.ProcessId;
             else if (state.Status == GameProcessStatus.Exited)
@@ -4130,7 +4349,7 @@ namespace BlockCraftLauncher.Wpf
         {
             var profile = activeProfile;
             if (profile == null) { MessageBox.Show("请先导入或安装游戏实例"); return; }
-            if (launchingProfiles.Contains(profile))
+            if (launchStages.ContainsKey(profile))
             {
                 Status("当前实例正在启动，请不要重复点击。");
                 return;
@@ -4141,8 +4360,9 @@ namespace BlockCraftLauncher.Wpf
                 return;
             }
 
-            launchingProfiles.Add(profile);
+            launchStages.Add(profile, settings.AccountMode == "microsoft" ? "正在验证 Microsoft 账号…" : "正在准备 Java 游戏进程…");
             RefreshGameProcessStatus();
+            using var activity = currentPage == "首页" ? null : BeginPageActivity(currentPage, "正在启动 " + profile.Name + "…");
             try
             {
                 Status("准备启动 " + profile.Name);
@@ -4158,6 +4378,8 @@ namespace BlockCraftLauncher.Wpf
                     }
                     catch (MicrosoftReauthenticationRequiredException)
                     {
+                        launchStages[profile] = "等待 Microsoft 账号重新授权…";
+                        RefreshGameProcessStatus();
                         Status("微软正版登录凭据已失效，需要重新授权。");
                         var answer = MessageBox.Show(this,
                             "当前 Microsoft 账号没有可用于静默续期的登录令牌。\n\n" +
@@ -4179,6 +4401,8 @@ namespace BlockCraftLauncher.Wpf
                         }
                         session = await GetMicrosoftService().GetSessionAsync();
                     }
+                    launchStages[profile] = "正在准备 Java 游戏进程…";
+                    RefreshGameProcessStatus();
                     started = await minecraft.LaunchMicrosoftAsync(profile, session, serverAddress);
                 }
                 else if (settings.AccountMode == "offline")
@@ -4201,7 +4425,7 @@ namespace BlockCraftLauncher.Wpf
             catch (Exception ex) { ShowError("启动失败", ex); }
             finally
             {
-                launchingProfiles.Remove(profile);
+                launchStages.Remove(profile);
                 RefreshGameProcessStatus();
             }
         }
@@ -4239,29 +4463,29 @@ namespace BlockCraftLauncher.Wpf
         }
         UIElement NoVersionSelected(string title)
         {
-            return Card(Col(Txt(title, 16, true),
-                Txt("请先选择一个已安装的游戏版本。", 12, false, true),
+            return Col(PageHeading(title, "此功能需要一个本地游戏实例。"),
+                Card(Col(Txt("尚未选择版本", 16, true),
                 Row(Btn("版本选择", () => Navigate("版本选择"), true),
-                    Btn("下载游戏", () => Navigate("游戏版本")))));
+                    Btn("下载游戏", () => Navigate("游戏版本"))))));
         }
 
         UIElement BuildInstanceOverview()
         {
             var profile = activeProfile;
             if (profile == null) return NoVersionSelected("版本设置");
-            return Col(PageHeading(profile.Name, ProfileVersion(profile)),
-                Card(Col(Txt("版本信息", 16, true),
+            var info = Card(Col(Txt("版本信息", 16, true),
                     Txt("启动版本  " + (string.IsNullOrWhiteSpace(profile.LaunchVersion)
                         ? profile.BaseVersion : profile.LaunchVersion), 12),
                     Txt("游戏目录", 12, false, true),
                     Txt(string.IsNullOrWhiteSpace(profile.Directory) ? settings.Root : profile.Directory, 13),
                     Row(Btn("打开游戏目录", OpenGameFolder),
-                        Btn("检查版本文件", CheckInstance)))),
-                Card(Col(Txt("管理此版本", 16, true),
+                        Btn("检查版本文件", CheckInstance))));
+            var manage = Card(Col(Txt("管理此版本", 16, true),
                     Row(Btn("模组与资源", () => Navigate("模组更新")),
                         Btn("管理存档", () => Navigate("存档管理"))),
                     Txt("从启动器列表移除时，游戏目录和存档会保留在原位置。", 12, false, true),
-                    Row(Btn("从列表移除", () => RemoveInstance(profile))))));
+                    Row(Btn("从列表移除", () => RemoveInstance(profile)))));
+            return Col(PageHeading(profile.Name, ProfileVersion(profile)), PageColumns(info, manage, 255));
         }
 
         UIElement BuildInstanceSaves()
@@ -4269,13 +4493,15 @@ namespace BlockCraftLauncher.Wpf
             var profile = activeProfile;
             if (profile == null) return NoVersionSelected("存档管理");
             var result = Txt("", 12, false, true);
+            var backup = Card(Col(Txt("创建备份", 16, true),
+                Txt("将此实例的世界保存为 ZIP 文件。", 12, false, true),
+                Row(Btn("备份存档", async () => await BackupSavesAsync(profile, result), true),
+                    Btn("打开游戏目录", OpenGameFolder))));
+            var restore = Card(Col(Txt("恢复世界", 16, true),
+                Txt("从备份导入新世界。遇到同名世界时会取消恢复。", 12, false, true),
+                Row(Btn("恢复存档", async () => await RestoreSavesAsync(profile, result)))));
             return Col(PageHeading("存档管理", "当前版本  " + profile.Name),
-                Card(Col(Txt("备份与恢复", 16, true),
-                    Txt("将世界备份为 ZIP。恢复时只导入新世界，遇到同名世界会取消本次恢复。", 12, false, true),
-                    Row(Btn("备份存档", async () => await BackupSavesAsync(profile, result), true),
-                        Btn("恢复存档", async () => await RestoreSavesAsync(profile, result)),
-                        Btn("打开游戏目录", OpenGameFolder)),
-                    result)));
+                PageColumns(backup, restore, 270), result);
         }
 
         async Task BackupSavesAsync(GameProfile profile, TextBlock result)
@@ -4289,6 +4515,7 @@ namespace BlockCraftLauncher.Wpf
             try
             {
                 result.Text = "正在备份存档…";
+                using var activity = BeginPageActivity("存档管理", "正在备份游戏存档…");
                 string path = await Task.Run(() => LocalInstanceTools.BackupSaves(profile, file.FileName));
                 result.Text = "备份已保存  " + path;
                 Status("存档备份完成：" + profile.Name);
@@ -4313,6 +4540,7 @@ namespace BlockCraftLauncher.Wpf
             try
             {
                 result.Text = "正在检查备份并恢复存档…";
+                using var activity = BeginPageActivity("存档管理", "正在检查备份并恢复游戏世界…");
                 int worlds = await Task.Run(() => LocalInstanceTools.RestoreSaves(profile, file.FileName));
                 result.Text = "已恢复 " + worlds + " 个世界。";
                 Status("存档恢复完成：" + profile.Name);
@@ -4447,7 +4675,8 @@ namespace BlockCraftLauncher.Wpf
                 Row(Btn("运行日志", () => Navigate("运行日志")),
                     Btn("项目主页", () => Process.Start(new ProcessStartInfo(
                         "https://github.com/minecraftlu/BlockCraftLauncher") { UseShellExecute = true })))));
-            return Col(version, support);
+            version.SetResourceReference(StyleProperty, "FeaturePanel");
+            return Col(PageHeading("关于", "版本信息、发布记录和问题排查。"), PageColumns(version, support, 230));
         }
 
         void ShowError(string title, Exception ex) { Log(title + "：" + ex); MessageBox.Show(this, ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Error); }

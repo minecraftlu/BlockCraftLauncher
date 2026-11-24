@@ -33,12 +33,29 @@ namespace BlockCraftLauncher.Wpf
 
             string accent = image == MessageBoxImage.Error ? "DangerBrush" :
                 image == MessageBoxImage.Warning ? "WarningBrush" : "AccentInkBrush";
+            string symbol = image == MessageBoxImage.Warning ? "\uE7BA" :
+                image == MessageBoxImage.Error ? "\uEA39" :
+                image == MessageBoxImage.Question ? "\uE897" : "\uE946";
+            var glyph = new TextBlock
+            {
+                Text = symbol, FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 18,
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
+            };
+            glyph.SetResourceReference(TextBlock.ForegroundProperty, accent);
+            var tile = new Border
+            {
+                Width = 36, Height = 36, CornerRadius = new CornerRadius(8), Child = glyph,
+                Margin = new Thickness(0, 0, 11, 0)
+            };
+            tile.SetResourceReference(Border.BackgroundProperty, "PanelBrush");
+            tile.SetResourceReference(Border.BorderBrushProperty, "SoftDividerBrush");
+            tile.BorderThickness = new Thickness(1);
             var title = new TextBlock
             {
-                Text = caption, FontSize = 21, TextTrimming = TextTrimming.CharacterEllipsis,
+                Text = caption, FontSize = 18, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            title.SetResourceReference(TextBlock.ForegroundProperty, accent);
+            title.SetResourceReference(TextBlock.ForegroundProperty, "TextBrush");
             var close = new Button
             {
                 Content = "\uE8BB", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 11,
@@ -48,30 +65,36 @@ namespace BlockCraftLauncher.Wpf
             close.SetResourceReference(FrameworkElement.StyleProperty, "QuietButton");
             AutomationProperties.SetName(close, "关闭");
             close.Click += (sender, args) => window.Close();
-            var bar = new DockPanel { Margin = new Thickness(0, 0, 0, 9), Background = Brushes.Transparent };
+            var bar = new DockPanel { Background = Brushes.Transparent };
+            DockPanel.SetDock(tile, Dock.Left);
             DockPanel.SetDock(close, Dock.Right);
+            bar.Children.Add(tile);
             bar.Children.Add(close);
             bar.Children.Add(title);
             bar.MouseLeftButtonDown += (sender, args) =>
             {
                 if (args.ButtonState == MouseButtonState.Pressed) window.DragMove();
             };
-            var divider = new Border { Height = 2, Margin = new Thickness(0, 0, 0, 13) };
-            divider.SetResourceReference(Border.BackgroundProperty, accent);
+            var header = new Border
+            {
+                Child = bar, Padding = new Thickness(16, 11, 12, 11),
+                BorderThickness = new Thickness(0, 0, 0, 1)
+            };
+            header.SetResourceReference(Border.BackgroundProperty, "PanelAltBrush");
+            header.SetResourceReference(Border.BorderBrushProperty, "SoftDividerBrush");
             var body = new ContentControl
             {
+                Margin = new Thickness(19, 15, 19, 15),
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 VerticalContentAlignment = VerticalAlignment.Stretch
             };
             var layout = new DockPanel();
-            DockPanel.SetDock(bar, Dock.Top);
-            DockPanel.SetDock(divider, Dock.Top);
-            layout.Children.Add(bar);
-            layout.Children.Add(divider);
+            DockPanel.SetDock(header, Dock.Top);
+            layout.Children.Add(header);
             layout.Children.Add(body);
             var frame = new Border
             {
-                Child = layout, Padding = new Thickness(19, 14, 19, 15),
+                Child = layout,
                 BorderThickness = new Thickness(1)
             };
             frame.SetResourceReference(Border.BackgroundProperty, "PanelBrush");
@@ -105,13 +128,13 @@ namespace BlockCraftLauncher.Wpf
             };
             var scroll = new ScrollViewer
             {
-                Content = message, MaxHeight = Math.Min(330, dialog.MaxHeight - 128),
+                Content = message, MaxHeight = Math.Min(330, dialog.MaxHeight - 164),
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto
             };
             var actions = new WrapPanel
             {
-                HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, -8, 0)
+                HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, -8, 0)
             };
             var result = buttons == MessageBoxButton.YesNo ? MessageBoxResult.No :
                 buttons == MessageBoxButton.OK ? MessageBoxResult.OK : MessageBoxResult.Cancel;
@@ -134,7 +157,10 @@ namespace BlockCraftLauncher.Wpf
             else Add("确定", MessageBoxResult.OK, true);
             if (buttons == MessageBoxButton.OKCancel || buttons == MessageBoxButton.YesNoCancel)
                 Add("取消", MessageBoxResult.Cancel);
-            body.Content = new StackPanel { Children = { scroll, actions } };
+            var footer = new Border { Child = actions, Margin = new Thickness(0, 16, 0, 0),
+                Padding = new Thickness(0, 12, 0, 0), BorderThickness = new Thickness(0, 1, 0, 0) };
+            footer.SetResourceReference(Border.BorderBrushProperty, "SoftDividerBrush");
+            body.Content = new StackPanel { Children = { scroll, footer } };
             dialog.ShowDialog();
             return result;
         }
