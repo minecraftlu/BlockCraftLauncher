@@ -21,6 +21,7 @@ namespace BlockCraftLauncher.Wpf.Services
 
         public static void Run()
         {
+            DownloadTaskSanityChecks.Run();
             string official = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
             string mirror = NetworkDownloader.MirrorMojangUri(official);
             Require(!string.IsNullOrWhiteSpace(mirror) && mirror.StartsWith("https://bmclapi2.bangbang93.com/"),

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -24,14 +23,14 @@ namespace BlockCraftLauncher.Wpf.Services
         public Guid Id { get; } = Guid.NewGuid();
         public string Title { get; }
         public string Kind { get; }
-        public string Status { get => status; private set { status = value; Notify(nameof(Status)); Notify(nameof(CanRetry)); } }
+        public string Status { get => status; private set { status = value; Notify(nameof(Status)); Notify(nameof(IsRunning)); Notify(nameof(CanRetry)); } }
         public string Detail { get => detail; private set { detail = value; Notify(nameof(Detail)); } }
         public string Speed { get => rate; private set { rate = value; Notify(nameof(Speed)); } }
         public string Error { get => error; private set { error = value; Notify(nameof(Error)); } }
         public double Percent { get => percent; private set { percent = value; Notify(nameof(Percent)); Notify(nameof(PercentLabel)); } }
         public long BytesDownloaded { get => transferred; private set { transferred = value; Notify(nameof(BytesDownloaded)); Notify(nameof(BytesLabel)); } }
         public long TotalBytes { get => total; private set { total = value; Notify(nameof(TotalBytes)); Notify(nameof(BytesLabel)); } }
-        public bool IsIndeterminate { get => indeterminate; private set { indeterminate = value; Notify(nameof(IsIndeterminate)); } }
+        public bool IsIndeterminate { get => indeterminate; private set { indeterminate = value; Notify(nameof(IsIndeterminate)); Notify(nameof(PercentLabel)); } }
         public string BytesLabel => TotalBytes > 0 ? Format(BytesDownloaded) + " / " + Format(TotalBytes) : (BytesDownloaded > 0 ? Format(BytesDownloaded) : "等待进度");
         public string PercentLabel => IsIndeterminate ? "正在处理" : Percent.ToString("F1") + "%";
         public bool CanRetry => Status == "失败" || Status == "已取消";
@@ -63,44 +62,83 @@ namespace BlockCraftLauncher.Wpf.Services
             CancellationTokenSource source;
             lock (gate)
             {
-                if (IsRunning) throw new InvalidOperationException("任务已经开始");
+                // Own an attempt before resetting observable properties: retry
+                // notifications can re-enter this method.
+                if (cancellation != null) return;
                 cancellation = new CancellationTokenSource();
                 source = cancellation;
             }
             Reset();
             Status = "排队中";
             bool entered = false;
+            string finalStatus = "失败";
+            string failure = null;
             try
             {
                 await slots.WaitAsync(source.Token);
                 entered = true;
                 source.Token.ThrowIfCancellationRequested();
                 Status = "下载中";
-                var stage = new Progress<string>(value => Detail = value ?? "");
-                var bytes = new Progress<DownloadBytes>(UpdateBytes);
+                var stage = new AttemptProgress<string>(value =>
+                    UpdateCurrentAttempt(source, () => Detail = value ?? ""));
+                var bytes = new AttemptProgress<DownloadBytes>(value =>
+                    UpdateCurrentAttempt(source, () => UpdateBytes(value)));
                 await work(source.Token, stage, bytes);
                 source.Token.ThrowIfCancellationRequested();
-                Status = "已完成";
-                if (!IsIndeterminate) Percent = 100;
+                finalStatus = "已完成";
             }
             catch (OperationCanceledException) when (source.IsCancellationRequested)
             {
-                Status = "已取消";
+                finalStatus = "已取消";
             }
             catch (Exception ex)
             {
-                Error = ex.GetBaseException().Message;
-                Detail = "失败：" + Error;
-                Status = "失败";
+                if (source.IsCancellationRequested) finalStatus = "已取消";
+                else failure = ex.GetBaseException().Message;
             }
             finally
             {
                 if (entered) slots.Release();
                 lock (gate)
                 {
-                    if (ReferenceEquals(cancellation, source)) cancellation = null;
+                    // Freeze terminal progress before allowing another attempt.
+                    if (failure != null)
+                    {
+                        Error = failure;
+                        Detail = "失败：" + failure;
+                    }
+                    Speed = "";
+                    IsIndeterminate = false;
+                    if (finalStatus == "已完成") Percent = 100;
+                    cancellation = null;
+                    source.Dispose();
+                    Status = finalStatus;
                 }
-                source.Dispose();
+            }
+        }
+
+        void UpdateCurrentAttempt(CancellationTokenSource source, Action update)
+        {
+            lock (gate)
+            {
+                if (ReferenceEquals(cancellation, source) && !source.IsCancellationRequested)
+                    update();
+            }
+        }
+
+        // Same-context reports apply immediately so the final install message
+        // precedes completion. Cross-thread callbacks retain the UI context and
+        // check attempt ownership when they eventually execute.
+        sealed class AttemptProgress<T> : IProgress<T>
+        {
+            readonly SynchronizationContext context = SynchronizationContext.Current;
+            readonly Action<T> update;
+            public AttemptProgress(Action<T> update) { this.update = update; }
+            public void Report(T value)
+            {
+                if (context == null || ReferenceEquals(context, SynchronizationContext.Current))
+                    update(value);
+                else context.Post(state => update((T)state), value);
             }
         }
 
@@ -142,6 +180,7 @@ namespace BlockCraftLauncher.Wpf.Services
     {
         readonly SemaphoreSlim slots;
         public ObservableCollection<DownloadJob> Jobs { get; } = new ObservableCollection<DownloadJob>();
+        public event EventHandler JobsChanged;
         public DownloadTaskCenter(int parallelTasks = 3)
         {
             slots = new SemaphoreSlim(Math.Max(1, Math.Min(6, parallelTasks)));
@@ -152,10 +191,15 @@ namespace BlockCraftLauncher.Wpf.Services
             if (!Application.Current.Dispatcher.CheckAccess())
                 throw new InvalidOperationException("请在 UI 线程创建下载任务");
             var job = new DownloadJob(kind, name, work);
+            job.PropertyChanged += OnJobChanged;
             Jobs.Insert(0, job);
             // Limit memory usage for long sessions; keep active tasks.
             foreach (var old in Jobs.Skip(100).Where(x => !x.IsRunning).ToList())
+            {
+                old.PropertyChanged -= OnJobChanged;
                 Jobs.Remove(old);
+            }
+            JobsChanged?.Invoke(this, EventArgs.Empty);
             _ = job.RunAsync(slots);
             return job;
         }
@@ -165,5 +209,12 @@ namespace BlockCraftLauncher.Wpf.Services
             _ = job.RunAsync(slots);
         }
         public void Cancel(DownloadJob job) => job?.Cancel();
+
+        void OnJobChanged(object sender, PropertyChangedEventArgs args)
+        {
+            if (args.PropertyName == nameof(DownloadJob.Status) ||
+                args.PropertyName == nameof(DownloadJob.Detail))
+                JobsChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 }
