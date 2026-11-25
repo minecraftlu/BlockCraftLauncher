@@ -94,6 +94,25 @@ namespace BlockCraftLauncher.Wpf
                 await Ui();
                 Require(!window.forgeBuildPanel.IsVisible && window.versionInstallButton.IsEnabled,
                     "切换到 Fabric 后仍然显示 Forge 版本或无法安装。");
+                var first = window.settings.Profiles.Single();
+                string metadata = Path.Combine(first.Directory, "versions", first.LaunchVersion, first.LaunchVersion + ".json");
+                Directory.CreateDirectory(Path.GetDirectoryName(metadata));
+                File.WriteAllText(metadata, "{}");
+                string sameRoot = await window.RunQwenGameActionAsync(newGame.Id, "Forge", true, CancellationToken.None);
+                Require(sameRoot.Contains("已有本地实例") && window.downloads.Jobs.Count == 1,
+                    "同一安装位置重复创建了游戏任务。");
+
+                string nextRoot = Path.Combine(folder, "second-game");
+                DownloadPathService.ApplyStorage(window.settings, nextRoot, window.settings.DownloadDirectory, false);
+                window.qwenInstallGameFixture = (game, loader, progress, bytes, token) =>
+                    Task.FromResult(new GameProfile { Id = "second-forge", Name = "新位置 Forge", Loader = "forge",
+                        BaseVersion = game, LaunchVersion = first.LaunchVersion, Directory = nextRoot });
+                await window.RunQwenGameActionAsync(newGame.Id, "Forge", true, CancellationToken.None);
+                await WaitForQwenAsync(() => window.downloads.Jobs.Count == 2 && !window.downloads.Jobs[0].IsRunning,
+                    "在新的游戏目录登记相同版本");
+                var profiles = isolated.Load().Profiles;
+                Require(profiles.Count == 2 && profiles.Any(p => p.Directory == first.Directory) &&
+                    profiles.Any(p => p.Directory == nextRoot), "旧目录的相同版本覆盖了新目录的安装记录。");
             }
             finally
             {
