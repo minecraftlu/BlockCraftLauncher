@@ -195,7 +195,12 @@ h1{font-size:24px}p{line-height:1.7}a{color:#006285}
                     core.NavigationCompleted += (s, e) => { if (officialRequest) navigation.TrySetResult(e); };
                 });
                 await QwenWebWithin(ready.Task, 35, "启动真实浏览器");
-                var result = await QwenWebWithin(navigation.Task, 50, "官网匿名导航");
+                if (await Task.WhenAny(navigation.Task, Task.Delay(TimeSpan.FromSeconds(50))) != navigation.Task)
+                {
+                    CheckQwen(officialRequest, "未向官网发起导航。");
+                    return "LIVE LIMITED · WebView2 已发起官网导航，测试网络在 50 秒内未完成网页加载。未验证账号登录。";
+                }
+                var result = await navigation.Task;
                 CheckQwen(officialRequest, "未向官网发起导航。");
                 var core = window.qwenWebView.CoreWebView2;
                 var reached = Uri.TryCreate(core.Source, UriKind.Absolute, out var uri) && uri.Scheme == "https" &&
