@@ -16,9 +16,10 @@ namespace BlockCraftLauncher.Wpf
         const string LiveGameVersion = "1.16.5";
         string qwenLiveFolder;
 
-        internal static MainWindow CreateQwenLiveDownloadWindow(Func<ModrinthClient> modrinthFactory = null)
+        internal static MainWindow CreateQwenLiveDownloadWindow(Func<ModrinthClient> modrinthFactory = null, bool checkLegacyStorage = false)
         {
-            string folder = Path.Combine(Path.GetTempPath(), "blockcraft-qwen-live-" + Guid.NewGuid().ToString("N"));
+            string parent = checkLegacyStorage ? Environment.GetEnvironmentVariable("BLOCKCRAFT_STORAGE_TEST_PARENT") : null;
+            string folder = Path.Combine(parent ?? Path.GetTempPath(), "blockcraft-qwen-live-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(folder);
             try
             {
@@ -36,7 +37,16 @@ namespace BlockCraftLauncher.Wpf
                 Directory.CreateDirectory(config.DownloadDirectory);
                 Directory.CreateDirectory(profile.Directory);
                 config.Profiles.Add(profile);
-                isolated.Save(config);
+                if (checkLegacyStorage)
+                {
+                    // Old settings only distinguished the cache and game paths. Do not touch the old default.
+                    string legacy = new JavaScriptSerializer().Serialize(new {
+                        root = new LauncherConfig().Root, download_directory = config.DownloadDirectory,
+                        network_mode = "official", auto_check_updates = false, auto_download_updates = false
+                    });
+                    File.WriteAllText(isolated.FilePath, legacy);
+                }
+                else isolated.Save(config);
                 return new MainWindow(null, null, isolated, modrinthFactory) {
                     qwenLiveFolder = folder,
                     qwenWebPageFactory = OfflineQwenWebPage,

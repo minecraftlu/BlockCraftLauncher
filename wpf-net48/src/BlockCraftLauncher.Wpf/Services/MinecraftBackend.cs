@@ -50,13 +50,15 @@ namespace BlockCraftLauncher.Wpf.Services
         {
             if (string.IsNullOrWhiteSpace(version)) throw new ArgumentException("未选择版本");
             cancellation.ThrowIfCancellationRequested();
+            var destination = config.CopyForInstall();
+            DownloadPathService.EnsureGameStorageAvailable(destination);
             progress?.Report("准备安装 Minecraft " + version);
-            using var download = MinecraftDownloadFactory.Create(new MinecraftPath(config.Root), config, cancellation);
+            using var download = MinecraftDownloadFactory.Create(new MinecraftPath(destination.Root), destination, cancellation);
             await download.Launcher.InstallAsync(version, cancellation);
             cancellation.ThrowIfCancellationRequested();
             progress?.Report("安装完成：" + version);
             return new GameProfile { Id = Guid.NewGuid().ToString("N").Substring(0, 12), Name = version + " [vanilla]",
-                BaseVersion = version, LaunchVersion = version, Loader = "vanilla", Directory = config.Root };
+                BaseVersion = version, LaunchVersion = version, Loader = "vanilla", Directory = destination.Root };
         }
 
         public async Task<Process> LaunchOfflineAsync(GameProfile profile, string serverAddress = null)

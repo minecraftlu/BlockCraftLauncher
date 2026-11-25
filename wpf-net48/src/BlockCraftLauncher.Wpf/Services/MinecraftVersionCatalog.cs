@@ -48,9 +48,7 @@ namespace BlockCraftLauncher.Wpf.Services
         public MinecraftVersionCatalog(LauncherConfig settings, string cachePath = null)
         {
             this.settings = settings;
-            cache = cachePath ?? Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "BlockCraftLauncher", "downloads", "version-manifest-v2.json");
+            cache = cachePath ?? DownloadPathService.VersionManifest(settings?.DownloadDirectory);
         }
 
         static string Field(Dictionary<string, object> item, string name)
@@ -158,4 +156,3 @@ namespace BlockCraftLauncher.Wpf.Services
         }
     }
 }
-

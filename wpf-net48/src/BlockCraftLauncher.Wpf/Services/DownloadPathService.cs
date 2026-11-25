@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using BlockCraftLauncher.Wpf.Models;
 
 namespace BlockCraftLauncher.Wpf.Services
 {
@@ -47,7 +48,8 @@ namespace BlockCraftLauncher.Wpf.Services
                 if (!string.IsNullOrWhiteSpace(minecraftRoot))
                 {
                     string game = Path.GetFullPath(minecraftRoot);
-                    if (ContainsOrEquals(game, full) || ContainsOrEquals(full, game))
+                    bool managedGame = SameDirectory(game, Path.Combine(full, "Minecraft"));
+                    if (ContainsOrEquals(game, full) || ContainsOrEquals(full, game) && !managedGame)
                         throw new ArgumentException(
                             "可在同一个本地磁盘、U 盘或移动硬盘上使用两个独立的子文件夹，" +
                             "例如 E:\\我的启动器\\Minecraft 和 E:\\我的启动器\\Downloads。");
@@ -81,6 +83,70 @@ namespace BlockCraftLauncher.Wpf.Services
             return string.Equals(root, path, StringComparison.OrdinalIgnoreCase) ||
                 path.StartsWith(root + Path.DirectorySeparatorChar,
                     StringComparison.OrdinalIgnoreCase);
+        }
+
+        static bool SameDirectory(string first, string second) =>
+            string.Equals(Path.GetFullPath(first).TrimEnd('\\', '/'), Path.GetFullPath(second).TrimEnd('\\', '/'),
+                StringComparison.OrdinalIgnoreCase);
+
+        // Resolve the layout without touching the filesystem. Settings can be loaded while a USB disk is disconnected.
+        public static bool TryPlanStorage(string requestedGameRoot, string selectedCache, bool followDownloads,
+            out string gameRoot, out string cache, out string error)
+        {
+            gameRoot = null;
+            if (!TryValidate(selectedCache, null, out cache, out error)) return false;
+            try
+            {
+                string requested = requestedGameRoot?.Trim().Trim('"');
+                if (followDownloads)
+                    requested = SameDirectory(cache, DefaultDirectory) ? LauncherConfig.DefaultGameRoot : Path.Combine(cache, "Minecraft");
+                if (!IsLocalAbsolutePath(requested) && !(requested?.StartsWith(@"\\", StringComparison.Ordinal) == true))
+                    throw new ArgumentException("请选择完整的 Minecraft 游戏目录。");
+                string game = Path.GetFullPath(requested);
+                if (!TryValidate(cache, game, out _, out error)) return false;
+                if (followDownloads && Directory.Exists(game) &&
+                    (File.GetAttributes(game) & FileAttributes.ReparsePoint) != 0)
+                    throw new IOException("请为游戏下载选择普通文件夹。");
+                gameRoot = game;
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException ||
+                ex is ArgumentException || ex is NotSupportedException)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
+        public static void ApplyStorage(LauncherConfig settings, string gameRoot, string cache, bool followDownloads)
+        {
+            if (!string.IsNullOrWhiteSpace(settings.Root) &&
+                !string.Equals(settings.Root.TrimEnd('\\', '/'), gameRoot.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var profile in settings.Profiles)
+                {
+                    if (string.IsNullOrWhiteSpace(profile.Directory)) profile.Directory = settings.Root;
+                    if (string.IsNullOrWhiteSpace(profile.SharedGameRoot)) profile.SharedGameRoot = settings.Root;
+                }
+            }
+            settings.Root = gameRoot;
+            settings.DownloadDirectory = cache;
+            settings.GameRootFollowsDownloads = followDownloads;
+            settings.StorageError = null;
+        }
+
+        public static void EnsureGameStorageAvailable(LauncherConfig settings)
+        {
+            if (!string.IsNullOrEmpty(settings.StorageError)) throw new IOException(settings.StorageError);
+            EnsureVolume(settings.Root);
+            EnsureVolume(Resolve(settings.DownloadDirectory));
+        }
+
+        static void EnsureVolume(string directory)
+        {
+            string volume = Path.GetPathRoot(directory);
+            if (string.IsNullOrEmpty(volume) || !Directory.Exists(volume))
+                throw new DirectoryNotFoundException("下载磁盘未连接或不可用：" + directory + "。请连接磁盘或在启动器设置中更改目录。");
         }
 
         /// <summary>
@@ -138,10 +204,23 @@ namespace BlockCraftLauncher.Wpf.Services
                 Path.IsPathRooted(path);
         }
 
-        public static string UpdatesRoot(string selected) =>
-            Path.Combine(Resolve(selected), "updates");
+        static string CachePath(string selected, string child)
+        {
+            if (string.IsNullOrWhiteSpace(selected))
+                return Path.Combine(DefaultDirectory, child);
+            if (!TryValidate(selected, null, out var directory, out var error))
+                throw new IOException("下载目录无效：" + error);
+            return Path.Combine(directory, child);
+        }
+
+        public static string UpdatesRoot(string selected) => CachePath(selected, "updates");
 
         public static string ModpackCache(string selected) =>
-            Path.Combine(Resolve(selected), "wpf-pack-cache");
+            CachePath(selected, "wpf-pack-cache");
+
+        public static string ForgeTempRoot(string selected) => CachePath(selected, "forge-temp");
+
+        public static string VersionManifest(string selected) =>
+            Path.Combine(CachePath(selected, "downloads"), "version-manifest-v2.json");
     }
 }

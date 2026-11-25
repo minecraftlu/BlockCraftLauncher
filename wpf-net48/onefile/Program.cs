@@ -30,7 +30,7 @@ namespace BlockCraftLauncher.OneFile
                 "--download-selftest", "--modrinth-search-selftest", "--public-network-selftest",
                 "--modrinth-deps-selftest", "--saves-restore-selftest",
                 "--instance-detection-selftest", "--auth-selftest",
-                "--skin-selftest", "--qwen-search-selftest", "--qwen-download-selftest", "--qwen-download-live-check", "--qwen-game-live-check",
+                "--skin-selftest", "--qwen-search-selftest", "--qwen-download-selftest", "--qwen-download-live-check", "--qwen-game-live-check", "--forge-install-live-check",
                 "--qwen-chat-selftest", "--qwen-media-selftest", "--qwen-web-selftest", "--qwen-web-live-check",
                 "--local-qwen-selftest", "--local-qwen-live-check"
             }.Any(flag => string.Equals(flag, args[0], StringComparison.OrdinalIgnoreCase))) ||
@@ -89,6 +89,8 @@ namespace BlockCraftLauncher.OneFile
                         bool webProbe = args.Length == 1 && (string.Equals(args[0], "--qwen-web-selftest", StringComparison.OrdinalIgnoreCase) ||
                             string.Equals(args[0], "--qwen-web-live-check", StringComparison.OrdinalIgnoreCase));
                         int timeout = args[0] == "--local-qwen-live-check" ? 2400000 :
+                            args[0] == "--forge-install-live-check" ? 1190000 :
+                            args[0] == "--qwen-game-live-check" ? 490000 :
                             (webProbe || args[0] == "--local-qwen-selftest" ? 165000 : 65000);
                         if (!process.WaitForExit(timeout))
                         {

@@ -68,6 +68,9 @@ namespace BlockCraftLauncher.Wpf
         readonly ContentControl automaticInstallHeading = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch };
         UIElement automaticInstallPage;
         ComboBox versionCategory, settingsNetworkMode;
+        CheckBox settingsFollowDownloads;
+        bool updatingStorageDraft;
+        TextBlock settingsGameDestination;
         TextBox settingsDownloadThreads, settingsDownloadRetries, settingsDownloadDirectory;
         ListBox downloadList;
         TextBox downloadSearchQuery;
@@ -1474,6 +1477,7 @@ namespace BlockCraftLauncher.Wpf
             AutomationProperties.SetName(versionLoader, "加载器");
             versionInstallButton = Btn("开始安装", async () => await InstallSelectedVersionAsync(), true);
             versionCancelButton = Btn("取消安装", () => versionInstallJob?.Cancel());
+            var forgeSelector = BuildForgeSelector();
             var selectedVersion = Txt("请先选择游戏版本", 12, false, true);
             versionQuery.TextChanged += (sender, args) => FilterVersions();
             versionCategory.SelectionChanged += (sender, args) => FilterVersions();
@@ -1487,7 +1491,7 @@ namespace BlockCraftLauncher.Wpf
             FilterVersions();
             RefreshVersionActions();
             var install = Card(Col(Txt("安装配置", 16, true), selectedVersion,
-                SearchFields(("加载器", versionLoader)), Row(versionInstallButton, versionCancelButton)));
+                SearchFields(("加载器", versionLoader)), forgeSelector, Row(versionInstallButton, versionCancelButton)));
             var versions = ResultsCard(Col(Txt("可安装版本", 16, true), versionCounter, versionList));
             return Col(filters, PageColumns(versions, install, 278));
         }
@@ -1548,29 +1552,36 @@ namespace BlockCraftLauncher.Wpf
         {
             bool running = versionInstallJob?.IsRunning == true;
             if (versionInstallButton != null)
-                versionInstallButton.IsEnabled = !running && versionList?.SelectedItem is MinecraftVersionEntry;
+                versionInstallButton.IsEnabled = !running && versionList?.SelectedItem is MinecraftVersionEntry && ForgeBuildReady;
             if (versionCancelButton != null)
                 versionCancelButton.IsEnabled = running;
         }
 
         Task InstallSelectedVersionAsync()
         {
-            if (versionList?.SelectedItem is MinecraftVersionEntry selected && versionInstallJob?.IsRunning != true)
-                QueueGameInstall(selected.Id, Convert.ToString(versionLoader?.SelectedItem) ?? "原版");
+            if (versionList?.SelectedItem is MinecraftVersionEntry selected && versionInstallJob?.IsRunning != true && ForgeBuildReady)
+            {
+                string build = ForgeSelected && forgeBuildSelector.SelectedIndex > 0 ? (string)forgeBuildSelector.SelectedItem : null;
+                QueueGameInstall(selected.Id, Convert.ToString(versionLoader?.SelectedItem) ?? "原版", loaderVersion: build);
+            }
             return Task.CompletedTask;
         }
 
         void QueueGameInstall(string version, string loader,
-            Func<string, string, IProgress<string>, IProgress<DownloadBytes>, CancellationToken, Task<GameProfile>> installer = null)
+            Func<string, string, IProgress<string>, IProgress<DownloadBytes>, CancellationToken, Task<GameProfile>> installer = null,
+            string loaderVersion = null)
         {
-            versionInstallJob = downloads.Enqueue("游戏", version + " · " + loader, async (token, progress, bytes) =>
+            string title = version + " · " + loader + (loaderVersion == null ? "" : " " + loaderVersion);
+            var storageInstaller = modLoaders.ForCurrentStorage();
+            var installBuild = installGameBuildFixture ?? storageInstaller.InstallAsync;
+            versionInstallJob = downloads.Enqueue("游戏", title, async (token, progress, bytes) =>
             {
-                progress.Report("正在安装游戏及依赖：" + version);
+                progress.Report("正在安装游戏及依赖：" + title);
                 var profile = installer == null
-                    ? await modLoaders.InstallAsync(version, loader, null, progress, bytes, token)
+                    ? await installBuild(version, loader, loaderVersion, progress, bytes, token)
                     : await installer(version, loader, progress, bytes, token);
                 token.ThrowIfCancellationRequested();
-                var registered = settings.Profiles.FirstOrDefault(p => p.LaunchVersion == profile.LaunchVersion);
+                var registered = RegisteredGameProfile(profile);
                 if (registered == null)
                 {
                     settings.Profiles.Add(profile);
@@ -1586,7 +1597,7 @@ namespace BlockCraftLauncher.Wpf
                 if (args.PropertyName == nameof(DownloadJob.Status)) RefreshVersionActions();
             };
             RefreshVersionActions();
-            Status("已加入下载任务：" + version + " · " + loader);
+            Status("已加入下载任务：" + title);
         }
 
         UIElement BuildDownloadCenter()
@@ -1667,7 +1678,16 @@ namespace BlockCraftLauncher.Wpf
                     Source = downloadList, Mode = BindingMode.OneWay, FallbackValue = false
                 });
             var cancel = Btn("取消任务", () => downloads.Cancel(downloadList.SelectedItem as DownloadJob));
-            var retry = Btn("重试任务", () => downloads.Retry(downloadList.SelectedItem as DownloadJob), true);
+            var retry = Btn("重试任务", () =>
+            {
+                var selected = downloadList.SelectedItem as DownloadJob;
+                if (selected?.Kind == "游戏" && selected.CanRetry)
+                {
+                    if (versionInstallJob?.IsRunning == true) { Status("已有游戏正在安装，请等待完成后重试。"); return; }
+                    versionInstallJob = selected;
+                }
+                downloads.Retry(selected);
+            }, true);
             cancel.SetBinding(IsEnabledProperty, new Binding("SelectedItem.IsRunning")
                 { Source = downloadList, Mode = BindingMode.OneWay, FallbackValue = false });
             retry.SetBinding(IsEnabledProperty, new Binding("SelectedItem.CanRetry")
@@ -4020,12 +4040,25 @@ namespace BlockCraftLauncher.Wpf
             var downloadDirectories = SettingsForm();
             settingsDownloadDirectory = new TextBox
             {
-                Text = DownloadPathService.Resolve(settings.DownloadDirectory),
+                Text = string.IsNullOrWhiteSpace(settings.DownloadDirectory) ? DownloadPathService.DefaultDirectory : settings.DownloadDirectory,
                 ToolTip = "例如 D:\\BlockCraftDownloads（用于启动器更新和整合包临时文件）"
             };
             SettingRow(downloadDirectories, "下载缓存目录",
                 DirectoryEditor(settingsDownloadDirectory),
-                "存放更新包和整合包缓存。游戏与缓存可放在同一磁盘的不同子目录。");
+                "用于更新包和整合包的临时文件。");
+            settingsFollowDownloads = new CheckBox { Content = "游戏根目录跟随下载位置", IsChecked = settings.GameRootFollowsDownloads };
+            settingsGameDestination = Txt("", 12, false, true);
+            SettingRow(downloadDirectories, "游戏安装位置", Col(settingsFollowDownloads, settingsGameDestination));
+            settingsFollowDownloads.Checked += (sender, args) => RefreshStorageDraft();
+            settingsFollowDownloads.Unchecked += (sender, args) => RefreshStorageDraft();
+            settingsDownloadDirectory.TextChanged += (sender, args) => RefreshStorageDraft();
+            settingsRoot.TextChanged += (sender, args) =>
+            {
+                if (updatingStorageDraft) return;
+                settingsFollowDownloads.IsChecked = false;
+                RefreshStorageDraft();
+            };
+            RefreshStorageDraft();
             var transfers = SettingsForm();
             settingsDownloadThreads = new TextBox { Text = settings.DownloadThreads.ToString(), MaxWidth = 130 };
             SettingRow(transfers, "并发连接", settingsDownloadThreads, "2～32 个连接");
@@ -4083,9 +4116,8 @@ namespace BlockCraftLauncher.Wpf
                 }),
                 Btn("打开下载目录", () =>
                 {
-                    if (DownloadPathService.TryValidate(settingsDownloadDirectory.Text,
-                        settingsRoot?.Text ?? settings.Root,
-                        out var path, out var reason) && Directory.Exists(path))
+                    if (DownloadPathService.TryPlanStorage(settingsRoot.Text, settingsDownloadDirectory.Text,
+                        settingsFollowDownloads.IsChecked == true, out _, out var path, out _) && Directory.Exists(path))
                         Process.Start("explorer.exe", "\"" + path + "\"");
                     else
                         Status("下载目录尚未创建或路径无效，请先保存设置。");
@@ -4154,6 +4186,23 @@ namespace BlockCraftLauncher.Wpf
             AddPage("更新设置", "启动器更新", updatePanelHost, Section("更新偏好", updates),
                 Section("安装时机", installUpdates));
         }
+        void RefreshStorageDraft()
+        {
+            if (updatingStorageDraft) return;
+            bool follow = settingsFollowDownloads.IsChecked == true;
+            if (!DownloadPathService.TryPlanStorage(settingsRoot.Text, settingsDownloadDirectory.Text, follow,
+                out var game, out _, out var error))
+            {
+                settingsGameDestination.Text = error;
+                return;
+            }
+            settingsGameDestination.Text = "新游戏将安装到 " + game;
+            if (!follow || settingsRoot.Text == game) return;
+            updatingStorageDraft = true;
+            try { settingsRoot.Text = game; }
+            finally { updatingStorageDraft = false; }
+        }
+
         void ChooseSameDiskPaths()
         {
             using (var picker = new System.Windows.Forms.FolderBrowserDialog
@@ -4180,6 +4229,7 @@ namespace BlockCraftLauncher.Wpf
                     Status("所选文件夹不可用：" + error);
                     return;
                 }
+                if (settingsFollowDownloads != null) settingsFollowDownloads.IsChecked = false;
                 if (settingsRoot != null) settingsRoot.Text = game;
                 if (settingsDownloadDirectory != null)
                     settingsDownloadDirectory.Text = cache;
@@ -4199,7 +4249,10 @@ namespace BlockCraftLauncher.Wpf
                 if (Directory.Exists(target.Text))
                     dialog.SelectedPath = Path.GetFullPath(target.Text);
                 if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                {
+                    if (target == settingsRoot && settingsFollowDownloads != null) settingsFollowDownloads.IsChecked = false;
                     target.Text = dialog.SelectedPath;
+                }
             }
         }
 
@@ -4222,12 +4275,22 @@ namespace BlockCraftLauncher.Wpf
             }
             string gameRoot = settingsRoot?.Text ?? settings.Root;
             string inputDirectory = settingsDownloadDirectory?.Text ?? settings.DownloadDirectory;
-            if (!DownloadPathService.TryValidate(inputDirectory, gameRoot,
-                out var downloadDirectory, out var directoryError))
+            bool follow = settingsFollowDownloads?.IsChecked ?? settings.GameRootFollowsDownloads;
+            if (!DownloadPathService.TryPlanStorage(gameRoot, inputDirectory, follow,
+                out var plannedRoot, out var downloadDirectory, out var directoryError))
             {
                 Navigate("下载设置");
-                Status("下载缓存目录无效：" + directoryError);
+                Status("存储位置无效：" + directoryError);
                 settingsDownloadDirectory?.Focus();
+                return;
+            }
+            gameRoot = plannedRoot;
+            string previousCache = string.IsNullOrWhiteSpace(settings.DownloadDirectory) ? DownloadPathService.DefaultDirectory : settings.DownloadDirectory;
+            bool storageChanged = !string.Equals(gameRoot, settings.Root, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(downloadDirectory, previousCache, StringComparison.OrdinalIgnoreCase);
+            if (storageChanged && (currentOperation != null || downloads.Jobs.Any(job => job.IsRunning && job.Kind != "游戏")))
+            {
+                Status("请先完成或取消正在进行的下载，再保存新的存储位置。");
                 return;
             }
             try
@@ -4252,8 +4315,7 @@ namespace BlockCraftLauncher.Wpf
                     return;
                 }
             }
-            settings.Root = gameRoot;
-            settings.DownloadDirectory = downloadDirectory;
+            DownloadPathService.ApplyStorage(settings, gameRoot, downloadDirectory, follow);
             settings.Proxy = proxy;
             if (settingsProxy != null) settingsProxy.Text = proxy;
             if (settingsNetworkMode?.SelectedItem is KeyValuePair<string, string> selectedRoute)
@@ -4539,6 +4601,16 @@ namespace BlockCraftLauncher.Wpf
                 RefreshGameProcessStatus();
             }
         }
+        GameProfile RegisteredGameProfile(GameProfile profile)
+        {
+            string DirectoryOf(GameProfile item) => (string.IsNullOrWhiteSpace(item.Directory)
+                ? settings.Root : item.Directory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return settings.Profiles.FirstOrDefault(p => p != null &&
+                string.Equals(string.IsNullOrWhiteSpace(p.LaunchVersion) ? p.BaseVersion : p.LaunchVersion,
+                    profile.LaunchVersion, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(DirectoryOf(p), DirectoryOf(profile), StringComparison.OrdinalIgnoreCase));
+        }
+
         void ImportLocalGame()
         {
             var dialog = new OpenFileDialog { Filter = "Minecraft 版本 JSON (*.json)|*.json", Title = "选择版本文件（versions\\版本号\\版本号.json）" };
@@ -4548,12 +4620,7 @@ namespace BlockCraftLauncher.Wpf
                 // Keep the real root of the selected external installation,
                 // rather than silently registering everything under settings.Root.
                 var profile = MinecraftInstanceLocator.ImportVersionMetadata(dialog.FileName);
-                var existing = settings.Profiles.FirstOrDefault(p =>
-                    string.Equals(string.IsNullOrWhiteSpace(p.LaunchVersion) ? p.BaseVersion : p.LaunchVersion,
-                        profile.LaunchVersion, StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals((p.Directory ?? "").TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                        profile.Directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                        StringComparison.OrdinalIgnoreCase));
+                var existing = RegisteredGameProfile(profile);
                 if (existing != null)
                 {
                     activeProfile = existing;

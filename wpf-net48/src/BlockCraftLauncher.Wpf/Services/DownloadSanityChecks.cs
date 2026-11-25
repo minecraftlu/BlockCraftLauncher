@@ -132,6 +132,7 @@ namespace BlockCraftLauncher.Wpf.Services
             Directory.CreateDirectory(testRoot);
             try
             {
+                GameStorageSanityChecks.Run(testRoot);
                 string target = Path.Combine(testRoot, "existing.jar");
                 string partial = target + ".blockcraft.part";
                 File.WriteAllText(target, "old incomplete mod", Encoding.UTF8);

@@ -76,10 +76,12 @@ namespace BlockCraftLauncher.Wpf.Services
             TryCleanupStaleUpdateFolders(DownloadPathService.UpdatesRoot(null), false);
             // New user-selected download folders are safe cleanup candidates
             // only when a launcher-generated marker exists in the stage.
-            string custom = DownloadPathService.UpdatesRoot(settings.DownloadDirectory);
-            if (!string.Equals(custom, DownloadPathService.UpdatesRoot(null),
-                StringComparison.OrdinalIgnoreCase))
-                TryCleanupStaleUpdateFolders(custom, true);
+            if (DownloadPathService.TryValidate(settings.DownloadDirectory, settings.Root, out var validCache, out _))
+            {
+                string custom = DownloadPathService.UpdatesRoot(validCache);
+                if (!string.Equals(custom, DownloadPathService.UpdatesRoot(null), StringComparison.OrdinalIgnoreCase))
+                    TryCleanupStaleUpdateFolders(custom, true);
+            }
             TryCleanupLegacyExeBackups();
         }
 

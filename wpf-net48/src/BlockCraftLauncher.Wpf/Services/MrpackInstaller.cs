@@ -183,25 +183,24 @@ namespace BlockCraftLauncher.Wpf.Services
         internal async Task<GameProfile> InstallAsync(string archivePath, IProgress<string> progress, CancellationToken ct,
             Action<GameProfile> register)
         {
+            var installation = config.CopyForInstall();
+            DownloadPathService.EnsureGameStorageAvailable(installation);
             if (new FileInfo(archivePath).Length > MaxArchive) throw new InvalidDataException("整合包压缩文件过大");
             Parsed parsed;
             using (var zip = ZipFile.OpenRead(archivePath)) parsed = Inspect(zip);
             var info = parsed.Info;
-            string instance = Path.Combine(Path.GetFullPath(config.Root), "instances", "wpf-" + Guid.NewGuid().ToString("N"));
+            string instance = Path.Combine(Path.GetFullPath(installation.Root), "instances", "wpf-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(instance);
             try
             {
                 // Install the game + exact loader version in this *new* instance root.
-                var isolated = new LauncherConfig
-                {
-                    Root = instance, JavaPath = config.JavaPath, Proxy = config.Proxy,
-                    NetworkMode = config.NetworkMode, McimEnabled = config.McimEnabled,
-                    DownloadThreads = config.DownloadThreads, DownloadRetries = config.DownloadRetries
-                };
+                var isolated = installation.CopyForInstall();
+                isolated.GameRootFollowsDownloads = false;
+                isolated.Root = instance;
                 var loader = new ModLoaderInstaller(isolated);
                 progress?.Report("准备安装 Minecraft " + info.Minecraft + " 和 " + info.Loader + " " + info.LoaderVersion);
                 var game = await loader.InstallAsync(info.Minecraft, info.Loader, info.LoaderVersion, progress, ct);
-                using (var network = new NetworkDownloader(config))
+                using (var network = new NetworkDownloader(installation))
                 {
                     for (int i = 0; i < parsed.Files.Count; i++)
                     {

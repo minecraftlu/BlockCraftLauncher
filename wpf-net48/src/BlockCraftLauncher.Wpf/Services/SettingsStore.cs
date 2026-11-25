@@ -38,12 +38,9 @@ namespace BlockCraftLauncher.Wpf.Services
                     config.Raw = data;
                     config.Root = S(data, "root", config.Root);
                     config.LocalQwenDirectory = S(data, "local_qwen_directory");
-                    string savedDownloadPath = S(data, "download_directory");
-                    if (DownloadPathService.TryValidate(savedDownloadPath,
-                        config.Root, out var downloadDirectory, out var downloadError))
-                        config.DownloadDirectory = downloadDirectory;
-                    // Invalid or unavailable saved paths fall back to the
-                    // original cache root; never alter existing Minecraft data.
+                    config.DownloadDirectory = S(data, "download_directory");
+                    bool follow = bool.TryParse(S(data, "game_root_follows_downloads"), out var recorded)
+                        ? recorded : config.GameRootFollowsDownloads;
                     config.JavaPath = S(data, "java");
                     config.Proxy = S(data, "proxy");
                     config.McimEnabled = S(data, "mcim_enabled", "False").Equals("True", StringComparison.OrdinalIgnoreCase);
@@ -70,8 +67,17 @@ namespace BlockCraftLauncher.Wpf.Services
                         {
                             if (!(item is IDictionary<string, object> p)) continue;
                             config.Profiles.Add(new GameProfile { Id = S(p, "id"), Name = S(p, "name"), BaseVersion = S(p, "base_version"),
-                                LaunchVersion = S(p, "launch_version"), Loader = S(p, "loader", "vanilla"), Directory = S(p, "dir") });
+                                LaunchVersion = S(p, "launch_version"), Loader = S(p, "loader", "vanilla"), Directory = S(p, "dir"),
+                                SharedGameRoot = S(p, "shared_game_root") });
                         }
+                    if (DownloadPathService.TryPlanStorage(config.Root, config.DownloadDirectory, follow,
+                        out var game, out var cache, out var error))
+                        DownloadPathService.ApplyStorage(config, game, cache, follow);
+                    else
+                    {
+                        config.GameRootFollowsDownloads = follow;
+                        config.StorageError = "下载目录配置无效，请在下载设置中重新选择：" + error;
+                    }
                     return config;
                 }
                 catch (Exception ex) when (ex is IOException || ex is ArgumentException || ex is InvalidOperationException) { }
@@ -83,6 +89,7 @@ namespace BlockCraftLauncher.Wpf.Services
             var data = new Dictionary<string, object>(c.Raw);
             data["root"] = c.Root; data["java"] = c.JavaPath; data["proxy"] = c.Proxy;
             data["download_directory"] = c.DownloadDirectory;
+            data["game_root_follows_downloads"] = c.GameRootFollowsDownloads;
             data["local_qwen_directory"] = c.LocalQwenDirectory;
             data["mcim_enabled"] = c.McimEnabled;
             data["auto_check_updates"] = c.AutoCheckUpdates;
@@ -97,7 +104,8 @@ namespace BlockCraftLauncher.Wpf.Services
             data["offline_name"] = c.OfflineName; data["account_name"] = c.AccountName;
             data["profiles"] = c.Profiles.Select(p => new Dictionary<string, object> {
                 ["id"] = p.Id, ["name"] = p.Name, ["base_version"] = p.BaseVersion,
-                ["launch_version"] = p.LaunchVersion, ["loader"] = p.Loader, ["dir"] = p.Directory
+                ["launch_version"] = p.LaunchVersion, ["loader"] = p.Loader, ["dir"] = p.Directory,
+                ["shared_game_root"] = p.SharedGameRoot
             }).ToArray();
             Directory.CreateDirectory(Path.GetDirectoryName(FilePath));
             string temp = FilePath + ".tmp";
@@ -108,4 +116,3 @@ namespace BlockCraftLauncher.Wpf.Services
         }
     }
 }
-

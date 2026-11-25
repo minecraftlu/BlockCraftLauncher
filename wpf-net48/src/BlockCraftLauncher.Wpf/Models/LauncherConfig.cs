@@ -12,15 +12,23 @@ namespace BlockCraftLauncher.Wpf.Models
         public string LaunchVersion { get; set; }
         public string Loader { get; set; }
         public string Directory { get; set; }
+        public string SharedGameRoot { get; set; }
         public override string ToString() => Name + "  ·  " + BaseVersion + " / " + Loader;
     }
 
     public sealed class LauncherConfig
     {
-        public string Root { get; set; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BlockCraftLauncher", "minecraft");
-        // Root is the Minecraft installation destination; DownloadDirectory
-        // is separate and only hosts launcher-owned temporary packages.
-        // Empty retains the legacy LocalAppData cache root.
+        public static string DefaultGameRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BlockCraftLauncher", "minecraft");
+        public string Root { get; set; } = DefaultGameRoot;
+        bool? gameRootFollowsDownloads;
+        public bool GameRootFollowsDownloads
+        {
+            get => gameRootFollowsDownloads ?? string.Equals(Root?.TrimEnd('\\', '/'), DefaultGameRoot, StringComparison.OrdinalIgnoreCase);
+            set => gameRootFollowsDownloads = value;
+        }
+        internal string StorageError { get; set; }
+        // Install jobs snapshot scalar settings so a later settings edit cannot split an installation across two roots.
+        internal LauncherConfig CopyForInstall() => (LauncherConfig)MemberwiseClone();
         public string DownloadDirectory { get; set; } = "";
         public string LocalQwenDirectory { get; set; } = "";
         public string JavaPath { get; set; } = "";
@@ -49,4 +57,3 @@ namespace BlockCraftLauncher.Wpf.Models
         public Dictionary<string, object> Raw { get; set; } = new Dictionary<string, object>();
     }
 }
-

@@ -41,6 +41,7 @@ namespace BlockCraftLauncher.Wpf.Services
 
         public async Task<IEnumerable<ForgeVersion>> GetForgeVersions(string minecraftVersion)
         {
+            if (!ValidVersionId(minecraftVersion)) throw new ArgumentException("Minecraft 版本号无效");
             token.ThrowIfCancellationRequested();
             Exception last = null;
             var sources = mode == "official" ? new[] { false } : mode == "china" ?
@@ -55,20 +56,34 @@ namespace BlockCraftLauncher.Wpf.Services
                             body => ParseForgeMirror(body, minecraftVersion), token).ConfigureAwait(false)
                         : (await officialForge.GetForgeVersions(minecraftVersion).ConfigureAwait(false)).ToArray();
                     token.ThrowIfCancellationRequested();
-                    if (list.Length > 0 &&
-                        (string.IsNullOrWhiteSpace(requested) || list.Any(x => x.ForgeVersionName == requested)))
-                        return list;
+                    var candidates = InstallableForgeVersions(list, minecraftVersion, requested);
+                    if (candidates.Length > 0) return candidates;
                     last = new InvalidDataException("来源未列出所选 Forge 版本");
                 }
                 catch (Exception ex) when (ex is IOException || ex is HttpRequestException ||
                     ex is InvalidDataException || ex is ArgumentException ||
-                    ex is OperationCanceledException || ex is InvalidOperationException)
+                    ex is OperationCanceledException || ex is InvalidOperationException || ex is NullReferenceException)
                 {
                     token.ThrowIfCancellationRequested();
                     last = ex;
                 }
             }
-            throw new IOException("无法获取 Minecraft " + minecraftVersion + " 的 Forge 版本。请检查网络或选择支持 Forge 的游戏版本。", last);
+            string target = string.IsNullOrEmpty(requested) ? "Forge 构建列表" : "Forge " + requested;
+            throw new IOException("无法获取 Minecraft " + minecraftVersion + " 的 " + target + "。请检查网络及版本兼容性。", last);
+        }
+
+        internal static ForgeVersion[] InstallableForgeVersions(IEnumerable<ForgeVersion> entries, string game, string pinned)
+            => entries.Where(v => v != null && v.MinecraftVersionName == game && ValidVersionId(v.ForgeVersionName) &&
+                    (string.IsNullOrEmpty(pinned) || v.ForgeVersionName == pinned) &&
+                    v.Files != null && (v.GetInstallerFile() != null || v.GetUniversalFile() != null))
+                .GroupBy(v => v.ForgeVersionName, StringComparer.Ordinal).Select(build => build.First()).ToArray();
+
+        internal static ForgeVersion SelectForgeVersion(IEnumerable<ForgeVersion> entries, string game, string pinned)
+        {
+            var candidates = InstallableForgeVersions(entries, game, pinned);
+            return candidates.FirstOrDefault(v => v.IsRecommendedVersion) ??
+                candidates.FirstOrDefault(v => v.IsLatestVersion) ?? candidates.FirstOrDefault() ??
+                throw new InvalidDataException("未找到适用于 Minecraft " + game + " 的 Forge " + (pinned ?? "构建") + "。");
         }
 
         internal static ForgeVersion[] ParseForgeMirror(string data, string minecraftVersion)

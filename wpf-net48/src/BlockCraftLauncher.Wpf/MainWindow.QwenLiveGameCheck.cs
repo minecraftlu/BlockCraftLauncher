@@ -15,9 +15,10 @@ namespace BlockCraftLauncher.Wpf
         internal async Task<string> VerifyLiveQwenGameAsync()
         {
             const string version = "1.7.10";
-            if (qwenLiveFolder == null || settings.Root != Path.Combine(qwenLiveFolder, "minecraft") ||
+            if (qwenLiveFolder == null || !string.Equals(settings.Root, Path.Combine(qwenLiveFolder, "downloads", "Minecraft"), StringComparison.OrdinalIgnoreCase) ||
+                !settings.GameRootFollowsDownloads ||
                 settings.NetworkMode != "official" || gameVersions.Count != 0 || downloads.Jobs.Any())
-                throw new InvalidOperationException("Live game installation requires a clean isolated window.");
+                throw new InvalidOperationException("The legacy download directory did not redirect the game to isolated storage.");
             using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(7));
             var token = timeout.Token;
             var json = new JavaScriptSerializer { MaxJsonLength = 10 * 1024 * 1024 };
@@ -81,7 +82,7 @@ namespace BlockCraftLauncher.Wpf
                     !Directory.EnumerateFiles(Path.Combine(settings.Root, "assets", "objects"), "*", SearchOption.AllDirectories).Any())
                     throw new InvalidDataException("Installed Minecraft libraries or assets are missing.");
                 return "LIVE PASS: typed Minecraft " + version + " installation completed and registered a vanilla profile. " +
-                    "Mojang JSON SHA-1: " + expectedJsonSha1 + "; client SHA-1: " + clientSha1 + " (" + clientSize +
+                    "Legacy custom storage has metadata, client, assets and libraries in " + settings.Root + ". Mojang JSON SHA-1: " + expectedJsonSha1 + "; client SHA-1: " + clientSha1 + " (" + clientSize +
                     " bytes); asset index verified, libraries and assets installed. No game launch or Qwen API call.";
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)

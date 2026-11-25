@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using CmlLib.Core;
@@ -21,6 +23,19 @@ namespace BlockCraftLauncher.Wpf.Services
         readonly LauncherConfig settings;
         public ModLoaderInstaller(LauncherConfig settings) { this.settings = settings; }
 
+        internal ModLoaderInstaller ForCurrentStorage() => new ModLoaderInstaller(settings.CopyForInstall());
+
+        public async Task<IReadOnlyList<string>> ListForgeVersionsAsync(string minecraftVersion, CancellationToken token)
+        {
+            if (!LoaderNetworkCatalog.ValidVersionId(minecraftVersion)) throw new ArgumentException("Minecraft 版本号无效");
+            token.ThrowIfCancellationRequested();
+            using var http = new System.Net.Http.HttpClient(new MinecraftDownloadFactory.MinecraftRouteHandler(settings, token)
+                { InnerHandler = NetworkDownloader.CreateHttpHandler(settings) });
+            using var catalog = new LoaderNetworkCatalog(settings, http, token, null);
+            var entries = await catalog.GetForgeVersions(minecraftVersion).ConfigureAwait(false);
+            return entries.Select(v => v.ForgeVersionName).ToArray();
+        }
+
         ForgeInstallOptions ForgeOptions(CancellationToken token) => new ForgeInstallOptions
         {
             CancellationToken = token,
@@ -35,7 +50,17 @@ namespace BlockCraftLauncher.Wpf.Services
             IProgress<string> progress, CancellationToken token)
             => InstallAsync(minecraftVersion, loader, loaderVersion, progress, null, token);
 
-        public async Task<GameProfile> InstallAsync(string minecraftVersion, string loader, string loaderVersion,
+        public Task<GameProfile> InstallAsync(string minecraftVersion, string loader, string loaderVersion,
+            IProgress<string> progress, IProgress<DownloadBytes> bytes, CancellationToken token)
+        {
+            var install = ForCurrentStorage();
+            DownloadPathService.EnsureGameStorageAvailable(install.settings);
+            if ((loader == "Forge" || loader == "NeoForge") && !string.IsNullOrWhiteSpace(install.settings.DownloadDirectory))
+                return ForgeInstallWorker.InstallAsync(install.settings, minecraftVersion, loader, loaderVersion, progress, bytes, token);
+            return install.InstallInProcessAsync(minecraftVersion, loader, loaderVersion, progress, bytes, token);
+        }
+
+        internal async Task<GameProfile> InstallInProcessAsync(string minecraftVersion, string loader, string loaderVersion,
             IProgress<string> progress, IProgress<DownloadBytes> bytes, CancellationToken token)
         {
             if (!LoaderNetworkCatalog.ValidVersionId(minecraftVersion))
@@ -55,7 +80,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 if (e.TotalTasks > 0 && e.ProgressedTasks % 40 == 0)
                     progress?.Report("游戏文件 " + e.ProgressedTasks + "/" + e.TotalTasks + " · " + e.Name);
             };
-            string installedId = minecraftVersion;
+            string installedId = minecraftVersion, forgeBuild = null;
             progress?.Report("正在准备 Minecraft " + minecraftVersion);
             if (loader != "原版")
             {
@@ -82,9 +107,11 @@ namespace BlockCraftLauncher.Wpf.Services
                         {
                             var forge = new ForgeInstaller(launcher, catalog, new ForgeInstallerVersionMapper());
                             var options = ForgeOptions(token);
-                            installedId = string.IsNullOrWhiteSpace(loaderVersion)
-                                ? await forge.Install(minecraftVersion, options)
-                                : await forge.Install(minecraftVersion, loaderVersion, options);
+                            var versions = await catalog.GetForgeVersions(minecraftVersion);
+                            var selected = LoaderNetworkCatalog.SelectForgeVersion(versions, minecraftVersion, loaderVersion);
+                            forgeBuild = selected.ForgeVersionName;
+                            token.ThrowIfCancellationRequested();
+                            installedId = await forge.Install(selected, options);
                         }
                         break;
                     case "NeoForge":
@@ -108,7 +135,7 @@ namespace BlockCraftLauncher.Wpf.Services
             return new GameProfile
             {
                 Id = Guid.NewGuid().ToString("N").Substring(0, 12),
-                Name = minecraftVersion + " [" + loader.ToLowerInvariant() + "]",
+                Name = minecraftVersion + " [" + loader.ToLowerInvariant() + (forgeBuild == null ? "" : " " + forgeBuild) + "]",
                 BaseVersion = minecraftVersion,
                 LaunchVersion = installedId,
                 Loader = loader == "原版" ? "vanilla" : loader.ToLowerInvariant(),

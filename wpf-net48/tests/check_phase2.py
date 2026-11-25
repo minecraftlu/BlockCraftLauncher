@@ -19,7 +19,7 @@ def check():
         assert loader in mod
     assert 'File.Exists(metadata)' in mod and 'await launcher.InstallAsync(installedId, token)' in mod
     main=(SRC/'MainWindow.xaml.cs').read_text('utf8')
-    for symbol in ('LaunchMicrosoftAsync', 'GetSessionAsync','LoginMicrosoftAsync','SignOutAsync','modLoaders.InstallAsync','versionCancelButton'):
+    for symbol in ('LaunchMicrosoftAsync', 'GetSessionAsync','LoginMicrosoftAsync','SignOutAsync','modLoaders.ForCurrentStorage', 'storageInstaller.InstallAsync','versionCancelButton'):
         assert symbol in main, symbol
     # Microsoft sign-in must detect a missing runtime before opening the OAuth WebView.
     webview=(SRC/'Services/WebView2RuntimeSupport.cs').read_text('utf8')

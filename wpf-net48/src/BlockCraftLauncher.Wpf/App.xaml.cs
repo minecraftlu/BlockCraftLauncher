@@ -54,6 +54,11 @@ namespace BlockCraftLauncher.Wpf
 
         protected override void OnStartup(StartupEventArgs e)
         {
+            if (e.Args.Length == 1 && e.Args[0] == ForgeInstallWorker.Argument)
+            {
+                Shutdown(ForgeInstallWorker.Run());
+                return;
+            }
             DispatcherUnhandledException += OnDispatcherException;
             AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
             {
@@ -96,6 +101,7 @@ namespace BlockCraftLauncher.Wpf
                 string.Equals(arg, "--qwen-download-live-check", StringComparison.OrdinalIgnoreCase));
             bool qwenLiveGame = e.Args.Any(arg =>
                 string.Equals(arg, "--qwen-game-live-check", StringComparison.OrdinalIgnoreCase));
+            bool forgeLive = e.Args.Contains("--forge-install-live-check", StringComparer.OrdinalIgnoreCase);
             bool skinSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--skin-selftest", StringComparison.OrdinalIgnoreCase));
             bool serverSearchSelfTest = e.Args.Any(arg =>
@@ -106,7 +112,7 @@ namespace BlockCraftLauncher.Wpf
                 string.Equals(arg, "--public-network-selftest", StringComparison.OrdinalIgnoreCase));
             smokeTest = publicNetworkSelfTest || authSelfTest || downloadSelfTest || dependencySelfTest ||
                 saveRestoreSelfTest || instanceDetectionSelfTest || modrinthSearchSelfTest ||
-                downloadPageSelfTest || layoutSelfTest || qwenUiCheck || qwenLiveDownload || qwenLiveGame || skinSelfTest ||
+                downloadPageSelfTest || layoutSelfTest || qwenUiCheck || qwenLiveDownload || qwenLiveGame || forgeLive || skinSelfTest ||
                 serverSearchSelfTest ||
                 relaunchWindowSelfTest ||
                 e.Args.Any(arg =>
@@ -310,8 +316,9 @@ namespace BlockCraftLauncher.Wpf
                 try
                 {
                     if (ordinaryStartup && !VerifyStartupComponents()) return;
-                    bool publicQwenCheck = qwenLiveDownload || qwenLiveGame || localQwenLive;
-                    var window = publicQwenCheck ? BlockCraftLauncher.Wpf.MainWindow.CreateQwenLiveDownloadWindow() : new MainWindow();
+                    bool publicQwenCheck = qwenLiveDownload || qwenLiveGame || localQwenLive || forgeLive;
+                    var window = publicQwenCheck ? BlockCraftLauncher.Wpf.MainWindow.CreateQwenLiveDownloadWindow(
+                        checkLegacyStorage: qwenLiveGame || forgeLive) : new MainWindow();
                     window.SuppressAutomaticUpdateCheck = qwenUiCheck || publicQwenCheck || relaunchWindowSelfTest ||
                         directPreview || updateHandoff || rollback;
                     if (updateHandoff) window.BeginUpdateHandoff();
@@ -342,6 +349,11 @@ namespace BlockCraftLauncher.Wpf
                             {
                                 result = qwenWebLive ? await window.VerifyQwenWebLiveAsync() : await window.VerifyQwenWebAsync();
                                 reportName = qwenWebLive ? "qwen-web-live-check.txt" : "qwen-web-check.txt";
+                            }
+                            else if (forgeLive)
+                            {
+                                result = await window.VerifyLiveForgeInstallAsync();
+                                reportName = "forge-install-live-check.txt";
                             }
                             else if (qwenLiveGame)
                             {
@@ -384,6 +396,7 @@ namespace BlockCraftLauncher.Wpf
                         {
                             window.VerifyDownloadPageBindings();
                             await window.VerifyDownloadTaskFilteringAsync();
+                            await window.VerifyForgeBuildSelectionAsync();
                         }
                         if (layoutSelfTest)
                         {
@@ -538,4 +551,3 @@ namespace BlockCraftLauncher.Wpf
         }
     }
 }
-

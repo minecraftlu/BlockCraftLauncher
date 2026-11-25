@@ -79,9 +79,10 @@ namespace BlockCraftLauncher.Wpf.Services
             string id = ValidateVersionId(string.IsNullOrWhiteSpace(profile.LaunchVersion)
                 ? profile.BaseVersion : profile.LaunchVersion);
 
-            if (string.IsNullOrWhiteSpace(config.Root))
+            string sharedRoot = string.IsNullOrWhiteSpace(profile.SharedGameRoot) ? config.Root : profile.SharedGameRoot;
+            if (string.IsNullOrWhiteSpace(sharedRoot))
                 throw new InvalidDataException("启动器未配置 Minecraft 游戏根目录");
-            string shared = Path.GetFullPath(config.Root);
+            string shared = Path.GetFullPath(sharedRoot);
             string instance = string.IsNullOrWhiteSpace(profile.Directory)
                 ? shared : Path.GetFullPath(profile.Directory);
             string ownMetadata = Path.Combine(instance, "versions", id, id + ".json");
