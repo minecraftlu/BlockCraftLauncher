@@ -22,6 +22,8 @@ namespace BlockCraftLauncher.Wpf.Services
                 Check(LocalQwenImageInstaller.DownloadBytes(root, false) == 32046180084L, "fresh generation size");
                 Check(LocalQwenImageInstaller.DownloadBytes(root, true) == 32149263757L, "fresh edit size");
                 Check(!LocalQwenImageInstaller.IsInstalled(root, true), "empty installation");
+                Check(!LocalQwenImageInstaller.SupportsLargeFiles("FAT32") &&
+                    LocalQwenImageInstaller.SupportsLargeFiles("exFAT"), "removable volume file-size limit");
                 const string stats = "{\"system\":{\"comfyui_version\":\"0.46.0\"},\"devices\":[{\"type\":\"cpu\"}]}";
                 Check(LocalQwenImageInstaller.CheckDevices(stats, true), "CPU CI backend");
                 Check(LocalQwenImageInstaller.CheckDevices(stats.Replace("cpu", "cuda"), false), "CUDA backend");

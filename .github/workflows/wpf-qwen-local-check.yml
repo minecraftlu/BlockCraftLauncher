@@ -146,6 +146,7 @@ jobs:
             if (!$process.WaitForExit(180000)) { $process.Kill($true); throw 'Qianwen website visit timed out' }
             $process.Refresh()
             if ($process.ExitCode -ne 0) {
+              if (Test-Path -LiteralPath $progress) { Get-Content -LiteralPath $progress -Encoding utf8 -Tail 15 }
               foreach ($name in @('wpf-preview-logs/startup-error.log','onefile/bootstrap-error.log')) {
                 $log = Join-Path $env:LOCALAPPDATA ('BlockCraftLauncher/' + $name)
                 if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Encoding utf8 -Tail 15 }

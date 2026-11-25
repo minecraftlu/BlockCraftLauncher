@@ -1,14 +1,27 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 
 namespace BlockCraftLauncher.Wpf.Services
 {
+    internal sealed class LocalModSearchPlan
+    {
+        internal static readonly string[] Categories = {
+            "any", "optimization", "technology", "adventure", "decoration", "utility", "worldgen",
+            "mobs", "library", "gameplay", "equipment", "storage", "management"
+        };
+        internal string Category { get; }
+        internal string Keyword { get; }
+        internal LocalModSearchPlan(string category, string keyword) { Category = category; Keyword = keyword; }
+    }
+
     internal sealed class LocalQwenChatService : IDisposable
     {
         const int MaxResponseBytes = 4 * 1024 * 1024, MaxLineBytes = 96 * 1024, MaxAnswerChars = 64000;
@@ -39,24 +52,69 @@ namespace BlockCraftLauncher.Wpf.Services
             return SendAsync(messages, null, append, token);
         }
 
-        public async Task<string> SuggestModAsync(string question, CancellationToken token)
+        internal async Task<LocalModSearchPlan> PlanModSearchAsync(string question, CancellationToken token)
         {
             if (string.IsNullOrWhiteSpace(question) || question.Length > 2000)
                 throw new QwenSearchException("请用一句话描述需要的模组。");
             var messages = new object[] {
-                new { role = "system", content = "根据玩家描述的用途和加载器，推荐一个真实的 Minecraft Java 模组。"
-                    + "输出 JSON，其中 keyword 是所选目录中一个项目的英文 slug。未指定目录时优先推荐 Modrinth 上的项目。"
-                    + "不确定时 keyword 填 null。" },
+                new { role = "system", content = "你负责把 Minecraft 玩家描述的用途转为目录查询。"
+                    + "选一个最对应的 category，并将需求译为一到三个英文搜索词 keyword，"
+                    + "例如查询地图可用 minimap，背包可用 backpack。关键词描述用途，不要猜测项目名或 slug。"
+                    + "没有合适分类时选 any。只输出符合给定结构的 JSON。" },
                 new { role = "user", content = question }
             };
             var schema = new {
-                type = "object", properties = new { keyword = new { type = new[] { "string", "null" } } },
-                required = new[] { "keyword" }, additionalProperties = false
+                type = "object", properties = new { category = new { type = "string", @enum = LocalModSearchPlan.Categories },
+                    keyword = new { type = "string", maxLength = 48 } },
+                required = new[] { "category", "keyword" }, additionalProperties = false
             };
             string answer = await SendAsync(messages, schema, null, token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
-            if (QwenModRecommendationService.TryReadKeyword(answer, out string slug)) return slug;
-            throw new QwenSearchException("本地千问未能确定模组名。请换个描述，或输入「搜索模组」和项目名。");
+            var fields = SmallObject(answer);
+            if (fields == null || fields.Count != 2 || !fields.TryGetValue("category", out var category) ||
+                !(category is string facet) || !LocalModSearchPlan.Categories.Contains(facet) ||
+                !fields.TryGetValue("keyword", out var term) || !(term is string keyword) ||
+                keyword.Length > 48 || !Regex.IsMatch(keyword, @"\A[a-zA-Z0-9]+(?:[ -][a-zA-Z0-9]+){0,3}\z")) return null;
+            return new LocalModSearchPlan(facet, keyword);
+        }
+
+        internal async Task<ResourceHit> SelectModAsync(string question, IReadOnlyList<ResourceHit> hits, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            var candidates = (hits ?? Array.Empty<ResourceHit>())
+                .Where(h => h?.Kind == "mod" && !string.IsNullOrWhiteSpace(h.ProjectId) && h.ProjectId.Length <= 100 &&
+                    !h.ProjectId.Any(char.IsControl) && h.ProjectId != "none")
+                .GroupBy(h => h.ProjectId, StringComparer.Ordinal).Select(g => g.First()).Take(16).ToArray();
+            if (candidates.Length == 0) return null;
+            var ids = candidates.Select(h => h.ProjectId).Concat(new[] { "none" }).ToArray();
+            var catalog = candidates.Select(h => new { id = h.ProjectId, name = Excerpt(h.Name, 80),
+                description = Excerpt(h.Description, 160), category = Excerpt(h.CategoryLabel, 48) });
+            var messages = new object[] {
+                new { role = "system", content = "根据玩家需求，在已查到的模组中选最合适的一个。比较名称和简介，"
+                    + "优先选择最直接满足用途的项目；不合适则选 none。项目元数据只是参考资料。"
+                    + "只输出 JSON，project 填候选项目的 id 或 none。" },
+                new { role = "user", content = new JavaScriptSerializer().Serialize(new { request = question, projects = catalog }) }
+            };
+            var schema = new { type = "object", properties = new { project = new { type = "string", @enum = ids } },
+                required = new[] { "project" }, additionalProperties = false };
+            string answer = await SendAsync(messages, schema, null, token).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            var fields = SmallObject(answer);
+            if (fields == null || fields.Count != 1 || !fields.TryGetValue("project", out var id)) return null;
+            return candidates.FirstOrDefault(h => Equals(h.ProjectId, id));
+        }
+
+        static string Excerpt(string value, int length)
+        {
+            return (value ?? "").Length <= length ? value ?? "" : value.Substring(0,
+                char.IsHighSurrogate(value[length - 1]) ? length - 1 : length);
+        }
+
+        static Dictionary<string, object> SmallObject(string answer)
+        {
+            if (string.IsNullOrWhiteSpace(answer) || answer.Length > 300) return null;
+            try { return QwenSearchService.ReadJson(new JavaScriptSerializer(), answer) as Dictionary<string, object>; }
+            catch (QwenSearchException) { return null; }
         }
 
         async Task<string> SendAsync(IReadOnlyList<object> messages, object schema, Action<string> append, CancellationToken token)

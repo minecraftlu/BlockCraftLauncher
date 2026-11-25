@@ -132,6 +132,8 @@ namespace BlockCraftLauncher.Wpf.Services
                                 : DownloadBytes(Path.GetDirectoryName(directory), edit);
                             if (!runtimeReady) remaining += RuntimeDiskAllowance;
                             var drive = new DriveInfo(Path.GetPathRoot(directory));
+                            if (!runtimeOnly && !SupportsLargeFiles(drive.DriveFormat))
+                                throw new IOException("所选磁盘的 FAT 格式无法保存单个超过 4 GB 的模型文件。请选择 NTFS 或 exFAT 磁盘。");
                             if (drive.AvailableFreeSpace < remaining)
                                 throw new IOException(string.Format("所选磁盘空间不足，本次安装预计还需 {0:F1} GB（含解压空间）。", remaining / 1e9));
                             if (!runtimeReady) await InstallRuntimeAsync(progress, ct).ConfigureAwait(false);
@@ -164,6 +166,10 @@ namespace BlockCraftLauncher.Wpf.Services
 
         Task DownloadAsync(LocalQwenImageAsset asset, IProgress<string> p, CancellationToken ct) =>
             VerifiedModelDownload.FetchAsync(asset.Source, asset.FilePath(directory), asset.Bytes, asset.Sha256, settings, p, ct);
+
+        internal static bool SupportsLargeFiles(string format) =>
+            !string.Equals(format, "FAT", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(format, "FAT32", StringComparison.OrdinalIgnoreCase);
 
         async Task InstallRuntimeAsync(IProgress<string> progress, CancellationToken ct)
         {

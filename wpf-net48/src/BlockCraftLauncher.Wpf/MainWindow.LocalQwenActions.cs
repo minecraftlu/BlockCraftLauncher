@@ -13,6 +13,8 @@ namespace BlockCraftLauncher.Wpf
 {
     public partial class MainWindow
     {
+        Action<string> localQwenCatalogTrace;
+
         // Exact commands work before players download their first local model.
         async Task<string> TryRunLocalQwenExactCommandAsync(string question, CancellationToken token)
         {
@@ -46,11 +48,11 @@ namespace BlockCraftLauncher.Wpf
                     command.Kind != LauncherSearchKind.ModRecommendation)
                     return await chat.ChatAsync(history, append, token);
 
-                // A suggestion supplies only a validated catalog slug. Its download button belongs to the player.
-                string slug = await chat.SuggestModAsync(last.Content, token);
+                var plan = await chat.PlanModSearchAsync(last.Content, token);
                 token.ThrowIfCancellationRequested();
-                return await RunQwenModActionAsync(slug, false, command.GameVersion, command.Loader,
-                    command.InstanceName, command.SourceName, token);
+                return await RunQwenModActionAsync(command.Query, false, command.GameVersion, command.Loader,
+                    command.InstanceName, command.SourceName, token, plan,
+                    (candidates, ct) => chat.SelectModAsync(last.Content, candidates, ct));
             }
         }
 
@@ -94,13 +96,16 @@ namespace BlockCraftLauncher.Wpf
                 Log("已验证中文流式回答、连续对话和已下载模型复用。");
                 preferredModSource = ModSource.Modrinth;
                 phase = "正在通过本地模型查找提升帧率的模组";
+                localQwenCatalogTrace = Log;
                 string status = await RunLocalQwenAsync(endpoint,
                     new[] { new QwenChatTurn("user", "帮我找一个提升帧率的模组") }, null, token);
-                var exact = resourceQuery == null ? null : MatchQwenMod(resourceQuery.Text, resourceResults, resourceHasMore);
-                if (currentPage != "资源中心" || exact == null || downloads.Jobs.Any() ||
+                var exact = resourceList?.SelectedItem as ResourceHit;
+                if (currentPage != "资源中心" || exact == null || !resourceResults.Contains(exact) || downloads.Jobs.Any() ||
                     !Regex.IsMatch(exact.Name + " " + exact.Description + " " + exact.CategoryLabel,
                         @"performance|optimi[sz]|frame.?rate|render|\bfps\b|帧率|优化|性能", RegexOptions.IgnoreCase))
-                    throw new InvalidDataException("Live catalog could not confirm a performance mod. " + status);
+                    throw new InvalidDataException("Live catalog could not confirm a performance mod. Search=" +
+                        resourceQuery?.Text + ", category=" + resourceCategory?.SelectedItem + ", project=" + exact?.ProjectId +
+                        "/" + exact?.Name + ", matches=" + resourceResults.Count + ". " + status);
                 string result = "Local Qwen3.5-4B streamed a Chinese multi-turn answer, reused its installed model, and found " +
                     exact.Name + " (" + exact.Slug + ") in Modrinth without queuing a download.";
                 Log(result);
@@ -108,6 +113,7 @@ namespace BlockCraftLauncher.Wpf
             }
             finally
             {
+                localQwenCatalogTrace = null;
                 heartbeat.Stop();
                 Close();
                 // Windows may briefly retain memory-mapped model files after the runtime closes its process job.

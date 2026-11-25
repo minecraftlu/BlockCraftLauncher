@@ -70,16 +70,36 @@ namespace BlockCraftLauncher.Wpf.Services
                     Equals(QwenSearchService.Field(fixture.Body, "think"), false) &&
                     QwenSearchService.Field(fixture.Body, "tools") == null && QwenSearchService.Field(fixture.Body, "format") == null,
                     "bounded full-turn history and chat-only payload");
-                fixture.Response = Event("{\"keyword\":\"sodium\"}", true);
-                Require(await chat.SuggestModAsync(question.Content, CancellationToken.None) == "sodium" &&
-                    QwenSearchService.Field(fixture.Body, "format") != null, "constrained catalog keyword");
-                foreach (string bad in new[] { "{\"keyword\":\"https://example.com\"}", "{\"keyword\":\"mod\",\"install\":true}",
-                    "{\"keyword\":\"../../tmp\"}", "{\"keyword\":null}" })
+                fixture.Response = Event("{\"category\":\"optimization\",\"keyword\":\"fps\"}", true);
+                var plan = await chat.PlanModSearchAsync(question.Content, CancellationToken.None);
+                Require(plan != null && plan.Keyword == "fps" && plan.Category == "optimization" &&
+                    QwenSearchService.Field(fixture.Body, "format") != null, "category and keyword search plan");
+                foreach (string bad in new[] {
+                    "{\"category\":\"optimization\",\"keyword\":\"https://example.com\"}",
+                    "{\"category\":\"optimization\",\"keyword\":\"fps\",\"install\":true}",
+                    "{\"category\":\"unlisted-category\",\"keyword\":\"fps\"}", "{\"keyword\":null}"
+                })
                 {
                     fixture.Response = Event(bad, true);
-                    try { await chat.SuggestModAsync(question.Content, CancellationToken.None); }
-                    catch (QwenSearchException) { continue; }
-                    throw new InvalidOperationException("Unsafe or empty catalog keyword accepted.");
+                    Require(await chat.PlanModSearchAsync(question.Content, CancellationToken.None) == null,
+                        "invalid search plan accepted");
+                }
+                var hits = new[] {
+                    new ResourceHit { ProjectId = "abc12345", Name = "Example FPS mod", Slug = "fps-example", Kind = "mod" },
+                    new ResourceHit { ProjectId = "def67890", Name = "Example renderer", Slug = "renderer-example", Kind = "mod" }
+                };
+                fixture.Response = Event("{\"project\":\"def67890\"}", true);
+                var selected = await chat.SelectModAsync(question.Content, hits, CancellationToken.None);
+                Require(ReferenceEquals(selected, hits[1]) && QwenSearchService.Field(fixture.Body, "format") != null,
+                    "selection must return exact catalog result by project ID");
+                foreach (string bad in new[] {
+                    "{\"project\":\"missing\"}", "{\"project\":\"renderer-example\"}", "{\"project\":\"Example FPS mod\"}",
+                    "{\"project\":\"abc12345\",\"install\":true}", "{\"project\":null}"
+                })
+                {
+                    fixture.Response = Event(bad, true);
+                    Require(await chat.SelectModAsync(question.Content, hits, CancellationToken.None) == null,
+                        "model supplied a project outside the search results or extra instructions");
                 }
                 fixture.Response = Event("未完成", false);
                 try { await chat.ChatAsync(history, null, CancellationToken.None); throw new InvalidOperationException("Incomplete answer accepted."); }

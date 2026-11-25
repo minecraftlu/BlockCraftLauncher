@@ -84,7 +84,8 @@ namespace BlockCraftLauncher.Wpf
         }
 
         async Task<string> RunQwenModActionAsync(string query, bool install, string version = null,
-            string loader = null, string targetName = null, string sourceName = null, CancellationToken token = default)
+            string loader = null, string targetName = null, string sourceName = null, CancellationToken token = default,
+            LocalModSearchPlan plan = null, Func<IReadOnlyList<ResourceHit>, CancellationToken, Task<ResourceHit>> choose = null)
         {
             token.ThrowIfCancellationRequested();
             query = query?.Trim();
@@ -108,7 +109,7 @@ namespace BlockCraftLauncher.Wpf
             resourceLoader.SelectedIndex = string.IsNullOrEmpty(loader) ? 0 :
                 Math.Max(0, resourceLoader.Items.IndexOf(ModDownloadTarget.Loader(loader)));
             resourceCategory.SelectedIndex = resourceSort.SelectedIndex = 0;
-            resourceMatchVersion.IsChecked = target != null && (install || !string.IsNullOrEmpty(targetName));
+            resourceMatchVersion.IsChecked = target != null && (install || choose != null || !string.IsNullOrEmpty(targetName));
             resourceList.SelectedIndex = -1;
             resourceQuery.Text = query;
             var field = resourceQuery;
@@ -139,11 +140,13 @@ namespace BlockCraftLauncher.Wpf
                     if (Current()) list.SelectedItem = hit;
                     return notice;
                 }
-                void Interrupt(object sender, RoutedEventArgs args) => request.Cancel();
+                bool settingFilters = false;
+                void Interrupt(object sender, RoutedEventArgs args) { if (!settingFilters) request.Cancel(); }
                 void CategoryChanged(object sender, SelectionChangedEventArgs args)
                 {
                     // Replacing the initial "all" option when remote categories arrive does not change the filter.
-                    if (categoryBox.SelectedIndex > 0) request.Cancel();
+                    if (!settingFilters && (categoryBox.SelectedIndex > 0 || choose != null && source == ModSource.Modrinth))
+                        request.Cancel();
                 }
                 TextChangedEventHandler changed = Interrupt;
                 SelectionChangedEventHandler selected = Interrupt;
@@ -157,12 +160,82 @@ namespace BlockCraftLauncher.Wpf
                 versionBox.AddHandler(TextBoxBase.TextChangedEvent, changed);
                 matchBox.Checked += Interrupt;
                 matchBox.Unchecked += Interrupt;
+                async Task<string> RecommendFromCatalogAsync()
+                {
+                    var candidates = new List<ResourceHit>();
+                    var byId = new Dictionary<string, (string Text, int Category)>(StringComparer.Ordinal);
+                    var searches = new List<(string Text, int Category)> { (plan?.Keyword ?? query, 0) };
+                    if (plan != null && plan.Category != "any")
+                    {
+                        int category = Array.IndexOf(ModrinthCategoryIds, plan.Category);
+                        if (source == ModSource.Modrinth && category > 0) searches.Add(("", category));
+                        else if (!string.Equals(plan.Category, plan.Keyword, StringComparison.OrdinalIgnoreCase))
+                            searches.Add((plan.Category, 0));
+                    }
+                    async Task<bool> Load(string text, int category)
+                    {
+                        if (!Current()) return false;
+                        settingFilters = true;
+                        try
+                        {
+                            field.Text = text;
+                            categoryBox.SelectedIndex = category;
+                            sortBox.SelectedIndex = category > 0 ? 1 : 0;
+                        }
+                        finally { settingFilters = false; }
+                        string label = category > 0 ? ModrinthCategories[category] : text;
+                        localQwenCatalogTrace?.Invoke("查询 " + source + " · " + label +
+                            " · " + (target?.BaseVersion ?? version) + "/" + (target?.Loader ?? loader));
+                        bool loaded = await SearchResourcesAsync(0, request.Token);
+                        if (Current()) localQwenCatalogTrace?.Invoke("目录返回 " + resourceResults.Count + " 项。");
+                        return loaded && Current();
+                    }
+                    // One independent text search and one broad category search let the ranker compare real metadata.
+                    // Keep space for both sets even when the text search fills an entire page.
+                    for (int i = 0; i < searches.Count; i++)
+                    {
+                        var search = searches[i];
+                        if (!await Load(search.Text, search.Category)) return Current() ? Tell(resourceCounter.Text) : "";
+                        foreach (var hit in resourceResults.Where(h => h?.Kind == "mod" && !string.IsNullOrWhiteSpace(h.ProjectId))
+                            .Take(searches.Count == 1 ? 16 : 8))
+                        {
+                            if (byId.ContainsKey(hit.ProjectId)) continue;
+                            byId.Add(hit.ProjectId, search);
+                            candidates.Add(hit);
+                        }
+                        if (i == searches.Count - 1 && candidates.Count == 0 && !searches.Any(s => s.Text == query && s.Category == 0))
+                            searches.Add((query, 0));
+                    }
+                    if (candidates.Count == 0) return Tell("没有找到符合描述和当前筛选条件的模组，请调整用途、版本或来源。");
+                    Tell("已查到候选模组，正在由本地千问比较项目简介…");
+                    var pick = await choose(candidates, request.Token);
+                    if (!Current()) return "";
+                    async Task<ResourceHit> ShowProject(ResourceHit hit)
+                    {
+                        var visible = resourceResults.FirstOrDefault(h => h.ProjectId == hit.ProjectId);
+                        if (visible != null) return visible;
+                        var search = byId[hit.ProjectId];
+                        if (!await Load(search.Text, search.Category)) return null;
+                        return resourceResults.FirstOrDefault(h => h.ProjectId == hit.ProjectId);
+                    }
+                    if (pick == null || !byId.ContainsKey(pick.ProjectId))
+                    {
+                        if (resourceResults.Count == 0) await ShowProject(candidates[0]);
+                        return Tell("千问没有确定最合适的项目，可从目录结果中查看模组。");
+                    }
+                    var verified = await ShowProject(pick);
+                    if (!Current()) return "";
+                    if (verified == null) return Tell("目录结果已更新，请从当前列表重新选择模组。");
+                    localQwenCatalogTrace?.Invoke("选中项目 " + verified.ProjectId + " / " + verified.Slug + "。");
+                    return ChooseFile(verified, "本地千问推荐「" + verified.Name + "」，可查看详情并选择兼容文件。");
+                }
                 try
                 {
                     if (source == ModSource.CurseForge && !CanSearchResources())
                         await modDiscovery;
                     if (!Current()) return "";
                     if (!CanSearchResources()) return Tell("当前无法连接 CurseForge 官方服务，可重新检测或切换来源再搜索。");
+                    if (choose != null) return await RecommendFromCatalogAsync();
                     if (!await SearchResourcesAsync(0, request.Token) || !Current())
                         return Current() ? Tell(resourceCounter.Text) : "";
                     if (resourceResults.Count == 0) return Tell("没有找到匹配的模组，可更换关键词或来源后重试。");
