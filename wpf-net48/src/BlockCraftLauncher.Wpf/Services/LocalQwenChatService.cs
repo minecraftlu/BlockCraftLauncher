@@ -19,7 +19,31 @@ namespace BlockCraftLauncher.Wpf.Services
         };
         internal string Category { get; }
         internal string Keyword { get; }
-        internal LocalModSearchPlan(string category, string keyword) { Category = category; Keyword = keyword; }
+        internal string ProjectHint { get; }
+        internal LocalModSearchPlan(string category, string keyword, string projectHint = null)
+        { Category = category; Keyword = keyword; ProjectHint = projectHint; }
+
+        // Bilingual entries correspond to the launcher's catalog facets. Project names are extra search
+        // terms for sparse catalogs; only a project returned by the current source can be suggested.
+        static readonly (string Pattern, LocalModSearchPlan Topic)[] Topics = {
+            (@"帧率|帧数|掉帧|卡顿|性能|优化|内存|渲染加速|\bfps\b|frame.?rate|performance|lag\b|optimi[sz]", new LocalModSearchPlan("optimization", "performance", "Sodium")),
+            (@"小地图|地图|导航|地标|路径点|minimap|world map|waypoint", new LocalModSearchPlan("utility", "map", "JourneyMap")),
+            (@"配方|合成表|合成查询|物品查询|recipe|crafting guide", new LocalModSearchPlan("utility", "recipe", "Just Enough Items")),
+            (@"背包|储存|存储|箱子|收纳|仓库|backpack|storage", new LocalModSearchPlan("storage", "storage", "Sophisticated Backpacks")),
+            (@"机械|科技|自动化|工业|机器|电力|工厂|automat|machine|industrial|factory", new LocalModSearchPlan("technology", "technology", "Create")),
+            (@"地形|地貌|群系|世界生成|矿脉|山脉|terrain|worldgen|biome", new LocalModSearchPlan("worldgen", "biomes")),
+            (@"家具|装饰|建筑|摆设|furniture|decorat|building", new LocalModSearchPlan("decoration", "decoration")),
+            (@"动物|生物|怪物|驯服|宠物|creature|mobs?\b|animals?\b", new LocalModSearchPlan("mobs", "mobs")),
+            (@"武器|装备|盔甲|护甲|工具强化|weapon|armor|equipment", new LocalModSearchPlan("equipment", "equipment")),
+            (@"冒险|地下城|地牢|探索|维度|adventure|dungeon|exploration", new LocalModSearchPlan("adventure", "adventure", "The Twilight Forest")),
+            (@"管理|权限|服务器管理|moderation|admin|permission", new LocalModSearchPlan("management", "management")),
+            (@"前置|依赖|支持库|开发库|library|dependenc", new LocalModSearchPlan("library", "library")),
+            (@"玩法|生存机制|gameplay|survival", new LocalModSearchPlan("gameplay", "gameplay"))
+        };
+
+        internal static LocalModSearchPlan FromDescription(string description) =>
+            Topics.FirstOrDefault(t => Regex.IsMatch(description ?? "", t.Pattern,
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)).Topic;
     }
 
     internal sealed class LocalQwenChatService : IDisposable
@@ -52,7 +76,7 @@ namespace BlockCraftLauncher.Wpf.Services
             return SendAsync(messages, null, append, token);
         }
 
-        internal async Task<LocalModSearchPlan> PlanModSearchAsync(string question, CancellationToken token)
+        internal async Task<LocalModSearchPlan> PlanModSearchAsync(string question, CancellationToken token, Action<string> trace = null)
         {
             if (string.IsNullOrWhiteSpace(question) || question.Length > 2000)
                 throw new QwenSearchException("请用一句话描述需要的模组。");
@@ -65,16 +89,26 @@ namespace BlockCraftLauncher.Wpf.Services
             };
             var schema = new {
                 type = "object", properties = new { category = new { type = "string", @enum = LocalModSearchPlan.Categories },
-                    keyword = new { type = "string", maxLength = 48 } },
+                    keyword = new { type = "string", pattern = "^[A-Za-z0-9]+([ -][A-Za-z0-9]+){0,3}$", maxLength = 48 } },
                 required = new[] { "category", "keyword" }, additionalProperties = false
             };
             string answer = await SendAsync(messages, schema, null, token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
+            trace?.Invoke("模型目录计划输出：" + Excerpt(answer, 180).Replace('\n', ' ').Replace('\r', ' '));
             var fields = SmallObject(answer);
             if (fields == null || fields.Count != 2 || !fields.TryGetValue("category", out var category) ||
-                !(category is string facet) || !LocalModSearchPlan.Categories.Contains(facet) ||
-                !fields.TryGetValue("keyword", out var term) || !(term is string keyword) ||
-                keyword.Length > 48 || !Regex.IsMatch(keyword, @"\A[a-zA-Z0-9]+(?:[ -][a-zA-Z0-9]+){0,3}\z")) return null;
+                !(category is string facet) || !fields.TryGetValue("keyword", out var term) || !(term is string keyword)) return null;
+            facet = facet.Trim().ToLowerInvariant();
+            if (!LocalModSearchPlan.Categories.Contains(facet)) return null;
+            keyword = keyword.Trim();
+            if (keyword.Length > 80 || !Regex.IsMatch(keyword, @"\A[\p{L}\p{N} -]*\z")) return null;
+            if (keyword.Length > 48 || !Regex.IsMatch(keyword, @"\A[a-zA-Z0-9]+(?:[ -][a-zA-Z0-9]+){0,3}\z"))
+            {
+                var native = LocalModSearchPlan.FromDescription(question);
+                if (native != null) return new LocalModSearchPlan(facet == "any" ? native.Category : facet, native.Keyword);
+                if (facet != "any") return new LocalModSearchPlan(facet, facet);
+                if (keyword.Length == 0) return null;
+            }
             return new LocalModSearchPlan(facet, keyword);
         }
 
@@ -113,6 +147,9 @@ namespace BlockCraftLauncher.Wpf.Services
         static Dictionary<string, object> SmallObject(string answer)
         {
             if (string.IsNullOrWhiteSpace(answer) || answer.Length > 300) return null;
+            answer = answer.Trim();
+            if (answer.StartsWith("```json", StringComparison.OrdinalIgnoreCase) && answer.EndsWith("```", StringComparison.Ordinal) &&
+                answer.Length > 10) answer = answer.Substring(7, answer.Length - 10).Trim();
             try { return QwenSearchService.ReadJson(new JavaScriptSerializer(), answer) as Dictionary<string, object>; }
             catch (QwenSearchException) { return null; }
         }

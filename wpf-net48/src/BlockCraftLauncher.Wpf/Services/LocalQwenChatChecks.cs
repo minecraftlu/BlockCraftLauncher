@@ -74,6 +74,20 @@ namespace BlockCraftLauncher.Wpf.Services
                 var plan = await chat.PlanModSearchAsync(question.Content, CancellationToken.None);
                 Require(plan != null && plan.Keyword == "fps" && plan.Category == "optimization" &&
                     QwenSearchService.Field(fixture.Body, "format") != null, "category and keyword search plan");
+                fixture.Response = Event("{\"category\":\"optimization\",\"keyword\":\"提升帧率\"}", true);
+                var translated = await chat.PlanModSearchAsync(question.Content, CancellationToken.None);
+                Require(translated?.Category == "optimization" && translated.Keyword == "performance",
+                    "Chinese model keyword should keep its category and yield a usable catalog term");
+                foreach (var topic in new[] {
+                    (Description: "找个能标记地图的模组", Category: "utility", Keyword: "map"),
+                    (Description: "查合成配方", Category: "utility", Keyword: "recipe"),
+                    (Description: "find a backpack mod", Category: "storage", Keyword: "storage")
+                })
+                {
+                    var native = LocalModSearchPlan.FromDescription(topic.Description);
+                    Require(native?.Category == topic.Category && native.Keyword == topic.Keyword,
+                        "catalog topic from description: " + topic.Description);
+                }
                 foreach (string bad in new[] {
                     "{\"category\":\"optimization\",\"keyword\":\"https://example.com\"}",
                     "{\"category\":\"optimization\",\"keyword\":\"fps\",\"install\":true}",

@@ -164,14 +164,24 @@ namespace BlockCraftLauncher.Wpf
                 {
                     var candidates = new List<ResourceHit>();
                     var byId = new Dictionary<string, (string Text, int Category)>(StringComparer.Ordinal);
-                    var searches = new List<(string Text, int Category)> { (plan?.Keyword ?? query, 0) };
-                    if (plan != null && plan.Category != "any")
+                    ResourceHit categoryLeader = null;
+                    string categoryLabel = null;
+                    var native = LocalModSearchPlan.FromDescription(query);
+                    var topic = native ?? plan;
+                    var searches = new List<(string Text, int Category)> { (plan?.Keyword ?? native?.Keyword ?? query, 0) };
+                    localQwenCatalogTrace?.Invoke("模型分类=" + (plan?.Category ?? "未给出") + "，关键词=" +
+                        plan?.Keyword + "，目录分类=" + topic?.Category + "。");
+                    if (topic != null && topic.Category != "any")
                     {
-                        int category = Array.IndexOf(ModrinthCategoryIds, plan.Category);
+                        int category = Array.IndexOf(ModrinthCategoryIds, topic.Category);
                         if (source == ModSource.Modrinth && category > 0) searches.Add(("", category));
-                        else if (!string.Equals(plan.Category, plan.Keyword, StringComparison.OrdinalIgnoreCase))
-                            searches.Add((plan.Category, 0));
+                        else if (!string.Equals(topic.Category, searches[0].Text, StringComparison.OrdinalIgnoreCase))
+                            searches.Add((topic.Category, 0));
                     }
+                    int primaryCount = searches.Count;
+                    foreach (var text in new[] { native?.Keyword, native?.ProjectHint, query, "" })
+                        if (text != null && !searches.Any(s => s.Category == 0 && string.Equals(s.Text, text, StringComparison.OrdinalIgnoreCase)))
+                            searches.Add((text, 0));
                     async Task<bool> Load(string text, int category)
                     {
                         if (!Current()) return false;
@@ -183,7 +193,7 @@ namespace BlockCraftLauncher.Wpf
                             sortBox.SelectedIndex = category > 0 ? 1 : 0;
                         }
                         finally { settingFilters = false; }
-                        string label = category > 0 ? ModrinthCategories[category] : text;
+                        string label = category > 0 ? ModrinthCategories[category] : text.Length > 0 ? text : "全部模组";
                         localQwenCatalogTrace?.Invoke("查询 " + source + " · " + label +
                             " · " + (target?.BaseVersion ?? version) + "/" + (target?.Loader ?? loader));
                         bool loaded = await SearchResourcesAsync(0, request.Token);
@@ -194,22 +204,30 @@ namespace BlockCraftLauncher.Wpf
                     // Keep space for both sets even when the text search fills an entire page.
                     for (int i = 0; i < searches.Count; i++)
                     {
+                        if (i >= primaryCount && candidates.Count > 0) break;
                         var search = searches[i];
                         if (!await Load(search.Text, search.Category)) return Current() ? Tell(resourceCounter.Text) : "";
                         foreach (var hit in resourceResults.Where(h => h?.Kind == "mod" && !string.IsNullOrWhiteSpace(h.ProjectId))
-                            .Take(searches.Count == 1 ? 16 : 8))
+                            .Take(primaryCount == 1 || i >= primaryCount ? 16 : 8))
                         {
+                            if (search.Category > 0 && categoryLeader == null)
+                            {
+                                categoryLeader = hit;
+                                categoryLabel = ModrinthCategories[search.Category];
+                            }
                             if (byId.ContainsKey(hit.ProjectId)) continue;
                             byId.Add(hit.ProjectId, search);
                             candidates.Add(hit);
                         }
-                        if (i == searches.Count - 1 && candidates.Count == 0 && !searches.Any(s => s.Text == query && s.Category == 0))
-                            searches.Add((query, 0));
                     }
                     if (candidates.Count == 0) return Tell("没有找到符合描述和当前筛选条件的模组，请调整用途、版本或来源。");
                     Tell("已查到候选模组，正在由本地千问比较项目简介…");
                     var pick = await choose(candidates, request.Token);
                     if (!Current()) return "";
+                    localQwenCatalogTrace?.Invoke("候选 ID=" + string.Join(",", candidates.Select(h => h.ProjectId)) +
+                        "；模型选择=" + (pick?.ProjectId ?? "无") + "。");
+                    bool byPopularity = pick == null && categoryLeader != null;
+                    if (byPopularity) pick = categoryLeader;
                     async Task<ResourceHit> ShowProject(ResourceHit hit)
                     {
                         var visible = resourceResults.FirstOrDefault(h => h.ProjectId == hit.ProjectId);
@@ -227,6 +245,9 @@ namespace BlockCraftLauncher.Wpf
                     if (!Current()) return "";
                     if (verified == null) return Tell("目录结果已更新，请从当前列表重新选择模组。");
                     localQwenCatalogTrace?.Invoke("选中项目 " + verified.ProjectId + " / " + verified.Slug + "。");
+                    if (byPopularity)
+                        return ChooseFile(verified, "千问未选出具体项目。已按「" + categoryLabel + "」分类下载量打开「" +
+                            verified.Name + "」，可查看详情或在列表中选择其他模组。");
                     return ChooseFile(verified, "本地千问推荐「" + verified.Name + "」，可查看详情并选择兼容文件。");
                 }
                 try

@@ -48,7 +48,7 @@ namespace BlockCraftLauncher.Wpf
                     command.Kind != LauncherSearchKind.ModRecommendation)
                     return await chat.ChatAsync(history, append, token);
 
-                var plan = await chat.PlanModSearchAsync(last.Content, token);
+                var plan = await chat.PlanModSearchAsync(last.Content, token, localQwenCatalogTrace);
                 token.ThrowIfCancellationRequested();
                 return await RunQwenModActionAsync(command.Query, false, command.GameVersion, command.Loader,
                     command.InstanceName, command.SourceName, token, plan,
@@ -63,9 +63,11 @@ namespace BlockCraftLauncher.Wpf
             string folder = Environment.GetEnvironmentVariable("BLOCKCRAFT_UI_CAPTURE_DIR");
             string log = string.IsNullOrWhiteSpace(folder) ? null :
                 Path.Combine(Directory.CreateDirectory(folder).FullName, "local-live-progress.txt");
+            var logLock = new object();
             void Log(string text)
             {
-                if (log != null) File.AppendAllText(log, DateTime.UtcNow.ToString("HH:mm:ss") + " UTC " + text + Environment.NewLine);
+                if (log != null) lock (logLock)
+                    File.AppendAllText(log, DateTime.UtcNow.ToString("HH:mm:ss") + " UTC " + text + Environment.NewLine);
             }
             string phase = "正在准备本地模型";
             var heartbeat = new DispatcherTimer { Interval = TimeSpan.FromSeconds(20) };
@@ -96,7 +98,8 @@ namespace BlockCraftLauncher.Wpf
                 Log("已验证中文流式回答、连续对话和已下载模型复用。");
                 preferredModSource = ModSource.Modrinth;
                 phase = "正在通过本地模型查找提升帧率的模组";
-                localQwenCatalogTrace = Log;
+                var catalogTrace = new StringBuilder();
+                localQwenCatalogTrace = line => { Log(line); catalogTrace.AppendLine(line); };
                 string status = await RunLocalQwenAsync(endpoint,
                     new[] { new QwenChatTurn("user", "帮我找一个提升帧率的模组") }, null, token);
                 var exact = resourceList?.SelectedItem as ResourceHit;
@@ -105,7 +108,7 @@ namespace BlockCraftLauncher.Wpf
                         @"performance|optimi[sz]|frame.?rate|render|\bfps\b|帧率|优化|性能", RegexOptions.IgnoreCase))
                     throw new InvalidDataException("Live catalog could not confirm a performance mod. Search=" +
                         resourceQuery?.Text + ", category=" + resourceCategory?.SelectedItem + ", project=" + exact?.ProjectId +
-                        "/" + exact?.Name + ", matches=" + resourceResults.Count + ". " + status);
+                        "/" + exact?.Name + ", matches=" + resourceResults.Count + ". " + status + Environment.NewLine + catalogTrace);
                 string result = "Local Qwen3.5-4B streamed a Chinese multi-turn answer, reused its installed model, and found " +
                     exact.Name + " (" + exact.Slug + ") in Modrinth without queuing a download.";
                 Log(result);

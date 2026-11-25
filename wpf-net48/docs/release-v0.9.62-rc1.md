@@ -16,4 +16,6 @@
 
 本地对话和图像推理使用自己的电脑，无需千问账号、API Key 或百炼额度。首次安装模型、搜索在线模组和下载游戏文件需要联网。千问官网账号登录和原有的百炼创作仍可在各自的标签页使用。
 
+本版在 Windows 上验证了真实聊天模型和模组目录。图像测试覆盖官方文件清单、图像引擎安装与启动、画图和改图工作流，以及样例 PNG 读写。完整权重在 NVIDIA 显卡上的实际出图仍待验证。
+
 [Qwen3.5-4B](https://ollama.com/library/qwen3.5:4b) · [Qwen-Image-2512 模型与许可证](https://huggingface.co/Qwen/Qwen-Image-2512) · [Qwen-Image-Edit-2511 模型与许可证](https://huggingface.co/Qwen/Qwen-Image-Edit-2511)
