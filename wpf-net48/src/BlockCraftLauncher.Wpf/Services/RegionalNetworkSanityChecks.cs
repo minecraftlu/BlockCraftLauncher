@@ -9,6 +9,7 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using CmlLib.Core;
+using CmlLib.Core.Installer.Forge.Versions;
 using BlockCraftLauncher.Wpf.Models;
 
 namespace BlockCraftLauncher.Wpf.Services
@@ -221,6 +222,7 @@ namespace BlockCraftLauncher.Wpf.Services
             await VerifyPublicSearchCacheAsync().ConfigureAwait(false);
             await VerifyFilesAsync().ConfigureAwait(false);
             VerifyLoaderCatalogs();
+            await VerifyForgeWorkerAsync().ConfigureAwait(false);
         }
 
         static async Task VerifyPublicSearchCacheAsync()
@@ -340,11 +342,40 @@ namespace BlockCraftLauncher.Wpf.Services
             Require(build.GetInstallerFile()?.DirectUrl ==
                 "https://maven.minecraftforge.net/net/minecraftforge/forge/1.21.1-52.1.0/forge-1.21.1-52.1.0-installer.jar",
                 "Forge 镜像列表映射至受支持的安装文件");
+            var other = new ForgeVersion("1.21.1", "52.0.9") { Files = build.Files, IsRecommendedVersion = true };
+            var mixed = new[] { build, other, other, new ForgeVersion("1.21", "51.0.0") { Files = build.Files },
+                new ForgeVersion("1.21.1", "../bad") { Files = build.Files }, new ForgeVersion("1.21.1", "52.0.8") };
+            Require(LoaderNetworkCatalog.InstallableForgeVersions(mixed, "1.21.1", null).Select(v => v.ForgeVersionName)
+                .SequenceEqual(new[] { "52.1.0", "52.0.9" }), "Forge 列表按来源顺序保留所有兼容且可安装的构建");
+            Require(LoaderNetworkCatalog.SelectForgeVersion(mixed, "1.21.1", null) == other &&
+                LoaderNetworkCatalog.SelectForgeVersion(mixed, "1.21.1", "52.1.0") == build, "默认推荐与指定 Forge 构建分别匹配");
+            try { LoaderNetworkCatalog.SelectForgeVersion(mixed, "1.21.1", "51.0.0"); throw new InvalidOperationException("错误替换了指定 Forge 构建"); }
+            catch (InvalidDataException) { }
             const string neo = "<metadata><versioning><versions><version>21.1.90</version>" +
                 "<version>21.1.102</version><version>21.3.10</version><version>bad</version>" +
                 "</versions></versioning></metadata>";
             Require(LoaderNetworkCatalog.ParseNeoForgeMetadata(neo, "1.21.1").NeoForgeVersionName == "21.1.102",
                 "NeoForge Maven 清单按 Minecraft 版本选择正确构建");
+        }
+
+        static async Task VerifyForgeWorkerAsync()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "Forge 测试 " + Guid.NewGuid().ToString("N"));
+            var config = new LauncherConfig { Root = Path.Combine(folder, "游戏"), DownloadDirectory = Path.Combine(folder, "缓存") };
+            string parentTemp = Path.GetTempPath();
+            try
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+                try
+                {
+                    await ForgeInstallWorker.InstallAsync(config, "../invalid", "Forge", "52.1.0", null, null, timeout.Token).ConfigureAwait(false);
+                    throw new InvalidOperationException("Forge 子进程接受了无效游戏版本");
+                }
+                catch (IOException ex) when (ex.Message.Contains("Minecraft 版本号无效")) { }
+                Require(Path.GetTempPath() == parentTemp && !Directory.EnumerateFileSystemEntries(
+                    DownloadPathService.ForgeTempRoot(config.DownloadDirectory)).Any(), "子进程使用独立临时目录并在失败后清理");
+            }
+            finally { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
         }
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -72,11 +73,19 @@ namespace BlockCraftLauncher.Wpf
                     "正在安装 " + pending.Title + "，完成后可以安装 " + title + "。";
 
             string profileLoader = selectedLoader == "原版" ? "vanilla" : selectedLoader;
+            bool InstalledAtTarget(GameProfile profile)
+            {
+                if (!string.IsNullOrEmpty(settings.StorageError)) return false;
+                var location = MinecraftInstanceLocator.Resolve(profile, settings);
+                string root = Path.GetFullPath(settings.Root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                return location.MetadataFound && string.Equals(root,
+                    location.GameRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
+            }
             var installed = settings.Profiles.FirstOrDefault(profile =>
                 profile != null && string.Equals(string.IsNullOrWhiteSpace(profile.BaseVersion) ? profile.LaunchVersion : profile.BaseVersion,
                     selected.Id, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(string.IsNullOrWhiteSpace(profile.Loader) ? "vanilla" : profile.Loader,
-                    profileLoader, StringComparison.OrdinalIgnoreCase) && MinecraftInstanceLocator.Resolve(profile, settings).MetadataFound);
+                    profileLoader, StringComparison.OrdinalIgnoreCase) && InstalledAtTarget(profile));
             if (installed != null) return "已有本地实例：" + (installed.Name ?? title) + "。可从启动页选择。";
             token.ThrowIfCancellationRequested();
             QueueGameInstall(selected.Id, selectedLoader, qwenInstallGameFixture);

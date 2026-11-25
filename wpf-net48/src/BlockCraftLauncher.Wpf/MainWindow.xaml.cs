@@ -1572,6 +1572,7 @@ namespace BlockCraftLauncher.Wpf
             string loaderVersion = null)
         {
             string title = version + " · " + loader + (loaderVersion == null ? "" : " " + loaderVersion);
+            var selectedAtEnqueue = activeProfile;
             var storageInstaller = modLoaders.ForCurrentStorage();
             var installBuild = installGameBuildFixture ?? storageInstaller.InstallAsync;
             versionInstallJob = downloads.Enqueue("游戏", title, async (token, progress, bytes) =>
@@ -1588,7 +1589,7 @@ namespace BlockCraftLauncher.Wpf
                     try { store.Save(settings); }
                     catch { settings.Profiles.Remove(profile); throw; }
                 }
-                UseInstalledProfile(registered ?? profile);
+                UseInstalledProfile(ReferenceEquals(activeProfile, selectedAtEnqueue) ? registered ?? profile : activeProfile);
                 progress.Report("安装完成：" + (registered ?? profile).Name);
                 Status("安装完成：" + (registered ?? profile).Name);
             });

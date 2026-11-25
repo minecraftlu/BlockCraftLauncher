@@ -191,9 +191,15 @@ namespace BlockCraftLauncher.Wpf.Services
                 DownloadPathService.TryValidate(selectedCache, selectedGame,
                     out resolvedPath, out pathError),
                 "移动硬盘已选父目录也要生成可用的兄弟文件夹");
-            Require(!DownloadPathService.TryValidate(baseDirectory, selectedGame,
+            Require(DownloadPathService.TryPlanStorage(selectedGame, baseDirectory, true,
+                out var followedGame, out var followedCache, out pathError) &&
+                followedGame == selectedGame && followedCache == baseDirectory &&
+                !DownloadPathService.ContainsOrEquals(DownloadPathService.UpdatesRoot(followedCache), followedGame) &&
+                !DownloadPathService.ContainsOrEquals(DownloadPathService.ForgeTempRoot(followedCache), followedGame),
+                "跟随下载位置时，Minecraft 必须与更新和 Forge 临时文件夹分离");
+            Require(!DownloadPathService.TryValidate(baseDirectory, Path.Combine(baseDirectory, "custom-instance-root"),
                 out resolvedPath, out pathError),
-                "下载缓存不能选成包含 Minecraft 的共同父目录");
+                "缓存目录不能包含任意已有的游戏目录");
             Require(!DownloadPathService.TryValidate(selectedGame, selectedGame,
                 out resolvedPath, out pathError),
                 "同一目录不能同时作为游戏和下载缓存");
