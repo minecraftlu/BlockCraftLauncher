@@ -176,7 +176,7 @@ namespace BlockCraftLauncher.Wpf
             qwenWebSearch.Visibility = qwenConnection.Visibility =
                 UseLocalQwenChat ? Visibility.Collapsed : Visibility.Visible;
             if (localQwenSettings != null)
-                localQwenSettings.IsEnabled = localQwenOperation == null && !(UseLocalQwenChat && qwenRequest != null);
+                localQwenSettings.IsEnabled = localQwenOperation == null && qwenRequest == null;
         }
 
         void AdjustQwenTranscriptHeight(double height)

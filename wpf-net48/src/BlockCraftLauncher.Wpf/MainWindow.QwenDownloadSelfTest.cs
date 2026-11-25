@@ -158,6 +158,11 @@ namespace BlockCraftLauncher.Wpf
                 var game = window.downloads.Jobs.Single();
                 CheckQwen(game.IsRunning && game.Kind == "游戏" && installedVersions[0] == "1.20.4/原版",
                     "下载指令未使用游戏安装队列或选错版本。");
+                var history = window.qwenConversations.Current.Turns;
+                CheckQwen(history.Count == 2 && history[0].Question == "找 Minecraft 1.20.4" &&
+                    history[1].Question == "下载 Minecraft 1.20.4" && history[1].Answer.Contains("已加入下载任务") &&
+                    window.qwenAnswer.Text == history[1].Answer && !window.qwenRegenerate.IsEnabled,
+                    "回到对话后缺少指令记录，或允许重新回答再次执行下载。");
                 await Submit("下载 Minecraft 1.20.4");
                 CheckQwen(window.downloads.Jobs.Count == 1 && installedVersions.Count == 1,
                     "重复的游戏指令创建了第二个任务。");
