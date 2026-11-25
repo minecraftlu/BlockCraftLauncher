@@ -127,7 +127,9 @@ namespace BlockCraftLauncher.Wpf
                     Visit("首页", "home");
                     ClickFixtureAction(FixtureButton(PageHost, NavLabel(QwenSearchPage)));
                     Arrange();
-                    CheckQwen(qwenQuery.IsVisible && qwenChatBody.IsVisible, "首页入口没有打开统一对话。");
+                    CheckQwen(currentPage == QwenSearchPage && ReferenceEquals(PageHost.Content, qwenPage) &&
+                        qwenSelectedTab == QwenAssistantTab.Chat && qwenChatBody.Visibility == Visibility.Visible &&
+                        qwenChatBody.IsAncestorOf(qwenQuery) && qwenQuery.ActualHeight > 0, "首页入口没有打开统一对话。");
                     qwenTools.IsExpanded = true;
                     Arrange();
                     ClickFixtureAction(qwenWebTab);
