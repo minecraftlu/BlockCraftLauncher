@@ -10,7 +10,17 @@ $project = Join-Path $root 'onefile\BlockCraftLauncher.SingleFile.csproj'
 $name = 'BlockCraftLauncher-v0.9.61-WPF-OneFile-Windows-x64.exe'
 if (!(Test-Path (Join-Path $stage 'SHA256SUMS.txt'))) { throw 'Staged WPF files missing' }
 if (Test-Path $payload) { Remove-Item $payload -Force }
-[System.IO.Compression.ZipFile]::CreateFromDirectory($stage,$payload,[System.IO.Compression.CompressionLevel]::Optimal,$false)
+# Windows PowerShell 5.1 defaults to backslashes in nested ZIP entries.
+# The bootstrap accepts portable relative names, including the WebView2 runtimes/ directory.
+$prefix = $stage.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+$archive = [IO.Compression.ZipFile]::Open($payload, [IO.Compression.ZipArchiveMode]::Create)
+try {
+  Get-ChildItem -LiteralPath $stage -Recurse -File -Force | Sort-Object FullName | ForEach-Object {
+    $relative = $_.FullName.Substring($prefix.Length).Replace('\', '/')
+    [IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+      $archive, $_.FullName, $relative, [IO.Compression.CompressionLevel]::Optimal) | Out-Null
+  }
+} finally { $archive.Dispose() }
 $msbuild = Get-Command MSBuild.exe -ErrorAction SilentlyContinue
 if ($msbuild) { $compiler = $msbuild.Source }
 else {

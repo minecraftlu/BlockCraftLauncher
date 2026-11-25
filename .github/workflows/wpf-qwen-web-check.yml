@@ -100,6 +100,8 @@ jobs:
               if ($probe.ExitCode -ne 0) {
                 $diagnostic = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
                 if (Test-Path -LiteralPath $diagnostic) { Get-Content -LiteralPath $diagnostic -Tail 60 }
+                $bootstrap = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/onefile/bootstrap-error.log'
+                if (Test-Path -LiteralPath $bootstrap) { Get-Content -LiteralPath $bootstrap -Encoding utf8 -Tail 12 }
                 throw "$binary $argument failed with $($probe.ExitCode)"
               }
               Write-Host "PASS: $binary $argument"
@@ -155,6 +157,8 @@ jobs:
                 if ($process.ExitCode -ne 0) {
                   $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
                   if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Encoding utf8 -Tail 20 }
+                  $bootstrap = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/onefile/bootstrap-error.log'
+                  if (Test-Path -LiteralPath $bootstrap) { Get-Content -LiteralPath $bootstrap -Encoding utf8 -Tail 12 }
                   throw "$($check.flag) failed on $($entry[0]) ($($process.ExitCode))"
                 }
                 $result = Get-Content -ErrorAction Stop -LiteralPath (Join-Path $dir $check.report) -Raw -Encoding utf8

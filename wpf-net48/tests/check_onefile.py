@@ -9,7 +9,7 @@ s=(r/'onefile/Program.cs').read_text('utf8')
 for value in ('BlockCraftLauncher.Payload.zip','ZipArchiveMode.Read','SHA256SUMS.txt','CmlLib.Core.Commons.dll','ValidCache','Directory.Move','--smoke-test'):
     assert value in s,value
 b=(r/'build/build-onefile.ps1').read_text('utf8')
-assert 'CreateFromDirectory' in b and '0x8664' in b
+assert 'CreateEntryFromFile' in b and """.Replace('\\', '/')""" in b and '0x8664' in b
 # Regression: the first v0.9.37 stable EXE was labelled v0.9.37 but
 # extracted to an old v0.9.36 cache because the bootstrap's Release
 # constant wasn't advanced. Keep ALL package and updater tags identical.
@@ -22,3 +22,4 @@ assert updater.group(1) in b, 'OneFile artifact filename does not match binary v
 assert updater.group(1) in packager, 'ZIP version does not match binary version'
 
 print('PASS one-file bootstrap static contract')
+

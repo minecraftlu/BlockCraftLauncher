@@ -85,7 +85,9 @@ namespace BlockCraftLauncher.OneFile
                     if (process == null) throw new IOException("无法启动 WPF 主程序。");
                     if (probe)
                     {
-                        if (!process.WaitForExit(65000))
+                        bool webProbe = args.Length == 1 && (string.Equals(args[0], "--qwen-web-selftest", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(args[0], "--qwen-web-live-check", StringComparison.OrdinalIgnoreCase));
+                        if (!process.WaitForExit(webProbe ? 165000 : 65000))
                         {
                             process.Kill();
                             throw new TimeoutException("单文件启动自检超时。");
