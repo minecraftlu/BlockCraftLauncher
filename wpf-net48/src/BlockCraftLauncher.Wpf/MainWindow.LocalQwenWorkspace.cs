@@ -1,16 +1,11 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Threading;
 using BlockCraftLauncher.Wpf.Services;
 using Microsoft.Win32;
 
@@ -18,126 +13,9 @@ namespace BlockCraftLauncher.Wpf
 {
     public partial class MainWindow
     {
-        QwenConversationStore localQwenHistory;
-        ComboBox localQwenSessions;
-        FrameworkElement localQwenChatToolbar;
-        StackPanel localQwenTranscript;
-        ScrollViewer localQwenScroll;
         Image localQwenSourceImage, localQwenResultImage;
         TextBlock localQwenInputLabel, localQwenOutputLabel;
         string localQwenInputPath, localQwenOutputPath, localQwenOutputSource;
-
-        FrameworkElement BuildLocalConversation()
-        {
-            string folder = Path.GetDirectoryName(Path.GetFullPath(store.FilePath));
-            localQwenHistory = new QwenConversationStore(Path.Combine(folder, "qwen-local-history.json"));
-            localQwenSessions = new ComboBox { DisplayMemberPath = "Title", MinWidth = 128, MaxWidth = 220 };
-            ApplySearchInputStyle(localQwenSessions, "切换本地对话");
-            AutomationProperties.SetName(localQwenSessions, "本地对话列表");
-            localQwenSessions.SelectionChanged += (sender, args) =>
-            {
-                var item = localQwenSessions.SelectedItem as QwenConversation;
-                if (item == null || item.Id == localQwenHistory.Current.Id) return;
-                localQwenHistory.Select(item.Id);
-                localQwenPrompt.Clear();
-                RenderLocalChat();
-            };
-            var retain = new CheckBox { Content = "在本机保存对话", IsChecked = localQwenHistory.HistoryEnabled,
-                VerticalAlignment = VerticalAlignment.Center,
-                ToolTip = "关闭后清除已保存的本地模型对话，本次窗口中的对话可继续使用。" };
-            retain.Click += (s, e) =>
-            {
-                localQwenHistory.SetHistoryEnabled(retain.IsChecked == true);
-                retain.IsChecked = localQwenHistory.HistoryEnabled;
-                localQwenStatus.Text = localQwenHistory.PersistenceError;
-            };
-            localQwenChatToolbar = Row(localQwenSessions, Btn("新对话", () =>
-            {
-                localQwenHistory.NewSession();
-                localQwenPrompt.Clear();
-                RefreshLocalChatSessions();
-                RenderLocalChat();
-            }), retain);
-            localQwenTranscript = new StackPanel();
-            localQwenScroll = new ScrollViewer { Content = localQwenTranscript, MaxHeight = 270,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
-            AdjustQwenTranscriptHeight(PageScroll.ActualHeight);
-            RefreshLocalChatSessions();
-            RenderLocalChat();
-            return Col(localQwenChatToolbar, localQwenScroll);
-        }
-
-        void RefreshLocalChatSessions()
-        {
-            localQwenSessions.ItemsSource = null;
-            localQwenSessions.ItemsSource = localQwenHistory.Sessions;
-            localQwenSessions.SelectedItem = localQwenHistory.Current;
-        }
-
-        void RenderLocalChat()
-        {
-            localQwenTranscript.Children.Clear();
-            foreach (var turn in localQwenHistory.Current.Turns)
-            {
-                localQwenTranscript.Children.Add(ChatBubble(true, QwenSelectableText(turn.Question)));
-                localQwenTranscript.Children.Add(ChatBubble(false, QwenSelectableText(turn.Answer)));
-            }
-            localQwenScroll.ScrollToEnd();
-        }
-
-        async Task SubmitLocalChatAsync(string question, IProgress<string> progress, CancellationToken token)
-        {
-            var session = localQwenHistory.Current;
-            var messages = session.BuildChatTurns(question);
-            localQwenTranscript.Children.Add(ChatBubble(true, QwenSelectableText(question)));
-            var answerBox = QwenSelectableText("");
-            localQwenTranscript.Children.Add(ChatBubble(false, answerBox));
-            localQwenScroll.ScrollToEnd();
-            var buffer = new StringBuilder();
-            var clock = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromMilliseconds(65) };
-            clock.Tick += (s, e) =>
-            {
-                string delta;
-                lock (buffer) { if (buffer.Length == 0) return; delta = buffer.ToString(); buffer.Clear(); }
-                bool follow = localQwenScroll.ScrollableHeight - localQwenScroll.VerticalOffset < 30;
-                answerBox.AppendText(delta);
-                if (follow) localQwenScroll.ScrollToEnd();
-            };
-            clock.Start();
-            try
-            {
-                string answer = await TryRunLocalQwenExactCommandAsync(question, token);
-                if (answer == null)
-                {
-                    Uri endpoint = null;
-                    try { endpoint = await PrepareLocalModelAsync(LocalQwenMode.Chat, false, progress, token); }
-                    catch (LocalModelNotInstalledException)
-                    {
-                        string project = KnownQwenInstallProject(question, out var command);
-                        if (project == null) throw;
-                        answer = await InstallKnownQwenProjectAsync(project, command, token);
-                    }
-                    if (endpoint != null)
-                    {
-                        token.ThrowIfCancellationRequested();
-                        Action<string> append = delta => { lock (buffer) buffer.Append(delta); };
-                        var reply = localQwenReply ?? RunLocalQwenAsync;
-                        answer = await reply(endpoint, messages, append, token);
-                    }
-                }
-                token.ThrowIfCancellationRequested();
-                if (string.IsNullOrWhiteSpace(answer)) throw new InvalidDataException("模型没有返回回答，请重试。");
-                localQwenHistory.CommitTurn(session, question, new QwenSearchResult(answer, null), false);
-                localQwenPrompt.Clear();
-                RefreshLocalChatSessions();
-                localQwenStatus.Text = localQwenHistory.PersistenceError;
-            }
-            finally
-            {
-                clock.Stop();
-                if (!localQwenClosed) RenderLocalChat();
-            }
-        }
 
         static Image LocalQwenPreview(double height)
         {

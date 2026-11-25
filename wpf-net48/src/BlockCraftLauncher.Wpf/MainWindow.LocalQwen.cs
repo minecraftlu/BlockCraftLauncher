@@ -18,7 +18,7 @@ namespace BlockCraftLauncher.Wpf
         TextBlock localQwenDirectory, localQwenModelInfo, localQwenStatus;
         TextBox localQwenPrompt;
         Button localQwenSubmit, localQwenStop;
-        FrameworkElement localQwenSettings, localQwenChatPanel, localQwenImageInput, localQwenImageOutput;
+        FrameworkElement localQwenSettings, localQwenImageInput, localQwenImageOutput;
         ProgressBar localQwenProgress;
         CancellationTokenSource localQwenOperation;
         LocalModelRuntime localQwenRuntime;
@@ -36,7 +36,7 @@ namespace BlockCraftLauncher.Wpf
         UIElement BuildLocalQwenPage()
         {
             localQwenMode = new ComboBox { MinWidth = 150, Margin = new Thickness(0, 0, 8, 5) };
-            foreach (var name in new[] { "聊天与下载指令", "生成图片", "修改图片" }) localQwenMode.Items.Add(name);
+            foreach (var name in new[] { "聊天模型", "生成图片", "修改图片" }) localQwenMode.Items.Add(name);
             ApplySearchInputStyle(localQwenMode, "选择本地模型用途");
             AutomationProperties.SetName(localQwenMode, "本地模型用途");
             localQwenMode.SelectedIndex = 0;
@@ -53,7 +53,7 @@ namespace BlockCraftLauncher.Wpf
             localQwenPrompt = new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap,
                 MinHeight = 60, MaxHeight = 145, MaxLength = QwenChatInputLimit, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
             ApplySearchInputStyle(localQwenPrompt, "输入内容后按 Ctrl + Enter 发送");
-            AutomationProperties.SetName(localQwenPrompt, "本地 AI 提示词或下载指令");
+            AutomationProperties.SetName(localQwenPrompt, "本地图片描述");
             localQwenPrompt.PreviewKeyDown += async (sender, args) =>
             {
                 if (args.Key != Key.Enter || Keyboard.Modifiers != ModifierKeys.Control) return;
@@ -65,7 +65,6 @@ namespace BlockCraftLauncher.Wpf
             localQwenStatus = Txt("", 13);
             AutomationProperties.SetLiveSetting(localQwenStatus, AutomationLiveSetting.Polite);
             localQwenProgress = new ProgressBar { Height = 4, Margin = new Thickness(0, 6, 0, 4) };
-            localQwenChatPanel = BuildLocalConversation();
             localQwenImageInput = BuildLocalImageInput();
             localQwenImageOutput = BuildLocalImageOutput();
             localQwenMode.SelectionChanged += (sender, args) =>
@@ -78,30 +77,27 @@ namespace BlockCraftLauncher.Wpf
                 RefreshLocalQwenControls();
             };
             RefreshLocalQwenControls();
-            return Col(Card(localQwenSettings), localQwenChatPanel, localQwenImageInput,
-                Card(Col(localQwenPrompt, Row(localQwenSubmit, localQwenStop), localQwenProgress, localQwenStatus)),
-                localQwenImageOutput);
+            return Col(Card(Col(localQwenSettings, localQwenImageInput, localQwenPrompt,
+                Row(localQwenSubmit, localQwenStop), localQwenProgress, localQwenStatus)), localQwenImageOutput);
         }
 
         void RefreshLocalQwenControls()
         {
             bool busy = localQwenOperation != null;
             bool chat = activeLocalMode == LocalQwenMode.Chat, edit = activeLocalMode == LocalQwenMode.Edit;
-            localQwenSettings.IsEnabled = !busy;
+            localQwenSettings.IsEnabled = !busy && qwenRequest == null;
             localQwenSubmit.IsEnabled = !busy;
             localQwenPrompt.IsReadOnly = busy;
-            localQwenChatToolbar.IsEnabled = !busy;
+            localQwenPrompt.Visibility = localQwenSubmit.Visibility = chat ? Visibility.Collapsed : Visibility.Visible;
             localQwenImageInput.IsEnabled = !busy;
             localQwenStop.Visibility = localQwenProgress.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
             localQwenProgress.IsIndeterminate = busy;
-            localQwenChatPanel.Visibility = chat ? Visibility.Visible : Visibility.Collapsed;
             localQwenImageInput.Visibility = edit ? Visibility.Visible : Visibility.Collapsed;
             localQwenImageOutput.Visibility = !chat && localQwenOutputPath != null ? Visibility.Visible : Visibility.Collapsed;
             string submit = chat ? "发送" : edit ? "修改图片" : "生成图片";
             localQwenSubmit.Content = submit;
             AutomationProperties.SetName(localQwenSubmit, submit);
-            localQwenPrompt.ToolTip = chat ? "试试「帮我找一个提升帧率的模组」或「帮我安装一个提升帧率的模组」\nCtrl + Enter 发送" :
-                edit ? "例如：把截图里的白天改成黄昏" : "例如：画一座雪夜里的方块小屋";
+            localQwenPrompt.ToolTip = edit ? "例如：把截图里的白天改成黄昏" : "例如：画一座雪夜里的方块小屋";
             try
             {
                 string root = LocalQwenRoot;
@@ -132,7 +128,7 @@ namespace BlockCraftLauncher.Wpf
 
         void SetLocalQwenDirectory(string directory)
         {
-            if (localQwenOperation != null || directory == settings.LocalQwenDirectory) return;
+            if (qwenRequest != null || localQwenOperation != null || directory == settings.LocalQwenDirectory) return;
             string previous = settings.LocalQwenDirectory;
             try
             {
@@ -175,13 +171,15 @@ namespace BlockCraftLauncher.Wpf
 
         async Task ExecuteLocalQwenAsync(bool install)
         {
-            if (localQwenClosed || localQwenOperation != null) return;
+            if (localQwenClosed || localQwenOperation != null || qwenRequest != null ||
+                (!install && activeLocalMode == LocalQwenMode.Chat)) return;
             string prompt = localQwenPrompt.Text.Trim();
-            if (!install && prompt.Length == 0) { localQwenStatus.Text = "先输入问题、下载指令或画面描述。"; localQwenPrompt.Focus(); return; }
+            if (!install && prompt.Length == 0) { localQwenStatus.Text = "请输入画面描述。"; localQwenPrompt.Focus(); return; }
             if (!install && activeLocalMode == LocalQwenMode.Edit && !File.Exists(localQwenInputPath))
             { localQwenStatus.Text = "请先选择要修改的图片。"; return; }
             var operation = new CancellationTokenSource();
             localQwenOperation = operation;
+            RefreshQwenProviderControls();
             RefreshLocalQwenControls();
             localQwenStatus.Text = install ? "正在准备模型…" : "正在处理…";
             var progress = new Progress<string>(message =>
@@ -196,7 +194,6 @@ namespace BlockCraftLauncher.Wpf
                     operation.Token.ThrowIfCancellationRequested();
                     localQwenStatus.Text = "模型已就绪。";
                 }
-                else if (activeLocalMode == LocalQwenMode.Chat) await SubmitLocalChatAsync(prompt, progress, operation.Token);
                 else await SubmitLocalImageAsync(prompt, progress, operation.Token);
             }
             catch (OperationCanceledException) { if (!localQwenClosed) localQwenStatus.Text = "已停止。可重新准备模型或再次发送。"; }
@@ -205,7 +202,11 @@ namespace BlockCraftLauncher.Wpf
             {
                 localQwenOperation = null;
                 operation.Dispose();
-                if (!localQwenClosed) RefreshLocalQwenControls();
+                if (!localQwenClosed)
+                {
+                    RefreshQwenProviderControls();
+                    RefreshLocalQwenControls();
+                }
             }
         }
 

@@ -1,0 +1,95 @@
+name: Verify unified AI workspace on Windows
+
+on:
+  push:
+    branches: [feature/unified-ai-workspace]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build WPF and the standalone launcher
+        working-directory: wpf-net48
+        shell: cmd
+        run: call build\build-windows.bat
+      - name: Verify Chinese and English download commands
+        shell: pwsh
+        working-directory: wpf-net48
+        run: ./tests/check_launcher_search_commands.ps1
+      - name: Ensure the disposable Windows runner has the Evergreen WebView2 Runtime
+        shell: pwsh
+        run: |
+          $product = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $keys = "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\$product", "HKCU:\Software\Microsoft\EdgeUpdate\Clients\$product"
+          function Test-Installed {
+            foreach ($reg in $keys) {
+              $v = Get-ItemPropertyValue -LiteralPath $reg -Name pv -ErrorAction SilentlyContinue
+              if ($v -and ([version]$v) -gt [version]'0.0.0.0') { return $true }
+            }
+            return $false
+          }
+          if (!(Test-Installed)) {
+            $file = Join-Path $env:RUNNER_TEMP 'MicrosoftEdgeWebview2Setup.exe'
+            Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $file
+            $sig = Get-AuthenticodeSignature -LiteralPath $file
+            if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation(?:,|$)') { throw 'Unverified Microsoft installer' }
+            $proc = Start-Process -FilePath $file -ArgumentList '/silent','/install' -PassThru -WindowStyle Hidden
+            if (!$proc.WaitForExit(180000) -or $proc.ExitCode -ne 0 -or !(Test-Installed)) { throw 'WebView2 Runtime installation failed on runner' }
+          }
+      - name: Test shared chat, provider switching, downloads, browser and media on both builds
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          $wpf = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $one = @(Get-ChildItem 'dist' -Filter '*-WPF-OneFile-Windows-x64.exe')
+          if ($one.Count -ne 1) { throw 'Expected one standalone EXE' }
+          foreach ($entry in @(@('wpf', $wpf), @('onefile', $one[0].FullName))) {
+            foreach ($check in @(
+              @{ flag = '--local-qwen-selftest'; folder = 'local'; report = 'local-qwen-check.txt' },
+              @{ flag = '--qwen-web-selftest'; folder = 'web'; report = 'qwen-web-check.txt' },
+              @{ flag = '--qwen-search-selftest'; folder = 'qwen'; report = 'qwen-check.txt' },
+              @{ flag = '--qwen-download-selftest'; folder = 'qwen-download'; report = 'qwen-download-check.txt' },
+              @{ flag = '--qwen-chat-selftest'; folder = 'chat'; report = 'qwen-chat-check.txt' },
+              @{ flag = '--qwen-media-selftest'; folder = 'media'; report = 'qwen-media-check.txt' },
+              @{ flag = '--ui-layout-selftest'; folder = 'layout' }
+            )) {
+              $dir = Join-Path $env:RUNNER_TEMP ('blockcraft-unified-ai/' + $check.folder + '-' + $entry[0])
+              $null = New-Item -ItemType Directory -Force -Path $dir
+              $env:BLOCKCRAFT_UI_CAPTURE_DIR = $dir
+              $process = Start-Process -FilePath $entry[1] -ArgumentList $check.flag -PassThru -WindowStyle Hidden
+              try {
+                if (!$process.WaitForExit(180000)) { $process.Kill($true); throw "$($check.flag) timed out" }
+                $process.Refresh()
+                if ($process.ExitCode -ne 0) {
+                  $log = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log'
+                  if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Encoding utf8 -Tail 20 }
+                  $bootstrap = Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/onefile/bootstrap-error.log'
+                  if (Test-Path -LiteralPath $bootstrap) { Get-Content -LiteralPath $bootstrap -Encoding utf8 -Tail 12 }
+                  throw "$($check.flag) failed on $($entry[0]) ($($process.ExitCode))"
+                }
+                if ($check.report) {
+                  $result = Get-Content -ErrorAction Stop -LiteralPath (Join-Path $dir $check.report) -Raw -Encoding utf8
+                  if ([string]::IsNullOrWhiteSpace($result)) { throw "$($check.flag) produced an empty report" }
+                  Write-Host $result
+                }
+              } finally { $process.Dispose() }
+            }
+          }
+      - name: Upload the tested Windows x64 executable and checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlockCraftLauncher-Unified-AI-Windows-x64
+          path: |
+            wpf-net48/dist/*-WPF-OneFile-Windows-x64.exe
+            wpf-net48/dist/*-WPF-OneFile-Windows-x64.exe.sha256
+          if-no-files-found: error
+          retention-days: 14

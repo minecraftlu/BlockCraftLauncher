@@ -222,6 +222,7 @@ namespace BlockCraftLauncher.Wpf
                 CheckQwen(window.currentPage == "首页" && window.downloads.Jobs.Count == initialJobs + 1,
                     "离开页面后仍然执行了延迟返回的下载指令。");
 
+                window.qwenProvider.SelectedIndex = 1;
                 await Submit("让千问帮我找个提高帧率的模组");
                 CheckQwen(aiCalls == 0 && window.currentPage == QwenSearchPage, "未设置密钥时调用了推荐模型。");
                 window.qwenApiKey.Password = "offline-recommendation-fixture";

@@ -69,18 +69,9 @@ namespace BlockCraftLauncher.Wpf
 
         void OpenLauncherDownloadCommands()
         {
-            // Keep an ongoing local inference or image task running while the native composer accepts commands.
-            if (localQwenOperation != null)
-            {
-                SwitchQwenTab(QwenAssistantTab.Chat);
-                qwenQuery.BringIntoView();
-                qwenQuery.Focus();
-                return;
-            }
-            SwitchQwenTab(QwenAssistantTab.Local);
-            localQwenMode.SelectedIndex = (int)LocalQwenMode.Chat;
-            localQwenPrompt.BringIntoView();
-            localQwenPrompt.Focus();
+            SwitchQwenTab(QwenAssistantTab.Chat);
+            qwenQuery.BringIntoView();
+            qwenQuery.Focus();
         }
 
         void BeginVisibleQwenWeb()

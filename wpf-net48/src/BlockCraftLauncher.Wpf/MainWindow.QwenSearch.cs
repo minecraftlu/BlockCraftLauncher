@@ -24,6 +24,7 @@ namespace BlockCraftLauncher.Wpf
         Expander qwenConnection;
         Button qwenSubmit, qwenCancel;
         CancellationTokenSource qwenRequest;
+        bool openingQwenActionPage;
         string qwenSettingsPath, qwenCompanionPath;
         Func<string, string, string, string, CancellationToken, Task<QwenSearchResult>> qwenRunSearch;
         Action<Uri> qwenOpenUri;
@@ -134,6 +135,7 @@ namespace BlockCraftLauncher.Wpf
                 qwenQuery.Focus();
                 return;
             }
+            if (regenerate && !CanRegenerateQwenAnswer()) return;
             if (!regenerate && TryOpenQwenCreativeDraft(question)) return;
             LauncherSearchCommand command = null;
             bool isCommand = !regenerate && LauncherSearchCommand.TryParse(question, out command);
@@ -143,19 +145,26 @@ namespace BlockCraftLauncher.Wpf
                 return;
             }
             bool recommend = isCommand && command.Kind == LauncherSearchKind.ModRecommendation;
-            bool installWithoutCloud = recommend && command.Install &&
-                string.IsNullOrWhiteSpace(ReadQwenConnection().ResolveApiKey());
-            bool useModel = !isCommand || recommend && !installWithoutCloud;
+            bool useModel = !isCommand || recommend;
+            bool local = UseLocalQwenChat || (recommend && command.Install &&
+                string.IsNullOrWhiteSpace(ReadQwenConnection().ResolveApiKey()));
+            if (local && useModel && localQwenOperation != null)
+            {
+                SetQwenSearchStatus("请等待当前本地模型任务完成，或先停止该任务。");
+                return;
+            }
             QwenConnectionSettings connection = null;
             string key = null;
-            if (useModel && !TryReadQwenCredentials(out connection, out key)) return;
+            if (useModel && !local && !TryReadQwenCredentials(out connection, out key)) return;
 
+            var session = qwenConversations.Current;
             var operation = new CancellationTokenSource();
             qwenRequest = operation;
             qwenSubmit.IsEnabled = false;
             qwenCancel.IsEnabled = true;
             qwenCancel.Visibility = Visibility.Visible;
             qwenRegenerate.IsEnabled = false;
+            RefreshQwenProviderControls();
             SetQwenSearchStatus(useModel ? "正在等待千问回答…" : "正在启动器内查找…");
             try
             {
@@ -166,34 +175,28 @@ namespace BlockCraftLauncher.Wpf
                 }
 
                 string status;
-                if (command.Kind == LauncherSearchKind.Game)
-                    status = await RunQwenGameActionAsync(command.Query, command.Loader, command.Install, operation.Token);
-                else if (command.Kind == LauncherSearchKind.Resource)
-                    status = await RunQwenResourceActionAsync(command, operation.Token);
-                else if (installWithoutCloud)
+                if (!recommend)
+                    status = await TryRunLocalQwenExactCommandAsync(question, operation.Token);
+                else if (local)
                 {
-                    var project = LocalModSearchPlan.KnownInstallProject(command.Query);
-                    if (project != null)
-                        status = await InstallKnownQwenProjectAsync(project, command, operation.Token);
-                    else
-                    {
-                        Uri endpoint = await PrepareLocalModelAsync(LocalQwenMode.Chat, false, null, operation.Token);
-                        status = await RunLocalQwenAsync(endpoint, new[] { new QwenChatTurn("user", question) }, null, operation.Token);
-                    }
+                    var known = UseLocalQwenChat ? null : LocalModSearchPlan.KnownInstallProject(command.Query);
+                    status = known != null
+                        ? await InstallKnownQwenProjectAsync(known, command, operation.Token)
+                        : await RunLocalQwenRecommendationAsync(question, operation.Token);
                 }
                 else
                 {
-                    string query = command.Query;
-                    if (recommend)
-                    {
-                        query = await QwenModRecommendationService.RecommendKeywordAsync(question,
-                            (prompt, ct) => AskQwenAsync(prompt, key, connection, ct), operation.Token);
-                        operation.Token.ThrowIfCancellationRequested();
-                    }
+                    string query = await QwenModRecommendationService.RecommendKeywordAsync(question,
+                        (prompt, ct) => AskQwenAsync(prompt, key, connection, ct), operation.Token);
+                    operation.Token.ThrowIfCancellationRequested();
                     status = await RunQwenModActionAsync(query, command.Install, command.GameVersion, command.Loader,
                         command.InstanceName, command.SourceName, operation.Token);
                 }
-                if (ReferenceEquals(qwenRequest, operation)) SetQwenSearchStatus(status);
+                if (!ReferenceEquals(qwenRequest, operation) || string.IsNullOrWhiteSpace(status)) return;
+                qwenConversations.CommitTurn(session, question, new QwenSearchResult(status, null));
+                if (string.Equals(qwenQuery.Text.Trim(), question, StringComparison.Ordinal)) qwenQuery.Clear();
+                RefreshQwenSessions();
+                SetQwenSearchStatus(qwenConversations.PersistenceError);
             }
             catch (OperationCanceledException)
             {
@@ -203,7 +206,12 @@ namespace BlockCraftLauncher.Wpf
             {
                 if (ReferenceEquals(qwenRequest, operation)) SetQwenSearchStatus(ex.Message);
             }
-            catch (LocalModelNotInstalledException ex)
+            catch (LocalModelNotInstalledException)
+            {
+                if (ReferenceEquals(qwenRequest, operation))
+                    SetQwenSearchStatus("请打开「工具」→「本地模型」，选择「聊天模型」并点击「准备模型」。");
+            }
+            catch (System.IO.DirectoryNotFoundException ex) when (local && useModel)
             {
                 if (ReferenceEquals(qwenRequest, operation)) SetQwenSearchStatus(ex.Message);
             }
@@ -217,10 +225,32 @@ namespace BlockCraftLauncher.Wpf
                 if (ReferenceEquals(qwenRequest, operation))
                 {
                     ResetQwenSearch();
-                    if (!isCommand) RenderQwenConversation();
+                    RenderQwenConversation();
                 }
                 operation.Dispose();
             }
+        }
+
+        bool CanRegenerateQwenAnswer()
+        {
+            var turns = qwenConversations?.Current.Turns;
+            return turns != null && turns.Count > 0 &&
+                !LauncherSearchCommand.TryParse(turns[turns.Count - 1].Question, out _);
+        }
+
+        async Task<string> RunLocalQwenRecommendationAsync(string question, CancellationToken token)
+        {
+            Uri endpoint;
+            try { endpoint = await PrepareLocalModelAsync(LocalQwenMode.Chat, false, null, token); }
+            catch (LocalModelNotInstalledException)
+            {
+                var known = KnownQwenInstallProject(question, out var command);
+                if (known == null) throw;
+                return await InstallKnownQwenProjectAsync(known, command, token);
+            }
+            token.ThrowIfCancellationRequested();
+            var reply = localQwenReply ?? RunLocalQwenAsync;
+            return await reply(endpoint, new[] { new QwenChatTurn("user", question) }, null, token);
         }
 
         bool TryReadQwenCredentials(out QwenConnectionSettings connection, out string key, bool requireChatModel = true)
@@ -263,12 +293,10 @@ namespace BlockCraftLauncher.Wpf
 
         void NavigateToQwenActionPage(string page)
         {
-            if (currentPage == QwenSearchPage && qwenRequest != null)
-            {
-                ResetQwenSearch();
-                SetQwenSearchStatus("已打开启动器的下载页面。");
-            }
-            Navigate(page);
+            // Keep the originating request and conversation until the catalog returns its result.
+            openingQwenActionPage = true;
+            try { Navigate(page); }
+            finally { openingQwenActionPage = false; }
         }
 
         void RenderQwenSources(StackPanel list, IReadOnlyList<QwenSearchSource> sources)
@@ -310,11 +338,11 @@ namespace BlockCraftLauncher.Wpf
 
         void CloseQwenSearchPage()
         {
-            CancelQwenSearch();
+            if (!openingQwenActionPage) CancelQwenSearch();
             CloseQwenMediaPage();
             if (qwenPage != null)
             {
-                qwenSelectedTab = QwenAssistantTab.Web;
+                qwenSelectedTab = QwenAssistantTab.Chat;
                 SetQwenWebLayout(false);
             }
         }
@@ -325,7 +353,8 @@ namespace BlockCraftLauncher.Wpf
             qwenSubmit.IsEnabled = true;
             qwenCancel.IsEnabled = false;
             qwenCancel.Visibility = Visibility.Collapsed;
-            qwenRegenerate.IsEnabled = qwenConversations.Current.Turns.Count != 0;
+            qwenRegenerate.IsEnabled = CanRegenerateQwenAnswer();
+            RefreshQwenProviderControls();
         }
 
         void SetQwenSearchStatus(string message)

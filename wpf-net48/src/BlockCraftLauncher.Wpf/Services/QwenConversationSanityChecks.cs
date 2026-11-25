@@ -66,8 +66,50 @@ namespace BlockCraftLauncher.Wpf.Services
                 for (int i = 0; i < 35; i++) corrupt.CommitTurn(corrupt.NewSession(), "session" + i, reply);
                 Check(corrupt.Sessions.Count == 32 && corrupt.Current.Title == "session34",
                     "会话列表应优先保留最近的对话。");
+
+                CheckWorkspaceHistory(directory, reply, Check);
             }
             finally { Directory.Delete(directory, true); }
+        }
+
+        static void CheckWorkspaceHistory(string directory, QwenSearchResult reply, Action<bool, string> check)
+        {
+            string cloudPath = Path.Combine(directory, "qwen-conversations.json");
+            string localPath = Path.Combine(directory, "qwen-local-history.json");
+            var cloud = new QwenConversationStore(cloudPath);
+            var local = new QwenConversationStore(localPath);
+            cloud.CommitTurn(cloud.Current, "cloud chat", reply);
+            local.CommitTurn(local.Current, "local chat", reply);
+            cloud.SetHistoryEnabled(true);
+            local.SetHistoryEnabled(true);
+
+            var workspace = new QwenWorkspaceHistory(cloudPath, localPath);
+            check(workspace.Sessions.Select(s => s.Id).OrderBy(id => id).SequenceEqual(
+                new[] { cloud.Current.Id, local.Current.Id }.OrderBy(id => id)), "升级后应显示两份历史中的原有会话。");
+            workspace.Select(local.Current.Id);
+            workspace.CommitTurn(workspace.Current, "follow up", reply);
+            var localReopened = new QwenConversationStore(localPath);
+            check(localReopened.Current.Turns.Select(t => t.Question).SequenceEqual(new[] { "local chat", "follow up" }) &&
+                new QwenConversationStore(cloudPath).Current.Turns.Count == 1, "继续旧的本地会话应写回原记录。");
+
+            workspace.Delete(local.Current.Id);
+            localReopened.CommitTurn(localReopened.Current, "stale reply", reply);
+            var reopened = new QwenWorkspaceHistory(cloudPath, localPath);
+            check(reopened.Sessions.Count == 1 && reopened.Current.Id == cloud.Current.Id,
+                "删除本地会话后，其他窗口的迟到回答不能恢复该记录。");
+            workspace.NewSession();
+            check(workspace.Sessions.Count(s => s.Turns.Count == 0) == 1, "新建会话只应显示一个空白会话。");
+
+            workspace.Clear();
+            cloud.CommitTurn(cloud.Current, "after clear", reply);
+            reopened = new QwenWorkspaceHistory(cloudPath, localPath);
+            check(reopened.Sessions.Count == 1 && reopened.Current.Turns.Count == 0, "清空应同时清理两份历史。");
+            workspace.SetHistoryEnabled(false);
+            check(!workspace.HistoryEnabled && !File.Exists(cloudPath) && !File.Exists(localPath),
+                "关闭保存应同时清理两个磁盘文件。");
+            reopened = new QwenWorkspaceHistory(cloudPath, localPath);
+            reopened.SetHistoryEnabled(true);
+            check(File.Exists(cloudPath) && !File.Exists(localPath), "新用户只创建一份历史文件。");
         }
     }
 }

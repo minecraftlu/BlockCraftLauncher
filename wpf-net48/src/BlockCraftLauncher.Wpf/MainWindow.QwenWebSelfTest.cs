@@ -43,6 +43,9 @@ namespace BlockCraftLauncher.Wpf
             window.Navigate("首页");
             window.UpdateLayout();
             ClickFixtureAction(FixtureButton(window.PageHost, NavLabel(QwenSearchPage)));
+            window.qwenTools.IsExpanded = true;
+            window.UpdateLayout();
+            ClickFixtureAction(window.qwenWebTab);
             return window;
         }
 
@@ -161,22 +164,23 @@ h1{font-size:24px}p{line-height:1.7}a{color:#006285}
                     first.qwenWebRetry?.IsVisible == true && first.qwenWebRetry.IsEnabled, "缺少运行时的恢复入口");
                 var commands = FixtureButton(first.qwenWebPage, "启动器下载指令");
                 ClickFixtureAction(commands);
-                CheckQwen(first.activeLocalMode == LocalQwenMode.Chat && first.localQwenPrompt.IsVisible &&
-                    first.localQwenPrompt.IsEnabled && !first.localQwenPrompt.IsReadOnly && first.localQwenSubmit.IsEnabled &&
-                    first.localQwenRuntime == null, "官网入口未打开可输入下载指令的本地聊天页。");
-                first.localQwenPrompt.Text = "给当前实例装钠";
-                first.localQwenMode.SelectedIndex = (int)LocalQwenMode.Edit;
+                CheckQwen(first.qwenChatBody.IsVisible && first.qwenQuery.IsVisible && first.qwenQuery.IsEnabled &&
+                    !first.qwenQuery.IsReadOnly && first.localQwenRuntime == null, "官网入口未打开统一对话框。");
+                first.qwenQuery.Text = "给当前实例装钠";
+                first.qwenTools.IsExpanded = true;
+                first.UpdateLayout();
                 ClickFixtureAction(first.qwenWebTab);
                 ClickFixtureAction(first.qwenWebRetry);
                 var main = await QwenWebWithin(home.Task, 40, "启动真实浏览器并打开官网地址");
-                CheckQwen(attempts == 2 && views == 1 && first.qwenWebView.IsVisible, "启动器默认入口未打开千问官网。");
+                CheckQwen(attempts == 2 && views == 1 && first.qwenWebView.IsVisible, "重试后未打开千问官网。");
                 main.Environment.BrowserProcessExited += (s, e) => browserExit.TrySetResult(true);
                 await first.CaptureQwenWebCheck("qwen-web");
                 ClickFixtureAction(commands);
-                CheckQwen(first.activeLocalMode == LocalQwenMode.Chat && first.localQwenPrompt.IsVisible &&
-                    first.localQwenPrompt.Text == "给当前实例装钠", "返回下载指令时未恢复本地聊天输入框或草稿。");
-                ClickFixtureAction(first.qwenChatTab);
+                CheckQwen(first.qwenQuery.IsVisible && first.qwenQuery.Text == "给当前实例装钠",
+                    "返回下载指令时未恢复统一输入框或草稿。");
                 CheckQwen(!first.qwenWebView.IsVisible && first.qwenChatBody.IsVisible, "原生下载指令入口不可见。");
+                first.qwenTools.IsExpanded = true;
+                first.UpdateLayout();
                 ClickFixtureAction(first.qwenWebTab);
                 CheckQwen(views == 1 && first.qwenWebView.IsVisible, "切换标签后丢失了网页。");
 

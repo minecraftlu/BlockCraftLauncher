@@ -148,7 +148,13 @@ namespace BlockCraftLauncher.Wpf
                 if (!IsVisible) Show();
                 Navigate(QwenSearchPage);
                 ArrangeLayoutProbe(960, 600);
-                ClickFixtureAction(qwenMediaTab);
+                qwenProvider.SelectedIndex = 1;
+                qwenQuery.Text = "帮我画一张方块山谷的风景图";
+                ClickFixtureAction(qwenSubmit);
+                await WaitForQwenAsync(() => qwenMediaBody.IsVisible, "从统一输入框打开云端创作");
+                CheckQwen(mediaPrompt.Text.Contains("方块山谷") && fixture.Images + fixture.Videos == 0,
+                    "创作草稿丢失或被自动提交。");
+                mediaPrompt.Clear();
                 qwenEndpoint.Text = QwenFixtureEndpoint;
                 qwenApiKey.Password = QwenFixtureKey;
                 CheckQwen(qwenMediaBody.Visibility == Visibility.Visible && mediaMode.Items.Count == 4, "创作导航或类型缺失");

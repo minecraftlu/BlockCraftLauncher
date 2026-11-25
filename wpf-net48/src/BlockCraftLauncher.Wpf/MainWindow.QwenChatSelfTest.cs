@@ -142,6 +142,7 @@ namespace BlockCraftLauncher.Wpf
                 window.Navigate(QwenSearchPage);
                 await Ui();
                 window.SelectQwenFixtureChat();
+                window.qwenProvider.SelectedIndex = 1;
                 window.qwenEndpoint.Text = QwenFixtureEndpoint;
                 window.qwenModel.Text = QwenSearchService.DefaultModel;
                 window.qwenApiKey.Password = QwenFixtureKey;

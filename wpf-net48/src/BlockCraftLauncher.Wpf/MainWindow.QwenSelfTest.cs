@@ -28,9 +28,7 @@ namespace BlockCraftLauncher.Wpf
 
         void SelectQwenFixtureChat()
         {
-            CheckQwen(qwenWebBody.Visibility == Visibility.Visible && qwenChatBody.Visibility == Visibility.Collapsed,
-                "从启动器进入千问时未显示官网。");
-            ClickFixtureAction(qwenChatTab);
+            if (qwenSelectedTab != QwenAssistantTab.Chat) ClickFixtureAction(qwenChatTab);
             CheckQwen(qwenChatBody.Visibility == Visibility.Visible && qwenWebBody.Visibility == Visibility.Collapsed &&
                 PageScroll.VerticalScrollBarVisibility == ScrollBarVisibility.Auto, "无法打开启动器聊天与指令。");
         }
@@ -142,6 +140,7 @@ namespace BlockCraftLauncher.Wpf
                 SelectQwenFixtureChat();
                 await Layout();
                 VerifyFixtureSidebar(QwenSearchPage);
+                qwenProvider.SelectedIndex = 1;
                 qwenWebSearch.IsChecked = true;
                 CheckQwen(qwenModel.Text == QwenSearchService.DefaultModel &&
                     qwenEndpoint.Text == QwenSearchService.DefaultEndpoint, "首次打开的模型或服务地址错误。");

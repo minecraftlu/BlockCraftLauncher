@@ -18,13 +18,15 @@ namespace BlockCraftLauncher.Wpf
     public partial class MainWindow
     {
         const int QwenChatInputLimit = 8000;
-        QwenConversationStore qwenConversations;
+        QwenWorkspaceHistory qwenConversations;
         string qwenHistoryPath;
-        ComboBox qwenSessions;
+        ComboBox qwenSessions, qwenProvider;
+        Expander qwenTools;
+        bool UseLocalQwenChat => qwenProvider.SelectedIndex == 0;
         CheckBox qwenRetainHistory, qwenWebSearch;
         Button qwenNewChat, qwenDeleteChat, qwenClearChats, qwenConfirmDelete, qwenRegenerate;
         enum QwenAssistantTab { Web, Chat, Media, Local }
-        QwenAssistantTab qwenSelectedTab = QwenAssistantTab.Web;
+        QwenAssistantTab qwenSelectedTab = QwenAssistantTab.Chat;
         Button qwenWebTab, qwenChatTab, qwenMediaTab, qwenLocalTab;
         Grid qwenWebBody;
         Func<UIElement> qwenWebPageFactory;
@@ -41,14 +43,19 @@ namespace BlockCraftLauncher.Wpf
             if (qwenPage == null)
             {
                 qwenWebTab = Btn("千问官网", () => SwitchQwenTab(QwenAssistantTab.Web));
-                qwenChatTab = Btn("聊天与指令", () => SwitchQwenTab(QwenAssistantTab.Chat));
-                qwenMediaTab = Btn("百炼创作", SelectQwenMediaTab);
-                qwenLocalTab = Btn("本地 AI", () => SwitchQwenTab(QwenAssistantTab.Local));
-                qwenChatTab.ToolTip = "搜索、安装游戏和资源，或通过百炼 API 对话";
+                qwenChatTab = Btn("返回对话", () => { SwitchQwenTab(QwenAssistantTab.Chat); qwenQuery.Focus(); });
+                qwenMediaTab = Btn("云端创作", SelectQwenMediaTab);
+                qwenLocalTab = Btn("本地模型", () => SwitchQwenTab(QwenAssistantTab.Local));
+                qwenLocalTab.ToolTip = "准备聊天模型、选择存储位置、生成或修改图片";
                 qwenMediaTab.ToolTip = "通过百炼 API 生成和编辑图片、生成视频";
                 var heading = (FrameworkElement)PageHeading("千问 AI 助手", null);
                 heading.Margin = new Thickness(0, 0, 12, 0);
-                var header = Row(heading, qwenWebTab, qwenChatTab, qwenMediaTab, qwenLocalTab);
+                qwenTools = new Expander {
+                    Header = QwenSectionCaption("工具"), Content = Row(qwenLocalTab, qwenMediaTab, qwenWebTab),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                qwenTools.SetResourceReference(Control.ForegroundProperty, "TextBrush");
+                var header = Row(heading, qwenChatTab, qwenTools);
 
                 qwenWebBody = new Grid();
                 qwenChatBody = new StackPanel { Visibility = Visibility.Collapsed };
@@ -75,7 +82,14 @@ namespace BlockCraftLauncher.Wpf
             string path = qwenHistoryPath;
             if (path == null && !string.IsNullOrWhiteSpace(qwenSettingsPath))
                 path = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(qwenSettingsPath)), "chat-history.json");
-            qwenConversations = new QwenConversationStore(path);
+            string legacyLocalPath = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(store.FilePath)), "qwen-local-history.json");
+            qwenConversations = new QwenWorkspaceHistory(path, legacyLocalPath);
+            qwenProvider = new ComboBox { MinWidth = 155, VerticalAlignment = VerticalAlignment.Center };
+            qwenProvider.Items.Add("本地千问 · Qwen3.5-4B");
+            qwenProvider.Items.Add("云端千问 · 百炼");
+            qwenProvider.SelectedIndex = 0;
+            ApplySearchInputStyle(qwenProvider, "云端对话会将当前会话的上下文发送到所选百炼接口。");
+            AutomationProperties.SetName(qwenProvider, "对话模型");
             qwenSessions = new ComboBox { DisplayMemberPath = "Title", MinWidth = 125, MaxWidth = 210 };
             ApplySearchInputStyle(qwenSessions, "选择对话");
             AutomationProperties.SetName(qwenSessions, "选择对话");
@@ -141,20 +155,34 @@ namespace BlockCraftLauncher.Wpf
             qwenChatIntro = Txt("试试「查找钠模组」「给当前实例装钠」或「下载 Minecraft 1.21.1」。", 14, false, true);
             qwenChatIntro.Margin = new Thickness(2, 12, 0, 10);
             qwenChatBody.Children.Add(Col(Row(qwenSessions, qwenNewChat, qwenDeleteChat), qwenDeletePrompt, qwenChatIntro, qwenChatScroll,
-                Card(Col(qwenQuery, Row(qwenSubmit, qwenCancel, qwenWebSearch, shortcuts), qwenSearchStatus)),
+                Card(Col(qwenQuery, Row(qwenSubmit, qwenCancel, qwenProvider, qwenWebSearch, shortcuts), qwenSearchStatus)),
                 historyOptions, qwenConnection));
+            qwenProvider.SelectionChanged += (sender, args) =>
+            {
+                RefreshQwenProviderControls();
+                SetQwenSearchStatus(UseLocalQwenChat ? "" : "云端对话会将当前会话的上下文发送到百炼。");
+            };
+            RefreshQwenProviderControls();
             AdjustQwenTranscriptHeight(PageScroll.ActualHeight);
             RefreshQwenSessions();
             RenderQwenConversation();
             SetQwenSearchStatus(qwenConversations.PersistenceError);
         }
 
+        void RefreshQwenProviderControls()
+        {
+            if (qwenProvider == null) return;
+            qwenProvider.IsEnabled = qwenRequest == null;
+            qwenWebSearch.Visibility = qwenConnection.Visibility =
+                UseLocalQwenChat ? Visibility.Collapsed : Visibility.Visible;
+            if (localQwenSettings != null)
+                localQwenSettings.IsEnabled = localQwenOperation == null && !(UseLocalQwenChat && qwenRequest != null);
+        }
+
         void AdjustQwenTranscriptHeight(double height)
         {
             if (qwenChatScroll != null && height > 0)
                 qwenChatScroll.MaxHeight = Math.Max(150, Math.Min(600, height - 275));
-            if (localQwenScroll != null && height > 0)
-                localQwenScroll.MaxHeight = Math.Max(115, Math.Min(450, height - 340));
         }
 
         static TextBlock QwenSectionCaption(string text)
@@ -183,8 +211,24 @@ namespace BlockCraftLauncher.Wpf
             else if (Regex.IsMatch(request, @"^(?:画(?:一张|一幅|一个|个|张|幅)|(?:生成|制作)(?:一张|一幅|个|张)?(?:.{1,20}的)?(?:图片|图像|插画|图)(?!表|教程)|(?:generate|create|draw)\s+(?:an?\s+)?(?:image|picture|illustration)\b)", options))
                 kind = "image";
             else return false;
-            SelectQwenMediaTab();
-            if (SetQwenMediaDraft(kind, question)) qwenQuery.Clear();
+            if (UseLocalQwenChat && (kind == "image" || kind == "edit"))
+            {
+                if (localQwenOperation != null)
+                {
+                    SetQwenSearchStatus("本地模型正在工作，完成后可继续创作。");
+                    return true;
+                }
+                SwitchQwenTab(QwenAssistantTab.Local);
+                localQwenMode.SelectedIndex = (int)(kind == "image" ? LocalQwenMode.Generate : LocalQwenMode.Edit);
+                localQwenPrompt.Text = question;
+                localQwenPrompt.Focus();
+                qwenQuery.Clear();
+            }
+            else
+            {
+                SelectQwenMediaTab();
+                if (SetQwenMediaDraft(kind, question)) qwenQuery.Clear();
+            }
             return true;
         }
 
@@ -210,6 +254,8 @@ namespace BlockCraftLauncher.Wpf
             if (tab != QwenAssistantTab.Chat) CancelQwenSearch();
             if (!media && qwenMediaBody.Visibility == Visibility.Visible) CloseQwenMediaPage();
             qwenSelectedTab = tab;
+            qwenTools.IsExpanded = false;
+            qwenChatTab.Visibility = tab == QwenAssistantTab.Chat ? Visibility.Collapsed : Visibility.Visible;
             SetQwenWebLayout(web);
             qwenWebBody.Visibility = web ? Visibility.Visible : Visibility.Collapsed;
             qwenChatBody.Visibility = tab == QwenAssistantTab.Chat ? Visibility.Visible : Visibility.Collapsed;
@@ -225,6 +271,7 @@ namespace BlockCraftLauncher.Wpf
         void OpenQwenConnectionSettings()
         {
             SwitchQwenTab(QwenAssistantTab.Chat);
+            qwenConnection.Visibility = Visibility.Visible;
             qwenConnection.IsExpanded = true;
             qwenConnection.BringIntoView();
         }
@@ -249,6 +296,7 @@ namespace BlockCraftLauncher.Wpf
                 qwenSessions.ItemsSource = null;
                 qwenSessions.ItemsSource = qwenConversations.Sessions;
                 qwenSessions.SelectedItem = qwenConversations.Current;
+                qwenRetainHistory.IsChecked = qwenConversations.HistoryEnabled;
             }
             finally { qwenRefreshingSessions = false; }
         }
@@ -321,7 +369,7 @@ namespace BlockCraftLauncher.Wpf
                 RenderQwenSources(qwenSources, last.Sources);
                 qwenResult.Visibility = Visibility.Visible;
             }
-            qwenRegenerate.IsEnabled = qwenRequest == null && turns.Count != 0;
+            qwenRegenerate.IsEnabled = qwenRequest == null && CanRegenerateQwenAnswer();
             bool hasMessages = turns.Count > 0 || pending != null;
             qwenChatScroll.Visibility = hasMessages ? Visibility.Visible : Visibility.Collapsed;
             qwenChatIntro.Visibility = hasMessages ? Visibility.Collapsed : Visibility.Visible;
@@ -355,7 +403,20 @@ namespace BlockCraftLauncher.Wpf
             try
             {
                 QwenSearchResult answer;
-                if (qwenRunChat != null)
+                if (UseLocalQwenChat)
+                {
+                    var progress = new Progress<string>(message =>
+                    {
+                        if (ReferenceEquals(qwenRequest, operation)) SetQwenSearchStatus(message);
+                    });
+                    var endpoint = await PrepareLocalModelAsync(LocalQwenMode.Chat, false, progress, operation.Token);
+                    operation.Token.ThrowIfCancellationRequested();
+                    var reply = localQwenReply ?? RunLocalQwenAsync;
+                    string response = await reply(endpoint, messages, append, operation.Token);
+                    if (string.IsNullOrWhiteSpace(response)) throw new InvalidDataException("模型没有返回回答，请重试。");
+                    answer = new QwenSearchResult(response, null);
+                }
+                else if (qwenRunChat != null)
                     answer = await qwenRunChat(messages, key, connection.Endpoint, connection.Model, web, append, operation.Token);
                 else
                     using (var chat = new QwenChatService(settings))
