@@ -113,6 +113,19 @@ namespace BlockCraftLauncher.Wpf
                 var profiles = isolated.Load().Profiles;
                 Require(profiles.Count == 2 && profiles.Any(p => p.Directory == first.Directory) &&
                     profiles.Any(p => p.Directory == nextRoot), "旧目录的相同版本覆盖了新目录的安装记录。");
+
+                var legacy = new GameProfile { Id = "legacy" };
+                window.settings.Profiles.Add(legacy);
+                string cacheBefore = window.settings.DownloadDirectory;
+                using (var locked = new FileStream(isolated.FilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                {
+                    bool rejected = false;
+                    try { window.SaveSettingsWithStorage(Path.Combine(folder, "Minecraft"), folder, true); }
+                    catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { rejected = true; }
+                    Require(rejected && window.settings.Root == nextRoot && window.settings.DownloadDirectory == cacheBefore &&
+                        !window.settings.GameRootFollowsDownloads && legacy.Directory == null && legacy.SharedGameRoot == null,
+                        "保存设置失败后更改了实际下载位置或已有实例的目录。");
+                }
             }
             finally
             {

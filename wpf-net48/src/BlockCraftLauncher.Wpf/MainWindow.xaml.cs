@@ -4316,7 +4316,6 @@ namespace BlockCraftLauncher.Wpf
                     return;
                 }
             }
-            DownloadPathService.ApplyStorage(settings, gameRoot, downloadDirectory, follow);
             settings.Proxy = proxy;
             if (settingsProxy != null) settingsProxy.Text = proxy;
             if (settingsNetworkMode?.SelectedItem is KeyValuePair<string, string> selectedRoute)
@@ -4359,13 +4358,38 @@ namespace BlockCraftLauncher.Wpf
             if (int.TryParse(settingsMemory?.Text, out var mb)) settings.MemoryMb = Math.Max(512, mb);
             try
             {
-                store.Save(settings);
+                SaveSettingsWithStorage(gameRoot, downloadDirectory, follow);
                 Status("设置已保存。");
                 if (settings.AutoDownloadUpdates && offeredUpdate != null && preparedUpdate == null)
                     _ = PrepareLauncherUpdateAsync(false);
             }
             catch (Exception ex) { ShowError("保存失败", ex); }
         }
+
+        void SaveSettingsWithStorage(string gameRoot, string downloadDirectory, bool follow)
+        {
+            var previous = settings.CopyForInstall();
+            var locations = settings.Profiles.Select(p => (Profile: p, p.Directory, p.SharedGameRoot)).ToArray();
+            try
+            {
+                DownloadPathService.ApplyStorage(settings, gameRoot, downloadDirectory, follow);
+                store.Save(settings);
+            }
+            catch
+            {
+                settings.Root = previous.Root;
+                settings.DownloadDirectory = previous.DownloadDirectory;
+                settings.GameRootFollowsDownloads = previous.GameRootFollowsDownloads;
+                settings.StorageError = previous.StorageError;
+                foreach (var location in locations)
+                {
+                    location.Profile.Directory = location.Directory;
+                    location.Profile.SharedGameRoot = location.SharedGameRoot;
+                }
+                throw;
+            }
+        }
+
         UIElement BuildLogs()
         {
             var box = new TextBox { Text = string.Join(Environment.NewLine, logs), IsReadOnly = true,
