@@ -22,6 +22,7 @@ namespace BlockCraftLauncher.Wpf
         readonly List<Window> qwenWebPopups = new List<Window>();
         bool qwenWebAttempted, qwenWebDisposed;
         string qwenWebProfileDirectory;
+        string qwenWebPopupStage = "idle";
         Func<string, Task<CoreWebView2Environment>> qwenWebEnvironmentFactory;
         Action<CoreWebView2> qwenWebCoreReady;
 
@@ -114,6 +115,7 @@ namespace BlockCraftLauncher.Wpf
                 if (qwenWebDisposed || view != qwenWebView) return;
                 var core = view.CoreWebView2;
                 ConfigureQwenBrowser(core, environment, null);
+                qwenWebCoreReady?.Invoke(core);
                 core.HistoryChanged += (s, a) =>
                 {
                     if (view == qwenWebView) qwenWebBack.IsEnabled = core.CanGoBack;
@@ -207,17 +209,21 @@ namespace BlockCraftLauncher.Wpf
             };
             core.NewWindowRequested += (sender, args) => OpenQwenWebPopupAsync(core, environment, args);
             if (popup != null) core.WindowCloseRequested += (sender, args) => popup.Close();
-            qwenWebCoreReady?.Invoke(core);
         }
 
         async void OpenQwenWebPopupAsync(CoreWebView2 opener, CoreWebView2Environment environment,
             CoreWebView2NewWindowRequestedEventArgs args)
         {
-            args.Handled = true;
+            qwenWebPopupStage = "requested";
             string target = string.IsNullOrEmpty(args.Uri) ? "about:blank" : args.Uri;
             string from = QwenWebHost(opener.Source);
             if (qwenWebDisposed || !IsQwenWebNavigationAllowed(target) ||
-                (!args.IsUserInitiated && from != "qianwen.com" && !from.EndsWith(".qianwen.com", StringComparison.Ordinal))) return;
+                (!args.IsUserInitiated && from != "qianwen.com" && !from.EndsWith(".qianwen.com", StringComparison.Ordinal)))
+            {
+                args.Handled = true;
+                qwenWebPopupStage = "blocked";
+                return;
+            }
             using (var deferral = args.GetDeferral())
             {
                 Window popup = null;
@@ -233,14 +239,27 @@ namespace BlockCraftLauncher.Wpf
                     qwenWebPopups.Add(popup);
                     popup.Closed += (sender, eventArgs) => { qwenWebPopups.Remove(popup); browser.Dispose(); };
                     popup.Show();
+                    qwenWebPopupStage = "initializing";
                     await browser.EnsureCoreWebView2Async(environment);
-                    if (qwenWebDisposed || !popup.IsLoaded) return;
-                    ConfigureQwenBrowser(browser.CoreWebView2, environment, popup);
-                    args.NewWindow = browser.CoreWebView2;
+                    if (qwenWebDisposed || !qwenWebPopups.Contains(popup))
+                    {
+                        args.Handled = true;
+                        qwenWebPopupStage = "closed";
+                        return;
+                    }
+                    var child = browser.CoreWebView2;
+                    qwenWebPopupStage = "configuring";
+                    ConfigureQwenBrowser(child, environment, popup);
+                    args.NewWindow = child;
+                    // Resource handlers must bind to the adopted window's new content before completing the deferral.
+                    qwenWebPopupStage = "adopted";
+                    qwenWebCoreReady?.Invoke(child);
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    if (popup?.IsLoaded == true) popup.Close();
+                    args.Handled = true;
+                    qwenWebPopupStage += ":" + ex.GetType().Name + ":" + ex.HResult.ToString("X8");
+                    if (popup != null && qwenWebPopups.Contains(popup)) popup.Close();
                     if (!qwenWebDisposed) SetQwenWebStatus("网页弹窗未能打开，请重新点击网页中的登录或链接。");
                 }
             }

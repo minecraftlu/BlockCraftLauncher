@@ -22,4 +22,3 @@ assert updater.group(1) in b, 'OneFile artifact filename does not match binary v
 assert updater.group(1) in packager, 'ZIP version does not match binary version'
 
 print('PASS one-file bootstrap static contract')
-

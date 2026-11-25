@@ -132,6 +132,28 @@ jobs:
             $proc = Start-Process -FilePath $file -ArgumentList '/silent','/install' -PassThru -WindowStyle Hidden
             if (!$proc.WaitForExit(180000) -or $proc.ExitCode -ne 0 -or !(Test-Installed)) { throw 'WebView2 Runtime installation failed on runner' }
           }
+      - name: Visit the public Qianwen website in the standalone EXE without signing in
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          $files = @(Get-ChildItem 'dist' -Filter '*-WPF-OneFile-Windows-x64.exe')
+          if ($files.Count -ne 1) { throw 'Expected one standalone EXE' }
+          $dir = Join-Path $env:RUNNER_TEMP 'blockcraft-v0961-ui/live-command'
+          $null = New-Item -ItemType Directory -Force -Path $dir
+          $env:BLOCKCRAFT_UI_CAPTURE_DIR = $dir
+          $process = Start-Process -FilePath $files[0].FullName -ArgumentList '--qwen-web-live-check' -PassThru -WindowStyle Hidden
+          try {
+            if (!$process.WaitForExit(180000)) { $process.Kill($true); throw 'Qianwen website visit timed out' }
+            $process.Refresh()
+            if ($process.ExitCode -ne 0) {
+              foreach ($name in @('wpf-preview-logs/startup-error.log','onefile/bootstrap-error.log')) {
+                $log = Join-Path $env:LOCALAPPDATA ('BlockCraftLauncher/' + $name)
+                if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Encoding utf8 -Tail 15 }
+              }
+              throw "Embedded website probe exited with $($process.ExitCode)"
+            }
+            Get-Content -LiteralPath (Join-Path $dir 'qwen-web-live-check.txt') -Encoding utf8 -ErrorAction Stop
+          } finally { $process.Dispose() }
       - name: Verify official Qianwen in the launcher and preserve native conversations, creative media and commands
         shell: pwsh
         working-directory: wpf-net48
@@ -176,7 +198,6 @@ jobs:
           $null = New-Item -ItemType Directory -Force -Path $dir
           $env:BLOCKCRAFT_UI_CAPTURE_DIR = $dir
           foreach ($check in @(
-            @{ flag = '--qwen-web-live-check'; timeout = 180000; report = 'qwen-web-live-check.txt' },
             @{ flag = '--qwen-download-live-check'; timeout = 300000; report = 'qwen-live-download-check.txt' },
             @{ flag = '--qwen-game-live-check'; timeout = 480000; report = 'qwen-live-game-check.txt' }
           )) {

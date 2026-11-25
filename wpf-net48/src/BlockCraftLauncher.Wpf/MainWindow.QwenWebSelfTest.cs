@@ -124,16 +124,29 @@ h1{font-size:24px}p{line-height:1.7}a{color:#006285}
             var restored = QwenWebSignal<CoreWebView2>();
             var browserExit = QwenWebSignal<bool>();
             int views = 0;
+            var trail = new StringBuilder();
+            void Trace(string entry) { if (trail.Length < 2400) trail.Append(" ").Append(entry); }
             void Observe(CoreWebView2 core)
             {
-                views++;
+                int view = ++views;
+                Trace("core-" + view);
                 UseQwenWebFixture(core);
-                core.NavigationCompleted += (sender, e) =>
+                void Ready()
                 {
-                    if (!e.IsSuccess) return;
                     if (core.Source == WebFixtureHome && core.DocumentTitle == "fixture-home") home.TrySetResult(core);
                     if (core.Source == WebFixturePopup && core.DocumentTitle == "fixture-popup") popup.TrySetResult(core);
                     if (core.Source == WebFixtureHome && core.DocumentTitle == "fixture-restored") restored.TrySetResult(core);
+                }
+                // Source, title and navigation notifications may be delivered in a different order on each runtime.
+                core.DocumentTitleChanged += (s, e) => Ready();
+                core.SourceChanged += (s, e) => Ready();
+                core.NewWindowRequested += (s, e) => Trace("requested-" + view + "-" + e.IsUserInitiated);
+                core.NavigationStarting += (s, e) =>
+                    Trace("starting-" + view + (e.Uri == WebFixturePopup ? "-popup" : e.Uri == WebFixtureHome ? "-home" : "-other"));
+                core.NavigationCompleted += (sender, e) =>
+                {
+                    Trace("completed-" + view + "-" + e.HttpStatusCode + "-" + e.WebErrorStatus);
+                    if (e.IsSuccess) Ready();
                 };
             }
             MainWindow first = null, second = null;
@@ -156,10 +169,26 @@ h1{font-size:24px}p{line-height:1.7}a{color:#006285}
                 ClickFixtureAction(first.qwenWebTab);
                 CheckQwen(views == 1 && first.qwenWebView.IsVisible, "切换标签后丢失了网页。");
 
-                // Simulate a user gesture on our intercepted page only. No remote login scripts are executed by this test.
-                await main.CallDevToolsProtocolMethodAsync("Runtime.evaluate",
-                    "{\"expression\":\"document.getElementById('popup').click()\",\"userGesture\":true}");
-                var auth = await QwenWebWithin(popup.Task, 15, "受管账号弹窗");
+                await first.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                // Click the actual link in viewport coordinates. This goes through Chromium's input pipeline even on a
+                // headless Windows runner, without desktop cursor automation or script-click popup heuristics.
+                string xy = await main.ExecuteScriptAsync(@"(() => {
+                    const a = document.getElementById('popup');
+                    a.scrollIntoView({block:'center'});
+                    const r = a.getBoundingClientRect(), x = r.x + r.width / 2, y = r.y + r.height / 2;
+                    return document.elementFromPoint(x,y) === a ? [Math.floor(x), Math.floor(y)] : [];
+                })()");
+                var coords = new System.Web.Script.Serialization.JavaScriptSerializer().Deserialize<int[]>(xy);
+                CheckQwen(coords != null && coords.Length == 2, "浏览器未能命中测试页的弹窗链接。");
+                foreach (var action in new[] { "mouseMoved", "mousePressed", "mouseReleased" })
+                {
+                    var input = new { type = action, x = coords[0], y = coords[1],
+                        button = action == "mouseMoved" ? "none" : "left", buttons = action == "mousePressed" ? 1 : 0,
+                        clickCount = action == "mouseMoved" ? 0 : 1 };
+                    await main.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent",
+                        new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(input));
+                }
+                var auth = await QwenWebWithin(popup.Task, 25, "受管账号弹窗");
                 CheckQwen(views == 2 && first.OwnedWindows.OfType<Window>().Any(w => w.IsVisible) &&
                     auth.Source == WebFixturePopup, "账号弹窗脱离了启动器。");
                 // The cookie is created by the fixture webpage, with an expiration date, exactly like a persistent website cookie.
@@ -170,6 +199,12 @@ h1{font-size:24px}p{line-height:1.7}a{color:#006285}
                 await QwenWebWithin(restored.Task, 35, "重新打开后保留网站会话");
                 CheckQwen(views == 3, "重开后浏览器或弹窗初始化次数异常。");
                 return "PASS · 真实 WebView2、默认官网入口、聊天切换与返回、内嵌账号弹窗、浏览器完全退出后保留站点 Cookie。页面与 Cookie 由隔离的离线夹具提供。";
+            }
+            catch (Exception e)
+            {
+                throw new InvalidOperationException(e.Message + "。隔离浏览器记录：" + trail +
+                    "；弹窗阶段：" + (first ?? second)?.qwenWebPopupStage +
+                    "；启动器状态：" + (first?.qwenWebStatus?.Text ?? second?.qwenWebStatus?.Text ?? ""), e);
             }
             finally
             {
