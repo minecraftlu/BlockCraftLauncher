@@ -21,6 +21,7 @@ namespace BlockCraftLauncher.Wpf.Services
         long lastBytes;
 
         public Guid Id { get; } = Guid.NewGuid();
+        internal string CatalogKey { get; set; }
         public string Title { get; }
         public string Kind { get; }
         public string Status { get => status; private set { status = value; Notify(nameof(Status)); Notify(nameof(IsRunning)); Notify(nameof(CanRetry)); } }

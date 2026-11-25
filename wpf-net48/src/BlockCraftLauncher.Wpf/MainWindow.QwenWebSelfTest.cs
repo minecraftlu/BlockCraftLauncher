@@ -159,11 +159,22 @@ h1{font-size:24px}p{line-height:1.7}a{color:#006285}
                         : CoreWebView2Environment.CreateAsync(null, path));
                 await WaitForQwenAsync(() => attempts == 1 && first.qwenWebInstallRuntime?.IsVisible == true &&
                     first.qwenWebRetry?.IsVisible == true && first.qwenWebRetry.IsEnabled, "缺少运行时的恢复入口");
+                var commands = FixtureButton(first.qwenWebPage, "启动器下载指令");
+                ClickFixtureAction(commands);
+                CheckQwen(first.activeLocalMode == LocalQwenMode.Chat && first.localQwenPrompt.IsVisible &&
+                    first.localQwenPrompt.IsEnabled && !first.localQwenPrompt.IsReadOnly && first.localQwenSubmit.IsEnabled &&
+                    first.localQwenRuntime == null, "官网入口未打开可输入下载指令的本地聊天页。");
+                first.localQwenPrompt.Text = "给当前实例装钠";
+                first.localQwenMode.SelectedIndex = (int)LocalQwenMode.Edit;
+                ClickFixtureAction(first.qwenWebTab);
                 ClickFixtureAction(first.qwenWebRetry);
                 var main = await QwenWebWithin(home.Task, 40, "启动真实浏览器并打开官网地址");
                 CheckQwen(attempts == 2 && views == 1 && first.qwenWebView.IsVisible, "启动器默认入口未打开千问官网。");
                 main.Environment.BrowserProcessExited += (s, e) => browserExit.TrySetResult(true);
                 await first.CaptureQwenWebCheck("qwen-web");
+                ClickFixtureAction(commands);
+                CheckQwen(first.activeLocalMode == LocalQwenMode.Chat && first.localQwenPrompt.IsVisible &&
+                    first.localQwenPrompt.Text == "给当前实例装钠", "返回下载指令时未恢复本地聊天输入框或草稿。");
                 ClickFixtureAction(first.qwenChatTab);
                 CheckQwen(!first.qwenWebView.IsVisible && first.qwenChatBody.IsVisible, "原生下载指令入口不可见。");
                 ClickFixtureAction(first.qwenWebTab);
@@ -198,7 +209,7 @@ h1{font-size:24px}p{line-height:1.7}a{color:#006285}
                 second = OpenQwenWebCheckWindow(directory, Observe);
                 await QwenWebWithin(restored.Task, 35, "重新打开后保留网站会话");
                 CheckQwen(views == 3, "重开后浏览器或弹窗初始化次数异常。");
-                return "PASS · 真实 WebView2、默认官网入口、聊天切换与返回、内嵌账号弹窗、浏览器完全退出后保留站点 Cookie。页面与 Cookie 由隔离的离线夹具提供。";
+                return "PASS · 真实 WebView2、官网内的启动器下载指令入口、原生聊天草稿、内嵌账号弹窗、浏览器完全退出后保留站点 Cookie。页面与 Cookie 由隔离的离线夹具提供。";
             }
             catch (Exception e)
             {

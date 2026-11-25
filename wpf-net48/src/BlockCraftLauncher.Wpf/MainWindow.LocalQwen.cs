@@ -100,7 +100,7 @@ namespace BlockCraftLauncher.Wpf
             string submit = chat ? "发送" : edit ? "修改图片" : "生成图片";
             localQwenSubmit.Content = submit;
             AutomationProperties.SetName(localQwenSubmit, submit);
-            localQwenPrompt.ToolTip = chat ? "例如：帮我找提升帧率的模组" :
+            localQwenPrompt.ToolTip = chat ? "试试「帮我找一个提升帧率的模组」或「帮我安装一个提升帧率的模组」\nCtrl + Enter 发送" :
                 edit ? "例如：把截图里的白天改成黄昏" : "例如：画一座雪夜里的方块小屋";
             try
             {

@@ -29,6 +29,8 @@ namespace BlockCraftLauncher.Wpf
                 case LauncherSearchKind.Mod:
                     return await RunQwenModActionAsync(command.Query, command.Install, command.GameVersion,
                         command.Loader, command.InstanceName, command.SourceName, token);
+                case LauncherSearchKind.Resource:
+                    return await RunQwenResourceActionAsync(command, token);
                 default:
                     return null;
             }
@@ -50,11 +52,22 @@ namespace BlockCraftLauncher.Wpf
 
                 var plan = await chat.PlanModSearchAsync(last.Content, token, localQwenCatalogTrace);
                 token.ThrowIfCancellationRequested();
-                return await RunQwenModActionAsync(command.Query, false, command.GameVersion, command.Loader,
+                return await RunQwenModActionAsync(command.Query, command.Install, command.GameVersion, command.Loader,
                     command.InstanceName, command.SourceName, token, plan,
                     (candidates, ct) => chat.SelectModAsync(last.Content, candidates, ct));
             }
         }
+
+        static string KnownQwenInstallProject(string question, out LauncherSearchCommand command)
+        {
+            return LauncherSearchCommand.TryParse(question, out command) &&
+                command.Kind == LauncherSearchKind.ModRecommendation && command.Install
+                ? LocalModSearchPlan.KnownInstallProject(command.Query) : null;
+        }
+
+        Task<string> InstallKnownQwenProjectAsync(string project, LauncherSearchCommand command, CancellationToken token)
+            => RunQwenModActionAsync(project, true, command.GameVersion, command.Loader,
+                command.InstanceName, command.SourceName, token);
 
         internal async Task<string> VerifyLiveLocalQwenAsync()
         {
@@ -112,12 +125,14 @@ namespace BlockCraftLauncher.Wpf
                 string result = "Local Qwen3.5-4B streamed a Chinese multi-turn answer, reused its installed model, and found " +
                     exact.Name + " (" + exact.Slug + ") in Modrinth without queuing a download.";
                 Log(result);
-                return result;
+                return result + Environment.NewLine + await VerifyLiveSemanticInstallAsync(endpoint, Log, token);
             }
             finally
             {
                 localQwenCatalogTrace = null;
                 heartbeat.Stop();
+                foreach (var job in downloads.Jobs.Where(j => j.IsRunning)) job.Cancel();
+                for (int i = 0; i < 100 && downloads.Jobs.Any(j => j.IsRunning); i++) await Task.Delay(100);
                 Close();
                 // Windows may briefly retain memory-mapped model files after the runtime closes its process job.
                 for (int attempt = 0; Directory.Exists(qwenLiveFolder); attempt++)

@@ -8,6 +8,11 @@ using BlockCraftLauncher.Wpf.Models;
 
 namespace BlockCraftLauncher.Wpf.Services
 {
+    internal sealed class LocalModelNotInstalledException : InvalidOperationException
+    {
+        internal LocalModelNotInstalledException() : base("本机尚未准备好 Qwen3.5-4B，请先到「本地 AI」点击「准备模型」。") { }
+    }
+
     internal sealed class LocalModelRuntime : IDisposable
     {
         internal const string Model = "qwen3.5:4b";
@@ -104,8 +109,7 @@ namespace BlockCraftLauncher.Wpf.Services
             }
         }
 
-        static InvalidOperationException NotInstalled() =>
-            new InvalidOperationException("本机尚未准备好 Qwen3.5-4B，请先点击「准备模型」。");
+        static LocalModelNotInstalledException NotInstalled() => new LocalModelNotInstalledException();
 
         async Task<bool> ExistingReadyAsync(CancellationToken ct)
         {

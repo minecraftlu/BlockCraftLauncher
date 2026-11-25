@@ -16,7 +16,7 @@ namespace BlockCraftLauncher.Wpf
         const string LiveGameVersion = "1.16.5";
         string qwenLiveFolder;
 
-        internal static MainWindow CreateQwenLiveDownloadWindow()
+        internal static MainWindow CreateQwenLiveDownloadWindow(Func<ModrinthClient> modrinthFactory = null)
         {
             string folder = Path.Combine(Path.GetTempPath(), "blockcraft-qwen-live-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(folder);
@@ -37,7 +37,7 @@ namespace BlockCraftLauncher.Wpf
                 Directory.CreateDirectory(profile.Directory);
                 config.Profiles.Add(profile);
                 isolated.Save(config);
-                return new MainWindow(null, null, isolated) {
+                return new MainWindow(null, null, isolated, modrinthFactory) {
                     qwenLiveFolder = folder,
                     qwenWebPageFactory = OfflineQwenWebPage,
                     qwenSettingsPath = Path.Combine(folder, "qwen.json"),
@@ -109,10 +109,12 @@ namespace BlockCraftLauncher.Wpf
                         !Has("game_versions", LiveGameVersion) || !Has("loaders", "fabric") || !matches)
                         throw new InvalidDataException("Installed bytes do not match Sodium's official Fabric release metadata.");
                 }
+                string packs = await VerifyLivePackCommandsAsync(Submit, token);
+                if (modelCalls != 0) throw new InvalidDataException("A direct resource installation invoked the AI provider.");
                 return "LIVE PASS: Minecraft " + LiveGameVersion + " selected from Mojang's public manifest; " +
                     "Sodium installed by typed command into the temporary Fabric instance: " + filename +
                     " (" + new FileInfo(path).Length + " bytes). Modrinth SHA-512: " + digest +
-                    ". No game process started or Qwen API call made.";
+                    ". No game process started or Qwen API call made." + Environment.NewLine + packs;
             }
             finally
             {

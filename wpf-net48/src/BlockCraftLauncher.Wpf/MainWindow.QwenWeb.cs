@@ -38,7 +38,9 @@ namespace BlockCraftLauncher.Wpf
             qwenWebOrigin.TextWrapping = TextWrapping.NoWrap;
             qwenWebOrigin.TextTrimming = TextTrimming.CharacterEllipsis;
             AutomationProperties.SetName(qwenWebOrigin, "当前网站域名");
-            var buttons = Row(qwenWebBack, qwenWebRefresh, qwenWebHome);
+            var downloadCommands = Btn("启动器下载指令", OpenLauncherDownloadCommands);
+            downloadCommands.ToolTip = "输入游戏版本、模组名称或用途，在启动器里搜索和安装";
+            var buttons = Row(qwenWebBack, qwenWebRefresh, qwenWebHome, downloadCommands);
             DockPanel.SetDock(buttons, Dock.Right);
             var toolbar = new DockPanel();
             toolbar.Children.Add(buttons);
@@ -63,6 +65,22 @@ namespace BlockCraftLauncher.Wpf
             qwenWebPage.Loaded += (sender, args) => BeginVisibleQwenWeb();
             qwenWebPage.IsVisibleChanged += (sender, args) => BeginVisibleQwenWeb();
             return qwenWebPage;
+        }
+
+        void OpenLauncherDownloadCommands()
+        {
+            // Keep an ongoing local inference or image task running while the native composer accepts commands.
+            if (localQwenOperation != null)
+            {
+                SwitchQwenTab(QwenAssistantTab.Chat);
+                qwenQuery.BringIntoView();
+                qwenQuery.Focus();
+                return;
+            }
+            SwitchQwenTab(QwenAssistantTab.Local);
+            localQwenMode.SelectedIndex = (int)LocalQwenMode.Chat;
+            localQwenPrompt.BringIntoView();
+            localQwenPrompt.Focus();
         }
 
         void BeginVisibleQwenWeb()

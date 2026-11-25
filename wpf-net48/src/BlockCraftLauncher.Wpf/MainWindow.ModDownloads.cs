@@ -355,7 +355,7 @@ namespace BlockCraftLauncher.Wpf
             if (page < 0 || !CanSearchResources()) return false;
             bool isMod = resourceType == "mod";
             var source = SelectedModSource;
-            var profile = isMod ? modTarget.SelectedItem as GameProfile : activeProfile;
+            var profile = (isMod ? modTarget : resourceInstallTarget)?.SelectedItem as GameProfile;
             bool matchTarget = resourceMatchVersion.IsEnabled && resourceMatchVersion.IsChecked == true;
             string typedVersion = resourceVersion.Text.Trim();
             string version = matchTarget ? profile?.BaseVersion :
@@ -410,7 +410,7 @@ namespace BlockCraftLauncher.Wpf
                     }
                     else
                     {
-                        using (var client = new ModrinthClient(settings))
+                        using (var client = openModrinthClient())
                         {
                             string order = new[] { "relevance", "downloads", "updated", "newest" }[sort];
                             var result = await client.SearchPageAsync(query, resourceType, request.Token,

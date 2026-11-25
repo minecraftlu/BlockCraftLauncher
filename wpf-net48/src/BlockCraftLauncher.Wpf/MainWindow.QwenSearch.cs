@@ -142,7 +142,10 @@ namespace BlockCraftLauncher.Wpf
                 SetQwenSearchStatus(command.Error);
                 return;
             }
-            bool useModel = !isCommand || command.Kind == LauncherSearchKind.ModRecommendation;
+            bool recommend = isCommand && command.Kind == LauncherSearchKind.ModRecommendation;
+            bool installWithoutCloud = recommend && command.Install &&
+                string.IsNullOrWhiteSpace(ReadQwenConnection().ResolveApiKey());
+            bool useModel = !isCommand || recommend && !installWithoutCloud;
             QwenConnectionSettings connection = null;
             string key = null;
             if (useModel && !TryReadQwenCredentials(out connection, out key)) return;
@@ -165,19 +168,30 @@ namespace BlockCraftLauncher.Wpf
                 string status;
                 if (command.Kind == LauncherSearchKind.Game)
                     status = await RunQwenGameActionAsync(command.Query, command.Loader, command.Install, operation.Token);
+                else if (command.Kind == LauncherSearchKind.Resource)
+                    status = await RunQwenResourceActionAsync(command, operation.Token);
+                else if (installWithoutCloud)
+                {
+                    var project = LocalModSearchPlan.KnownInstallProject(command.Query);
+                    if (project != null)
+                        status = await InstallKnownQwenProjectAsync(project, command, operation.Token);
+                    else
+                    {
+                        Uri endpoint = await PrepareLocalModelAsync(LocalQwenMode.Chat, false, null, operation.Token);
+                        status = await RunLocalQwenAsync(endpoint, new[] { new QwenChatTurn("user", question) }, null, operation.Token);
+                    }
+                }
                 else
                 {
                     string query = command.Query;
-                    bool install = command.Install;
-                    if (command.Kind == LauncherSearchKind.ModRecommendation)
+                    if (recommend)
                     {
                         query = await QwenModRecommendationService.RecommendKeywordAsync(question,
                             (prompt, ct) => AskQwenAsync(prompt, key, connection, ct), operation.Token);
                         operation.Token.ThrowIfCancellationRequested();
-                        install = false;
                     }
-                    status = await RunQwenModActionAsync(query, install, command.GameVersion, command.Loader,
-                        command.InstanceName, command.SourceName);
+                    status = await RunQwenModActionAsync(query, command.Install, command.GameVersion, command.Loader,
+                        command.InstanceName, command.SourceName, operation.Token);
                 }
                 if (ReferenceEquals(qwenRequest, operation)) SetQwenSearchStatus(status);
             }
@@ -186,6 +200,10 @@ namespace BlockCraftLauncher.Wpf
                 if (ReferenceEquals(qwenRequest, operation)) SetQwenSearchStatus("请求已取消。");
             }
             catch (QwenSearchException ex)
+            {
+                if (ReferenceEquals(qwenRequest, operation)) SetQwenSearchStatus(ex.Message);
+            }
+            catch (LocalModelNotInstalledException ex)
             {
                 if (ReferenceEquals(qwenRequest, operation)) SetQwenSearchStatus(ex.Message);
             }

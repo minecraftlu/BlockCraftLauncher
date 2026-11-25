@@ -21,6 +21,7 @@ namespace BlockCraftLauncher.Wpf.Services
         public string Description { get; set; }
         public string Kind { get; set; }
         public string TargetGameVersion { get; set; }
+        public string TargetLoader { get; set; }
         public string Author { get; set; }
         public string IconUrl { get; set; }
         public long DownloadCount { get; set; }
@@ -117,7 +118,12 @@ namespace BlockCraftLauncher.Wpf.Services
         readonly NetworkDownloader network;
         readonly LauncherConfig settings;
         readonly JavaScriptSerializer json = new JavaScriptSerializer();
-        public ModrinthClient(LauncherConfig settings) { this.settings = settings; network = new NetworkDownloader(settings); }
+        public ModrinthClient(LauncherConfig settings) : this(settings, new NetworkDownloader(settings)) { }
+        internal ModrinthClient(LauncherConfig settings, NetworkDownloader network)
+        {
+            this.settings = settings;
+            this.network = network;
+        }
         public async Task<IReadOnlyList<ResourceHit>> SearchAsync(string query, string type, CancellationToken ct,
             string gameVersion = null, string loader = null, string sort = "relevance", int offset = 0)
         {
@@ -156,7 +162,7 @@ namespace BlockCraftLauncher.Wpf.Services
             var facets = new List<object> { new[] { "project_type:" + type } };
             if (!string.IsNullOrWhiteSpace(gameVersion))
                 facets.Add(new[] { "versions:" + gameVersion.Trim() });
-            if (type == "mod" && !string.IsNullOrWhiteSpace(loader) && loader != "vanilla")
+            if ((type == "mod" || type == "modpack") && !string.IsNullOrWhiteSpace(loader) && loader != "vanilla")
                 facets.Add(new[] { "categories:" + loader.Trim().ToLowerInvariant() });
             if (type == "mod" && !string.IsNullOrWhiteSpace(category))
                 facets.Add(new[] { "categories:" + category });
@@ -166,9 +172,12 @@ namespace BlockCraftLauncher.Wpf.Services
                 "&facets=" + Uri.EscapeDataString(json.Serialize(facets));
             var page = await network.GetMetadataWithFallbackAsync(endpoint, settings.NetworkMode,
                 data => ParseSearchResponse(data, type), ct);
-            if (type == "modpack" && !string.IsNullOrWhiteSpace(gameVersion))
+            if (type == "modpack")
                 foreach (var hit in page.Hits)
-                    hit.TargetGameVersion = gameVersion.Trim();
+                {
+                    hit.TargetGameVersion = gameVersion?.Trim();
+                    hit.TargetLoader = loader?.Trim();
+                }
             return page;
         }
 
@@ -188,6 +197,7 @@ namespace BlockCraftLauncher.Wpf.Services
             foreach (var item in rows.Take(20))
             {
                 if (!(item is Dictionary<string, object> p)) continue;
+                if (p.ContainsKey("project_type") && Get(p, "project_type") != type) continue;
                 string projectId = Get(p, "project_id");
                 if (string.IsNullOrWhiteSpace(projectId) || projectId.Length > 128) continue;
                 var cats = p.TryGetValue("categories", out var categories)
@@ -237,10 +247,10 @@ namespace BlockCraftLauncher.Wpf.Services
                 data => json.DeserializeObject(data) as object[] ??
                     throw new InvalidDataException("Modrinth 版本列表格式无效"), ct);
 
-        static bool MatchesGameVersion(Dictionary<string, object> version, string gameVersion) =>
-            string.IsNullOrWhiteSpace(gameVersion) ||
-            version.TryGetValue("game_versions", out var values) && values is object[] list &&
-            list.Any(x => string.Equals(Convert.ToString(x), gameVersion, StringComparison.OrdinalIgnoreCase));
+        static bool MatchesVersionField(Dictionary<string, object> version, string field, string value) =>
+            string.IsNullOrWhiteSpace(value) ||
+            version.TryGetValue(field, out var values) && values is object[] list &&
+            list.Any(x => string.Equals(Convert.ToString(x), value, StringComparison.OrdinalIgnoreCase));
 
         static string Get(Dictionary<string, object> d, string k) => d.TryGetValue(k, out var x) && x != null ? Convert.ToString(x) : "";
         public async Task<string> DownloadLatestAsync(ResourceHit hit, GameProfile profile, CancellationToken ct, IProgress<DownloadBytes> progress = null)
@@ -248,38 +258,69 @@ namespace BlockCraftLauncher.Wpf.Services
             if (hit == null || profile == null) throw new ArgumentNullException("请选择资源和游戏实例");
             if (hit.Kind == "mod")
                 return await DownloadModWithDependenciesAsync(hit, profile, ct, progress);
-            if (hit.Kind != "mod" && hit.Kind != "shader" && hit.Kind != "resourcepack")
+            if (hit.Kind != "shader" && hit.Kind != "resourcepack")
                 throw new NotSupportedException("请通过「整合包」页面安装 Modrinth 整合包。");
             string url = "https://api.modrinth.com/v2/project/" + Uri.EscapeDataString(hit.ProjectId) + "/version";
             var versions = await GetVersionRowsAsync(url, ct);
             if (versions == null || versions.Length == 0) throw new IOException("找不到可下载的资源版本");
             var latest = versions.OfType<Dictionary<string, object>>()
-                .FirstOrDefault(v => !string.IsNullOrWhiteSpace(profile.BaseVersion) && MatchesGameVersion(v, profile.BaseVersion));
+                .FirstOrDefault(v => !string.IsNullOrWhiteSpace(profile.BaseVersion) && MatchesVersionField(v, "game_versions", profile.BaseVersion));
             if (latest == null) throw new IOException("没有适用于 Minecraft " + profile.BaseVersion + " 的资源文件。");
             var files = latest.TryGetValue("files", out var f) ? f as object[] : null;
-            var file = files?.OfType<Dictionary<string, object>>().FirstOrDefault(x => x.TryGetValue("primary", out var primary) && primary is bool b && b)
-                ?? files?.OfType<Dictionary<string, object>>().FirstOrDefault();
-            if (file == null) throw new IOException("版本没有下载文件");
+            var file = files?.OfType<Dictionary<string, object>>()
+                .Where(x => Get(x, "filename").EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(x => x.TryGetValue("primary", out var primary) && primary is bool b && b)
+                .FirstOrDefault();
+            if (file == null) throw new IOException("此版本没有可安装的 ZIP 资源文件。");
             string filename = Get(file, "filename");
-            if (string.IsNullOrWhiteSpace(filename) || Path.GetFileName(filename) != filename || filename.Contains("\\") || filename == "." || filename == "..")
+            if (filename.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || Path.GetFileName(filename) != filename)
                 throw new IOException("文件名不安全，已取消下载");
-            string folder = hit.Kind == "mod" ? "mods" : hit.Kind == "shader" ? "shaderpacks" : "resourcepacks";
+            string folder = hit.Kind == "shader" ? "shaderpacks" : "resourcepacks";
             var hashFields = file.TryGetValue("hashes", out var hashes) ? hashes as Dictionary<string, object> : null;
             string sha1 = hashFields != null ? Get(hashFields, "sha1") : "";
             if (sha1.Length != 40 || !sha1.All(Uri.IsHexDigit))
                 throw new IOException("服务端没有提供有效的 SHA-1 校验值，已取消下载。");
             string destination = Path.Combine(profile.Directory, folder, filename);
-            if (File.Exists(destination))
-                throw new IOException("同名资源已存在，拒绝覆盖已安装或手动导入的文件：" + filename);
             string downloadUrl = Get(file, "url");
             if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out var downloadUri) ||
                 downloadUri.Scheme != Uri.UriSchemeHttps || downloadUri.Host != "cdn.modrinth.com" ||
                 downloadUri.UserInfo.Length != 0 || !downloadUri.IsDefaultPort)
                 throw new InvalidDataException("下载源不是可信的 Modrinth HTTPS CDN");
-            await network.DownloadVerifiedDetailedAsync(downloadUrl, destination, sha1, ct, progress);
-            new ManagedModUpdateService(settings).Record(profile, hit.ProjectId, hit.Kind,
-                hit.Name, Get(latest, "id"), filename, sha1);
-            return destination;
+            string root = Path.GetFullPath(profile.Directory);
+            var gate = InstallLocks.GetOrAdd(root, _ => new SemaphoreSlim(1, 1));
+            await gate.WaitAsync(ct);
+            string stage = null;
+            try
+            {
+                if (File.Exists(destination))
+                {
+                    if (FileHash(destination).Equals(sha1, StringComparison.OrdinalIgnoreCase)) return destination;
+                    throw new IOException("同名资源已存在，拒绝覆盖已安装或手动导入的文件：" + filename);
+                }
+                stage = Path.Combine(root, ".blockcraft-resource-stage-" + Guid.NewGuid().ToString("N"));
+                string stagedFile = Path.Combine(stage, filename);
+                await network.DownloadVerifiedDetailedAsync(downloadUrl, stagedFile, sha1, ct, progress);
+                ct.ThrowIfCancellationRequested();
+                Directory.CreateDirectory(Path.GetDirectoryName(destination));
+                File.Move(stagedFile, destination);
+                try
+                {
+                    new ManagedModUpdateService(settings).Record(profile, hit.ProjectId, hit.Kind,
+                        hit.Name, Get(latest, "id"), filename, sha1);
+                }
+                catch { File.Delete(destination); throw; }
+                return destination;
+            }
+            finally
+            {
+                if (stage != null && Directory.Exists(stage))
+                {
+                    try { Directory.Delete(stage, true); }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
+                gate.Release();
+            }
         }
         static string FileHash(string path)
         {
@@ -416,10 +457,13 @@ namespace BlockCraftLauncher.Wpf.Services
             if (versions == null || versions.Length == 0) throw new IOException("整合包没有可用版本");
             foreach (var version in versions.OfType<Dictionary<string, object>>())
             {
-                if (!MatchesGameVersion(version, hit.TargetGameVersion)) continue;
+                if (!MatchesVersionField(version, "game_versions", hit.TargetGameVersion) ||
+                    !MatchesVersionField(version, "loaders", hit.TargetLoader)) continue;
                 var files = version.TryGetValue("files", out var f) ? f as object[] : null;
-                var archive = files?.OfType<Dictionary<string, object>>().FirstOrDefault(x =>
-                    Get(x, "filename").EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase));
+                var archive = files?.OfType<Dictionary<string, object>>()
+                    .Where(x => Get(x, "filename").EndsWith(".mrpack", StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(x => x.TryGetValue("primary", out var primary) && primary is bool b && b)
+                    .FirstOrDefault();
                 if (archive == null) continue;
                 var fields = archive.TryGetValue("hashes", out var rawHash) ? rawHash as Dictionary<string, object> : null;
                 string sha1 = fields == null ? "" : Get(fields, "sha1");
@@ -427,14 +471,13 @@ namespace BlockCraftLauncher.Wpf.Services
                     throw new InvalidDataException("整合包索引缺少有效 SHA-1 哈希");
                 string downloadUrl = Get(archive, "url");
                 if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out var uri) ||
-                    uri.Scheme != Uri.UriSchemeHttps || uri.Host != "cdn.modrinth.com")
+                    uri.Scheme != Uri.UriSchemeHttps || uri.Host != "cdn.modrinth.com" ||
+                    uri.UserInfo.Length != 0 || !uri.IsDefaultPort)
                     throw new InvalidDataException("整合包下载源不是可信 Modrinth CDN");
                 await network.DownloadVerifiedDetailedAsync(downloadUrl, destination, sha1, ct, progress);
                 return destination;
             }
-            throw new IOException(string.IsNullOrWhiteSpace(hit.TargetGameVersion)
-                ? "没有找到可用的 .mrpack 文件"
-                : "找不到适用于 Minecraft " + hit.TargetGameVersion + " 的 .mrpack 文件。");
+            throw new IOException("没有找到符合所选游戏版本和加载器的 .mrpack 文件。");
         }
 
         public void Dispose() => network.Dispose();

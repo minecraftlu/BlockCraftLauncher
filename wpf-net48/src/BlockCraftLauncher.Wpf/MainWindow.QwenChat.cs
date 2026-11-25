@@ -44,7 +44,7 @@ namespace BlockCraftLauncher.Wpf
                 qwenChatTab = Btn("聊天与指令", () => SwitchQwenTab(QwenAssistantTab.Chat));
                 qwenMediaTab = Btn("百炼创作", SelectQwenMediaTab);
                 qwenLocalTab = Btn("本地 AI", () => SwitchQwenTab(QwenAssistantTab.Local));
-                qwenChatTab.ToolTip = "运行游戏和模组下载指令，或通过百炼 API 对话";
+                qwenChatTab.ToolTip = "搜索、安装游戏和资源，或通过百炼 API 对话";
                 qwenMediaTab.ToolTip = "通过百炼 API 生成和编辑图片、生成视频";
                 var heading = (FrameworkElement)PageHeading("千问 AI 助手", null);
                 heading.Margin = new Thickness(0, 0, 12, 0);
@@ -138,7 +138,7 @@ namespace BlockCraftLauncher.Wpf
             var shortcuts = Txt("Ctrl + Enter 发送", 12, false, true);
             shortcuts.Margin = new Thickness(14, 0, 0, 0);
             shortcuts.VerticalAlignment = VerticalAlignment.Center;
-            qwenChatIntro = Txt("输入问题，或直接说「下载 Minecraft 1.21.1」「给当前实例装钠」。", 14, false, true);
+            qwenChatIntro = Txt("试试「查找钠模组」「给当前实例装钠」或「下载 Minecraft 1.21.1」。", 14, false, true);
             qwenChatIntro.Margin = new Thickness(2, 12, 0, 10);
             qwenChatBody.Children.Add(Col(Row(qwenSessions, qwenNewChat, qwenDeleteChat), qwenDeletePrompt, qwenChatIntro, qwenChatScroll,
                 Card(Col(qwenQuery, Row(qwenSubmit, qwenCancel, qwenWebSearch, shortcuts), qwenSearchStatus)),

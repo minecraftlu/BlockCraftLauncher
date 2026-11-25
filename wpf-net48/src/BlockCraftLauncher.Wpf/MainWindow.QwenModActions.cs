@@ -38,15 +38,8 @@ namespace BlockCraftLauncher.Wpf
         static ResourceHit MatchQwenMod(string query, IEnumerable<ResourceHit> hits, bool more)
         {
             if (ModSearchNames.TryGetValue(query, out var alias)) query = alias;
-            bool Same(string value) => string.Equals(value, query, StringComparison.OrdinalIgnoreCase);
-            var slug = string.Join("-", query.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries));
-            bool MatchesSlug(string value) => string.Equals(value, slug, StringComparison.OrdinalIgnoreCase);
-            var matches = hits.Where(h => h.Kind == "mod" && (Same(h.Name) || MatchesSlug(h.Slug) || Same(h.ProjectId)))
-                .Take(2).ToList();
-            if (matches.Count != 1) return null;
-            var hit = matches[0];
-            // Titles can repeat beyond the first page. Slugs and project IDs are unique within a catalog.
-            return !more || MatchesSlug(hit.Slug) || Same(hit.ProjectId) ? hit : null;
+            if (string.Equals(query, "Just Enough Items", StringComparison.OrdinalIgnoreCase)) query = "jei";
+            return MatchQwenCatalogProject(query, hits, more, "mod");
         }
 
         static ModDownloadFile MatchQwenRelease(IReadOnlyList<ModDownloadFile> rows)
@@ -226,6 +219,12 @@ namespace BlockCraftLauncher.Wpf
                     if (!Current()) return "";
                     localQwenCatalogTrace?.Invoke("候选 ID=" + string.Join(",", candidates.Select(h => h.ProjectId)) +
                         "；模型选择=" + (pick?.ProjectId ?? "无") + "。");
+                    if (install && pick == null && LocalModSearchPlan.KnownInstallProject(query) is string known)
+                    {
+                        if (!await Load(known, 0)) return Current() ? Tell(resourceCounter.Text) : "";
+                        var match = MatchQwenMod(known, resourceResults, resourceHasMore);
+                        if (match != null) return await QueueProjectAsync(match);
+                    }
                     bool byPopularity = pick == null && categoryLeader != null;
                     if (byPopularity) pick = categoryLeader;
                     async Task<ResourceHit> ShowProject(ResourceHit hit)
@@ -248,25 +247,22 @@ namespace BlockCraftLauncher.Wpf
                     if (byPopularity)
                         return ChooseFile(verified, "千问未选出具体项目。已按「" + categoryLabel + "」分类下载量打开「" +
                             verified.Name + "」，可查看详情或在列表中选择其他模组。");
+                    if (install)
+                    {
+                        var origin = byId[pick.ProjectId];
+                        if (origin.Text.Length == 0 && origin.Category == 0)
+                            return ChooseFile(verified, "没有找到与描述匹配的目录结果。请核对「" + verified.Name + "」并在详情中选择文件。");
+                        return await QueueProjectAsync(verified);
+                    }
                     return ChooseFile(verified, "本地千问推荐「" + verified.Name + "」，可查看详情并选择兼容文件。");
                 }
-                try
+                async Task<string> QueueProjectAsync(ResourceHit project)
                 {
-                    if (source == ModSource.CurseForge && !CanSearchResources())
-                        await modDiscovery;
                     if (!Current()) return "";
-                    if (!CanSearchResources()) return Tell("当前无法连接 CurseForge 官方服务，可重新检测或切换来源再搜索。");
-                    if (choose != null) return await RecommendFromCatalogAsync();
-                    if (!await SearchResourcesAsync(0, request.Token) || !Current())
-                        return Current() ? Tell(resourceCounter.Text) : "";
-                    if (resourceResults.Count == 0) return Tell("没有找到匹配的模组，可更换关键词或来源后重试。");
-                    if (!install) return Tell("已搜索「" + query + "」，可在结果中查看模组和兼容文件。");
                     if (target == null) return Tell("请核对实例名称、游戏版本和加载器，在「目标实例」选好安装位置后选择文件。");
                     if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(baseVersion) ||
                         ModDownloadTarget.Loader(targetLoader) == null)
                         return Tell("此实例尚未配置可安装模组的加载器，请在「目标实例」选择 Fabric、Forge、NeoForge 或 Quilt 实例。");
-                    var project = MatchQwenMod(query, resourceResults, resourceHasMore);
-                    if (project == null) return Tell("请从搜索结果选择要安装的模组，再选择兼容文件。");
                     if (project is CurseForgeHit restricted && !restricted.DistributionAllowed)
                         return ChooseFile(project, "作者已关闭第三方分发，可在项目详情查看官方主页。");
                     if (source == ModSource.GitHub)
@@ -291,6 +287,21 @@ namespace BlockCraftLauncher.Wpf
                         queued.Title != title || queued.Kind != project.SourceLabel)
                         return ChooseFile(project, "此文件未能加入下载任务，请在详情中选择兼容文件。");
                     return Tell("已加入下载任务：" + title + "（" + file.FileName + "）。");
+                }
+                try
+                {
+                    if (source == ModSource.CurseForge && !CanSearchResources())
+                        await modDiscovery;
+                    if (!Current()) return "";
+                    if (!CanSearchResources()) return Tell("当前无法连接 CurseForge 官方服务，可重新检测或切换来源再搜索。");
+                    if (choose != null) return await RecommendFromCatalogAsync();
+                    if (!await SearchResourcesAsync(0, request.Token) || !Current())
+                        return Current() ? Tell(resourceCounter.Text) : "";
+                    if (resourceResults.Count == 0) return Tell("没有找到匹配的模组，可更换关键词或来源后重试。");
+                    if (!install) return Tell("已搜索「" + query + "」，可在结果中查看模组和兼容文件。");
+                    var project = MatchQwenMod(query, resourceResults, resourceHasMore);
+                    if (project == null) return Tell("请从搜索结果选择要安装的模组，再选择兼容文件。");
+                    return await QueueProjectAsync(project);
                 }
                 catch (OperationCanceledException)
                 {

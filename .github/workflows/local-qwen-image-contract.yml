@@ -2,6 +2,13 @@ name: Qwen image models on Windows
 
 on:
   workflow_call:
+    inputs:
+      build_artifact:
+        type: string
+        default: BlockCraftLauncher-v0.9.62-RC1-Windows-x64
+      report_artifact:
+        type: string
+        default: BlockCraftLauncher-v0962-local-image-contract
 
 permissions:
   contents: read
@@ -16,7 +23,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: BlockCraftLauncher-v0.9.62-RC1-Windows-x64
+          name: ${{ inputs.build_artifact }}
           path: tested
       - name: Verify published image assets, start the portable engine on CPU and validate both launcher graphs
         shell: powershell
@@ -35,7 +42,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: BlockCraftLauncher-v0962-local-image-contract
+          name: ${{ inputs.report_artifact }}
           path: ${{ runner.temp }}/qwen-image-contract/contract/
           if-no-files-found: ignore
           retention-days: 7

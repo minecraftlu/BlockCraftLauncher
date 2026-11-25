@@ -26,6 +26,7 @@ namespace BlockCraftLauncher.Wpf
             public string LastSearch;
             public bool Ambiguous;
             public TaskCompletionSource<bool> SearchGate;
+            public TaskCompletionSource<bool> FileGate;
 
             static HttpResponseMessage Page(object entries, int count) =>
                 new HttpResponseMessage(HttpStatusCode.OK)
@@ -63,6 +64,8 @@ namespace BlockCraftLauncher.Wpf
                         dependencies = new[] { new { modId = 202, relationType = 3 } }
                     } }, 1);
                 }
+                if (uri.AbsolutePath.EndsWith(".jar", StringComparison.OrdinalIgnoreCase) && FileGate != null)
+                    await FileGate.Task.ConfigureAwait(false);
                 using (var inner = new HttpMessageInvoker(files, disposeHandler: false))
                     return await inner.SendAsync(request, ct).ConfigureAwait(false);
             }
@@ -233,12 +236,40 @@ namespace BlockCraftLauncher.Wpf
                 await WaitForQwenAsync(() => window.qwenSubmit.IsEnabled, "拒绝非项目推荐");
                 CheckQwen(aiCalls == 2 && window.currentPage == QwenSearchPage && catalog.SearchCount == before &&
                     window.downloads.Jobs.Count == initialJobs + 1, "模型输出的网址触发了搜索或安装。");
+                await Submit("帮我下载一个可以自动收菜的模组");
+                await WaitForQwenAsync(() => window.qwenSubmit.IsEnabled, "拒绝直接安装模型返回的网址");
+                CheckQwen(aiCalls == 3 && window.currentPage == QwenSearchPage && catalog.SearchCount == before &&
+                    window.downloads.Jobs.Count == initialJobs + 1, "下载请求使用了目录以外的网址。");
+                suggested = "{\"keyword\":\"Sodium\"}";
+                var second = new GameProfile { Id = "qwen-second", Name = "空白实例", BaseVersion = profile.BaseVersion,
+                    LaunchVersion = profile.LaunchVersion, Loader = profile.Loader, Directory = Path.Combine(folder, "second") };
+                Directory.CreateDirectory(second.Directory);
+                window.settings.Profiles.Add(second);
+                window.activeProfile = second;
+                catalog.FileGate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                const string installRecommendation = "帮我下载一个提升帧率的模组";
+                await Submit(installRecommendation);
+                await WaitForQwenAsync(() => window.downloads.Jobs.Count == initialJobs + 2, "推荐项目进入新实例的下载队列");
+                var recommended = window.downloads.Jobs[0];
+                CheckQwen(recommended.IsRunning && recommended.Title.Contains(second.Name), "用途指令没有定位新实例。");
+                await Submit(installRecommendation);
+                await WaitForQwenAsync(() => window.modSourceStatus.Text.Contains("已有"), "相同推荐复用正在进行的任务");
+                CheckQwen(window.downloads.Jobs.Count == initialJobs + 2 && ReferenceEquals(window.downloads.Jobs[0], recommended),
+                    "重复用途指令创建了并行下载任务。");
+                catalog.FileGate.SetResult(true);
+                await WaitForQwenAsync(() => !recommended.IsRunning, "完成用途指令安装");
+                CheckQwen(recommended.Status == "已完成" && File.Exists(Path.Combine(second.Directory, "mods", "chosen.jar")) &&
+                    File.Exists(Path.Combine(second.Directory, "mods", "dependency.jar")),
+                    "描述需求后未将选定的项目及其前置安装到新实例。" + recommended.Error);
+                await VerifyQwenPackCommandsAsync();
                 return "Passed native game search/queue/cancel/deduplication, ambiguous and compatible mod commands, " +
-                    "CurseForge dependency installation, stale result suppression and search-only AI recommendations.";
+                    "CurseForge dependency installation, stale result suppression, search-only AI recommendations, " +
+                    "explicit semantic installs with active task deduplication, and native modpack commands.";
             }
             finally
             {
                 catalog.SearchGate?.TrySetResult(true);
+                catalog.FileGate?.TrySetResult(true);
                 if (window != null)
                 {
                     foreach (var job in window.downloads.Jobs.Where(job => job.IsRunning)) job.Cancel();

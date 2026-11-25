@@ -76,6 +76,8 @@ namespace BlockCraftLauncher.Wpf
         ProgressBar downloadProgressBar;
         bool downloadFilterRefreshPending;
         readonly ObservableCollection<ResourceHit> resourceResults = new ObservableCollection<ResourceHit>();
+        readonly Func<ModrinthClient> openModrinthClient;
+        ComboBox resourceInstallTarget;
         readonly Dictionary<string, Button> sidebarButtons = new Dictionary<string, Button>();
         readonly List<string> logs = new List<string>();
         readonly MultiplayerService multiplayer = new MultiplayerService();
@@ -110,7 +112,7 @@ namespace BlockCraftLauncher.Wpf
         int serverFinderPage = 1, serverFinderPages = 1;
         bool serverFinderSearching;
         TextBox packSearchQuery;
-        ComboBox packVersionFilter, packSortMode;
+        ComboBox packVersionFilter, packLoaderFilter, packSortMode;
         ListBox packSearchResults;
         TextBlock packSearchStatus;
         Button packSearchButton, packPrevButton, packNextButton;
@@ -141,7 +143,7 @@ namespace BlockCraftLauncher.Wpf
 
         internal MainWindow(Func<bool, CurseForgeMirrorClient> curseForgeFactory,
             Func<CancellationToken, bool, Task<bool>> discoverCurseForgeAccess = null,
-            SettingsStore settingsStore = null)
+            SettingsStore settingsStore = null, Func<ModrinthClient> modrinthFactory = null)
         {
             InitializeComponent();
             downloads.JobsChanged += OnDownloadJobsChanged;
@@ -151,6 +153,7 @@ namespace BlockCraftLauncher.Wpf
             ConfigureFixedLauncherWindow();
             store = settingsStore ?? new SettingsStore();
             settings = store.Load();
+            openModrinthClient = modrinthFactory ?? (() => new ModrinthClient(settings));
             openCurseForgeClient = curseForgeFactory ?? (mirror => new CurseForgeMirrorClient(settings, mirror));
             discoverOfficialAccess = discoverCurseForgeAccess ?? ((token, refresh) =>
                 CurseForgeMirrorClient.DiscoverOfficialAccessAsync(settings, token, refresh));
@@ -2343,8 +2346,8 @@ namespace BlockCraftLauncher.Wpf
             };
             resourceMatchVersion = new CheckBox
             {
-                Content = isMod ? "匹配目标实例" : "匹配当前游戏版本",
-                IsEnabled = activeProfile != null
+                Content = "匹配目标实例",
+                IsEnabled = settings.Profiles.Count > 0
             };
             ApplySearchInputStyle(resourceQuery, "输入" + title + "名称，留空可浏览推荐");
             ApplySearchInputStyle(resourceVersion, "选择或输入 Minecraft 游戏版本");
@@ -2385,13 +2388,20 @@ namespace BlockCraftLauncher.Wpf
 
             if (isMod) return BuildModDownloadPage(title, clear);
 
+            resourceInstallTarget = new ComboBox
+            {
+                ItemsSource = settings.Profiles,
+                SelectedItem = activeProfile ?? settings.Profiles.FirstOrDefault()
+            };
+            ApplySearchInputStyle(resourceInstallTarget, "选择安装" + title + "的游戏实例");
+
             var root = Col(PageHeading(title, null),
                 SearchCard(Col(
                 SearchFields(("名称", resourceQuery), ("版本", resourceVersion), ("排序", resourceSort)),
-                resourceMatchVersion, Row(resourceSearchButton, clear))));
-            void Open() => ShowResourceDetails(resourceList.SelectedItem as ResourceHit);
+                SearchFields(("目标实例", resourceInstallTarget)), resourceMatchVersion, Row(resourceSearchButton, clear))));
+            void Open() => ShowResourceDetails(resourceList.SelectedItem as ResourceHit, resourceInstallTarget.SelectedItem as GameProfile);
             var details = Btn("查看详情", Open);
-            var install = Btn("安装到当前版本", async () => await InstallResourceAsync(), true);
+            var install = Btn("安装到目标实例", async () => await InstallResourceAsync(target: resourceInstallTarget.SelectedItem as GameProfile), true);
             WireResultActions(resourceList, Open, details, install);
             root.Children.Add(ProjectResults(resourceCounter, resourceList, Row(install, details),
                 resourcePrevButton, resourceNextButton));
@@ -2440,7 +2450,7 @@ namespace BlockCraftLauncher.Wpf
             catch (Exception ex) { ShowError("打开 OptiFine 官方网站失败", ex); }
         }
 
-        void ShowResourceDetails(ResourceHit hit)
+        void ShowResourceDetails(ResourceHit hit, GameProfile resourceTarget = null)
         {
             if (hit == null) return;
             var description = Txt(hit.Description ?? "暂无项目简介。", 13);
@@ -2484,10 +2494,10 @@ namespace BlockCraftLauncher.Wpf
                 Txt("最近更新  " + (hit.UpdatedLabel ?? "未知"), 12)));
             bool isPack = hit.Kind == "modpack";
             var actions = Row(
-                Btn(isPack ? "安装整合包" : "安装到当前版本", async () =>
+                Btn(isPack ? "安装整合包" : resourceTarget == null ? "安装到当前版本" : "安装到 " + resourceTarget.Name, async () =>
                 {
                     if (isPack) QueueSelectedModpack(hit);
-                    else await InstallResourceAsync(hit);
+                    else await InstallResourceAsync(hit, resourceTarget);
                 }, true),
                 Btn("项目主页", () => OpenResourceProject(hit)));
             project.Children.Add(actions);
@@ -2529,8 +2539,8 @@ namespace BlockCraftLauncher.Wpf
         async Task InstallResourceAsync(ResourceHit hit = null, GameProfile target = null, string versionId = null)
         {
             hit = hit ?? resourceList?.SelectedItem as ResourceHit;
-            var profile = target ?? activeProfile;
-            if (profile == null || hit == null) { MessageBox.Show("请先选择实例和资源。"); return; }
+            var profile = target ?? (hit?.Kind == "resourcepack" || hit?.Kind == "shader" ? resourceInstallTarget?.SelectedItem as GameProfile : activeProfile);
+            if (profile == null || hit == null || !settings.Profiles.Contains(profile)) { MessageBox.Show("请先选择实例和资源。"); return; }
             if (hit.Kind == "mod" && ModDownloadTarget.Loader(profile.Loader) == null)
             {
                 Status("安装模组前，请选择已安装 Fabric、Forge、NeoForge 或 Quilt 的版本。");
@@ -2565,18 +2575,25 @@ namespace BlockCraftLauncher.Wpf
                 Status("已加入 GitHub 开源模组安装任务：" + hit.Name);
                 return;
             }
-            downloads.Enqueue("Modrinth", hit.Name + " → " + profile.Name, async (token, progress, bytes) =>
+            // A queued transfer must keep its original destination even if the user edits the instance.
+            var destination = new GameProfile
+            {
+                Id = profile.Id, Name = profile.Name, Directory = profile.Directory,
+                BaseVersion = profile.BaseVersion, LaunchVersion = profile.LaunchVersion, Loader = profile.Loader
+            };
+            var job = downloads.Enqueue("Modrinth", hit.Name + " → " + destination.Name, async (token, progress, bytes) =>
             {
                 progress.Report("正在查找兼容的资源版本和依赖文件...");
-                using (var client = new ModrinthClient(settings))
+                using (var client = openModrinthClient())
                 {
                     var file = hit.Kind == "mod"
-                        ? await client.DownloadModWithDependenciesAsync(hit, profile, token, bytes, progress, versionId)
-                        : await client.DownloadLatestAsync(hit, profile, token, bytes);
+                        ? await client.DownloadModWithDependenciesAsync(hit, destination, token, bytes, progress, versionId)
+                        : await client.DownloadLatestAsync(hit, destination, token, bytes);
                     progress.Report("已安装到：" + file);
                     Status("资源下载完成：" + hit.Name);
                 }
             });
+            job.CatalogKey = CatalogInstallKey(hit, destination);
             Status("已将资源加入任务列表：" + hit.Name);
             await Task.CompletedTask;
         }
@@ -2597,8 +2614,14 @@ namespace BlockCraftLauncher.Wpf
                 ItemsSource = new[] { "相关度", "下载量", "最近更新", "最新发布" },
                 SelectedIndex = 0
             };
+            packLoaderFilter = new ComboBox
+            {
+                ItemsSource = new[] { "全部加载器", "Fabric", "Forge", "NeoForge", "Quilt" },
+                SelectedIndex = 0
+            };
             ApplySearchInputStyle(packSearchQuery, "输入名称或关键词，按 Enter 搜索");
             ApplySearchInputStyle(packVersionFilter, "可选择或输入 Minecraft 游戏版本");
+            ApplySearchInputStyle(packLoaderFilter, "筛选整合包使用的加载器");
             ApplySearchInputStyle(packSortMode, "设置结果排序");
             async Task SearchFirstPage()
             {
@@ -2620,6 +2643,7 @@ namespace BlockCraftLauncher.Wpf
                 packSearchButton.IsEnabled = true;
                 packSearchQuery.Clear();
                 packVersionFilter.SelectedIndex = 0;
+                packLoaderFilter.SelectedIndex = 0;
                 packSortMode.SelectedIndex = 0;
                 packPage = 0;
                 packSearchResults.ItemsSource = null;
@@ -2628,7 +2652,7 @@ namespace BlockCraftLauncher.Wpf
             });
             var root = Col(PageHeading("整合包", null),
                 SearchCard(Col(
-                SearchFields(("名称", packSearchQuery), ("版本", packVersionFilter), ("排序", packSortMode)),
+                SearchFields(("名称", packSearchQuery), ("版本", packVersionFilter), ("加载器", packLoaderFilter), ("排序", packSortMode)),
                 Row(packSearchButton, reset, Btn("导入整合包", ImportMrpackFromDisk)))));
 
             packSearchResults = new ListBox
@@ -2658,13 +2682,14 @@ namespace BlockCraftLauncher.Wpf
             return root;
         }
 
-        async Task SearchModpacksAsync()
+        async Task<bool> SearchModpacksAsync(CancellationToken commandToken = default)
         {
-            if (packSearchResults == null) return;
+            if (packSearchResults == null) return false;
             using var activity = BeginPageActivity("整合包", "正在查找兼容的整合包…");
             CancelAndDetach(ref packSearchCancellation);
-            using (var request = new CancellationTokenSource(TimeSpan.FromSeconds(35)))
+            using (var request = CancellationTokenSource.CreateLinkedTokenSource(commandToken))
             {
+                request.CancelAfter(TimeSpan.FromSeconds(35));
                 packSearchCancellation = request;
                 if (packSearchButton != null) packSearchButton.IsEnabled = false;
                 if (packSearchStatus != null) packSearchStatus.Text = "正在搜索 Modrinth 整合包...";
@@ -2673,15 +2698,16 @@ namespace BlockCraftLauncher.Wpf
                     string version = packVersionFilter?.Text?.Trim();
                     if (string.IsNullOrWhiteSpace(version) || version == "全部版本")
                         version = null;
+                    string loader = packLoaderFilter.SelectedIndex > 0 ? packLoaderFilter.SelectedItem as string : null;
                     string sort = new[] { "relevance", "downloads", "updated", "newest" }[
                         Math.Max(0, Math.Min(3, packSortMode?.SelectedIndex ?? 0))];
-                    using (var client = new ModrinthClient(settings))
+                    using (var client = openModrinthClient())
                     {
                         var result = await client.SearchPageAsync(packSearchQuery.Text,
-                            "modpack", request.Token, version, null, sort, packPage * 20, null);
+                            "modpack", request.Token, version, loader, sort, packPage * 20, null);
                         if (request.IsCancellationRequested ||
                             !ReferenceEquals(packSearchCancellation, request) ||
-                            currentPage != "整合包") return;
+                            currentPage != "整合包") return false;
                         packSearchResults.ItemsSource = result.Hits;
                         int total = Math.Min(2000, result.TotalHits);
                         if (packSearchStatus != null)
@@ -2693,6 +2719,7 @@ namespace BlockCraftLauncher.Wpf
                         packNextButton.IsEnabled = result.Hits.Count == 20 &&
                             (packPage + 1) * 20 < total;
                         Status("已加载第 " + (packPage + 1) + " 页整合包结果。");
+                        return true;
                     }
                 }
                 catch (OperationCanceledException)
@@ -2703,10 +2730,10 @@ namespace BlockCraftLauncher.Wpf
                 }
                 catch (Exception ex)
                 {
-                    if (!ReferenceEquals(packSearchCancellation, request)) return;
+                    if (!ReferenceEquals(packSearchCancellation, request)) return false;
                     if (packSearchStatus != null)
                         packSearchStatus.Text = "获取整合包失败，请检查网络或调整筛选条件。";
-                    ShowError("Modrinth 整合包搜索失败", ex);
+                    if (!commandToken.CanBeCanceled) ShowError("Modrinth 整合包搜索失败", ex);
                 }
                 finally
                 {
@@ -2716,6 +2743,7 @@ namespace BlockCraftLauncher.Wpf
                         if (packSearchButton != null) packSearchButton.IsEnabled = true;
                     }
                 }
+                return false;
             }
         }
 
@@ -2748,7 +2776,7 @@ namespace BlockCraftLauncher.Wpf
             var originProfile = activeProfile;
             GameProfile installed = null;
             Status("已加入下载任务：" + name);
-            return downloads.Enqueue("整合包", name, async (token, progress, bytes) =>
+            var job = downloads.Enqueue("整合包", name, async (token, progress, bytes) =>
             {
                 if (installed != null)
                 {
@@ -2764,8 +2792,15 @@ namespace BlockCraftLauncher.Wpf
                         Directory.CreateDirectory(folder);
                         downloadedArchive = Path.Combine(folder, Guid.NewGuid().ToString("N") + ".mrpack");
                         progress.Report("正在下载整合包：" + name);
-                        using (var client = new ModrinthClient(settings))
+                        using (var client = openModrinthClient())
                             await client.DownloadModpackArchiveAsync(online, downloadedArchive, token, bytes);
+                        if (!string.IsNullOrEmpty(online.TargetGameVersion) || !string.IsNullOrEmpty(online.TargetLoader))
+                        {
+                            var manifest = new MrpackInstaller(settings).Preview(downloadedArchive);
+                            if ((!string.IsNullOrEmpty(online.TargetGameVersion) && manifest.Minecraft != online.TargetGameVersion) ||
+                                (!string.IsNullOrEmpty(online.TargetLoader) && !string.Equals(manifest.Loader, online.TargetLoader, StringComparison.OrdinalIgnoreCase)))
+                                throw new InvalidDataException("整合包清单与所选游戏版本或加载器不匹配，已取消安装。");
+                        }
                         bytes.Report(new DownloadBytes(0, 0));
                     }
                     progress.Report("正在安装游戏和整合包文件…");
@@ -2785,6 +2820,8 @@ namespace BlockCraftLauncher.Wpf
                     }
                 }
             });
+            if (online != null) job.CatalogKey = CatalogInstallKey(online, null);
+            return job;
         }
 
         Task<GameProfile> InstallMrpackAsync(string archive, IProgress<string> progress, CancellationToken token)

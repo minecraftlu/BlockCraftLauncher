@@ -44,6 +44,40 @@ namespace BlockCraftLauncher.Wpf.Services
         internal static LocalModSearchPlan FromDescription(string description) =>
             Topics.FirstOrDefault(t => Regex.IsMatch(description ?? "", t.Pattern,
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)).Topic;
+
+        // A catalog search hint can be deliberately broad. Use a built-in installation
+        // choice only for a single recognized purpose whose project serves that purpose.
+        internal static string KnownInstallProject(string description)
+        {
+            if (string.IsNullOrWhiteSpace(description)) return null;
+            const RegexOptions options = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
+            if (Regex.IsMatch(description, @"排除|除了|除外|不要|不用|不含|不能|无法|禁止|但是|并且|同时|以及|\b(except|without|not|and|but)\b", options)) return null;
+            var topics = Topics.Where(t => Regex.IsMatch(description, t.Pattern, options)).Take(2).ToList();
+            if (topics.Count != 1) return null;
+            var topic = topics[0].Topic;
+            string purpose;
+            switch (topic.ProjectHint)
+            {
+                case "Sodium":
+                    purpose = @"(?:提高|提升|增加|优化|改善|稳定)(?:游戏)?(?:帧率|帧数|fps)|(?:帧率|帧数|fps)(?:优化|提升)|(?:减少|缓解|修复|解决)掉帧" +
+                        @"|\b(?:improv\w*|boost\w*|increas\w*|higher|better)\s+(?:(?:my|the|game)\s+)?(?:fps|frame[ -]?rates?)\b" +
+                        @"|\bfps\s+(?:boost\w*|optimi[sz]\w*)";
+                    break;
+                case "JourneyMap":
+                    purpose = @"小地图|地图导航|世界地图|\bminimap\b|\bworld map\b";
+                    break;
+                case "Just Enough Items":
+                    purpose = @"(?:查看|显示|查询|查找|搜索|检索)(?:合成|物品|制作)?(?:配方|合成表)|(?:配方|合成表)(?:查看|显示|查询|查找|搜索)" +
+                        @"|\brecipe (?:viewer|lookup|browser)\b";
+                    break;
+                case "Sophisticated Backpacks":
+                    purpose = @"(?:添加|增加|提供|制作)(?:可升级的?|可携带的?|便携的?)?背包|\b(?:add\w*|craft\w*) (?:portable |upgradeable )?backpacks?\b";
+                    break;
+                default:
+                    return null;
+            }
+            return Regex.IsMatch(description, purpose, options) ? topic.ProjectHint : null;
+        }
     }
 
     internal sealed class LocalQwenChatService : IDisposable

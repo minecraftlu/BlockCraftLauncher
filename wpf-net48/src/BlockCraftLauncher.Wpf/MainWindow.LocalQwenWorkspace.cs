@@ -109,11 +109,21 @@ namespace BlockCraftLauncher.Wpf
                 string answer = await TryRunLocalQwenExactCommandAsync(question, token);
                 if (answer == null)
                 {
-                    Uri endpoint = await PrepareLocalModelAsync(LocalQwenMode.Chat, false, progress, token);
-                    token.ThrowIfCancellationRequested();
-                    Action<string> append = delta => { lock (buffer) buffer.Append(delta); };
-                    var reply = localQwenReply ?? RunLocalQwenAsync;
-                    answer = await reply(endpoint, messages, append, token);
+                    Uri endpoint = null;
+                    try { endpoint = await PrepareLocalModelAsync(LocalQwenMode.Chat, false, progress, token); }
+                    catch (LocalModelNotInstalledException)
+                    {
+                        string project = KnownQwenInstallProject(question, out var command);
+                        if (project == null) throw;
+                        answer = await InstallKnownQwenProjectAsync(project, command, token);
+                    }
+                    if (endpoint != null)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        Action<string> append = delta => { lock (buffer) buffer.Append(delta); };
+                        var reply = localQwenReply ?? RunLocalQwenAsync;
+                        answer = await reply(endpoint, messages, append, token);
+                    }
                 }
                 token.ThrowIfCancellationRequested();
                 if (string.IsNullOrWhiteSpace(answer)) throw new InvalidDataException("模型没有返回回答，请重试。");
