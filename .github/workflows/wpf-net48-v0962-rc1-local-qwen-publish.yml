@@ -1,0 +1,114 @@
+name: Publish BlockCraft Launcher v0.9.62 RC1 local Qwen preview
+
+on:
+  push:
+    branches: [release/v0962-wpf-rc1-local-qwen]
+
+concurrency:
+  group: blockcraft-v0962-rc1-local-qwen-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'minecraftlu/BlockCraftLauncher' && github.ref == 'refs/heads/release/v0962-wpf-rc1-local-qwen'
+    runs-on: windows-2022
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: wpf-net48
+    env:
+      TAG: v0.9.62-wpf-rc.1
+      BUILD_SHA: 00ddc479f986b089a3ee2340ff4ee19305dfc119
+      BUILD_RUN: '45566282747'
+      EXE_NAME: BlockCraftLauncher-v0.9.62-WPF-OneFile-Windows-x64.exe
+      ZIP_NAME: BlockCraftLauncher-v0.9.62-WPF-net48-Alpha-Windows-x64.zip
+      PREVIOUS: v0.9.61-wpf-rc.1
+      PREVIOUS_ZIP_SHA256: af3f9dc97a86d4195c137ff1500776dd450bf432652254677f861bbf12a96db4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Retrieve the exact tested build and verify its two recorded SHA-256 hashes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:BUILD_RUN" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $run.conclusion -cne 'success' -or $run.head_sha -cne $env:BUILD_SHA -or
+              $run.path -cne '.github/workflows/wpf-qwen-local-check.yml') { throw 'Unexpected source build' }
+          $archive = Join-Path $env:RUNNER_TEMP 'blockcraft-tested-artifact.zip'
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json' }
+          Invoke-WebRequest -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/artifacts/14999439344/zip" -Headers $headers -OutFile $archive
+          $archiveHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+          if ($archiveHash -ine '2582213ac9e32032ae3c73a43fff4c4b60c5db52e4531b95fefbc3cca813dc98') {
+            throw 'Archive digest differs from the successful Windows build'
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath dist
+          $manifest = foreach ($name in @($env:EXE_NAME, $env:ZIP_NAME)) {
+            $hash = (Get-FileHash -LiteralPath "dist/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($name -ceq $env:EXE_NAME -and $hash -cne '33b8b65042530c58b7dd907e60db7168abe4872d6f512ca077b3f24ea48fbce2') {
+              throw 'Single-file digest differs from the recorded build'
+            }
+            "$hash  $name"
+          }
+          $sidecar = (Get-Content -LiteralPath "dist/$env:EXE_NAME.sha256" -Raw).Trim()
+          if ($sidecar -cne $manifest[0]) { throw 'Single-file checksum sidecar mismatch' }
+          $manifest | Set-Content -LiteralPath dist/RELEASE-SHA256SUMS.txt -Encoding ascii
+
+      - name: Check both distributions with the previous public preview updater
+        run: ./tests/check_v0951_rc1_preview_offer.ps1 -Phase Preflight -Tag $env:TAG -Previous $env:PREVIOUS -PreviousZipSha256 $env:PREVIOUS_ZIP_SHA256
+
+      - name: Attest the exact binaries being promoted
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            wpf-net48/dist/BlockCraftLauncher-v0.9.62-WPF-OneFile-Windows-x64.exe
+            wpf-net48/dist/BlockCraftLauncher-v0.9.62-WPF-net48-Alpha-Windows-x64.zip
+
+      - uses: sigstore/cosign-installer@v4.1.2
+      - name: Sign and verify the release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $identity = "https://github.com/$env:GITHUB_WORKFLOW_REF"
+          $signer = "github.com/$env:GITHUB_REPOSITORY/.github/workflows/wpf-net48-v0962-rc1-local-qwen-publish.yml"
+          foreach ($name in @($env:EXE_NAME, $env:ZIP_NAME)) {
+            $file = "dist/$name"
+            cosign sign-blob --yes --bundle "$file.sigstore.json" $file
+            if ($LASTEXITCODE -ne 0) { throw "Signing failed for $name" }
+            cosign verify-blob $file --bundle "$file.sigstore.json" --certificate-identity $identity --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+            if ($LASTEXITCODE -ne 0) { throw "Signature verification failed for $name" }
+            gh attestation verify $file --repo $env:GITHUB_REPOSITORY --source-ref $env:GITHUB_REF --signer-workflow $signer
+            if ($LASTEXITCODE -ne 0) { throw "Release attestation verification failed for $name" }
+          }
+
+      - name: Publish the packages, checksums, signatures and interface preview as a prerelease at the tested source commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tagRef = git ls-remote --tags origin "refs/tags/$env:TAG"
+          if ($LASTEXITCODE -ne 0 -or $tagRef) { throw 'Tag already exists or could not be checked' }
+          $files = @("dist/$env:EXE_NAME", "dist/$env:EXE_NAME.sha256",
+            "dist/$env:ZIP_NAME", 'dist/RELEASE-SHA256SUMS.txt',
+            "dist/$env:EXE_NAME.sigstore.json", "dist/$env:ZIP_NAME.sigstore.json", "dist/BlockCraftLauncher-v0.9.62-local-qwen.jpg")
+          gh release create $env:TAG @files --repo $env:GITHUB_REPOSITORY --target $env:BUILD_SHA --title 'BlockCraft Launcher v0.9.62 RC1（本地千问聊天、画图和改图）' --notes-file './docs/release-v0.9.62-rc1.md' --prerelease --latest=false
+          if ($LASTEXITCODE -ne 0) { throw 'Prerelease creation failed' }
+          $published = gh release view $env:TAG --repo $env:GITHUB_REPOSITORY --json tagName,isDraft,isPrerelease,assets | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $published.isDraft -or !$published.isPrerelease -or $published.tagName -cne $env:TAG) {
+            throw 'Published release does not match the requested preview'
+          }
+          foreach ($file in $files) {
+            if ($published.assets.name -cnotcontains (Split-Path $file -Leaf)) { throw "Missing release asset $file" }
+          }
+
+      - name: Test the public downloads and the live preview feed with v0.9.61
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./tests/check_v0951_rc1_preview_offer.ps1 -Phase Live -Tag $env:TAG -Previous $env:PREVIOUS -PreviousZipSha256 $env:PREVIOUS_ZIP_SHA256
