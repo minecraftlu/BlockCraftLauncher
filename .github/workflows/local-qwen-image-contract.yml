@@ -1,0 +1,41 @@
+name: Qwen image models on Windows
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  image-contract:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: BlockCraftLauncher-v0.9.62-RC1-Windows-x64
+          path: tested
+      - name: Verify published image assets, start the portable engine on CPU and validate both launcher graphs
+        shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = @(Get-ChildItem -LiteralPath tested -Filter '*-WPF-net48-Alpha-Windows-x64.zip')
+          if ($zip.Count -ne 1) { throw 'Expected one packaged Windows WPF application' }
+          $appDir = Join-Path $env:RUNNER_TEMP 'image-contract-app'
+          Expand-Archive -LiteralPath $zip[0].FullName -DestinationPath $appDir
+          $app = @(Get-ChildItem -LiteralPath $appDir -Recurse -Filter 'BlockCraftLauncher.Wpf.exe')
+          if ($app.Count -ne 1) { throw 'Expected one launcher assembly in the package' }
+          & ./wpf-net48/tests/check_local_qwen_image_runtime.ps1 -Executable $app[0].FullName -Directory (Join-Path $env:RUNNER_TEMP 'qwen-image-contract')
+      - name: Keep validated workflows and file verification results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlockCraftLauncher-v0962-local-image-contract
+          path: ${{ runner.temp }}/qwen-image-contract/contract/
+          if-no-files-found: ignore
+          retention-days: 7

@@ -22,6 +22,7 @@ namespace BlockCraftLauncher.Wpf.Models
         // is separate and only hosts launcher-owned temporary packages.
         // Empty retains the legacy LocalAppData cache root.
         public string DownloadDirectory { get; set; } = "";
+        public string LocalQwenDirectory { get; set; } = "";
         public string JavaPath { get; set; } = "";
         public string Proxy { get; set; } = "";
         public bool McimEnabled { get; set; } = false;
@@ -48,3 +49,4 @@ namespace BlockCraftLauncher.Wpf.Models
         public Dictionary<string, object> Raw { get; set; } = new Dictionary<string, object>();
     }
 }
+

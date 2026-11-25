@@ -16,7 +16,7 @@ namespace BlockCraftLauncher.OneFile
     {
         private const string ResourceName = "BlockCraftLauncher.Payload.zip";
         private const string GameExe = "BlockCraftLauncher.Wpf.exe";
-        private const string Release = "v0.9.61";
+        private const string Release = "v0.9.62";
         private const string Ready = ".blockcraft-ready";
 
         [STAThread]
@@ -31,7 +31,8 @@ namespace BlockCraftLauncher.OneFile
                 "--modrinth-deps-selftest", "--saves-restore-selftest",
                 "--instance-detection-selftest", "--auth-selftest",
                 "--skin-selftest", "--qwen-search-selftest", "--qwen-download-selftest", "--qwen-download-live-check", "--qwen-game-live-check",
-                "--qwen-chat-selftest", "--qwen-media-selftest", "--qwen-web-selftest", "--qwen-web-live-check"
+                "--qwen-chat-selftest", "--qwen-media-selftest", "--qwen-web-selftest", "--qwen-web-live-check",
+                "--local-qwen-selftest", "--local-qwen-live-check"
             }.Any(flag => string.Equals(flag, args[0], StringComparison.OrdinalIgnoreCase))) ||
                 (args.Length >= 3 && args.Length <= 4 &&
                  args[0] == "--after-update" &&
@@ -87,7 +88,9 @@ namespace BlockCraftLauncher.OneFile
                     {
                         bool webProbe = args.Length == 1 && (string.Equals(args[0], "--qwen-web-selftest", StringComparison.OrdinalIgnoreCase) ||
                             string.Equals(args[0], "--qwen-web-live-check", StringComparison.OrdinalIgnoreCase));
-                        if (!process.WaitForExit(webProbe ? 165000 : 65000))
+                        int timeout = args[0] == "--local-qwen-live-check" ? 2400000 :
+                            (webProbe || args[0] == "--local-qwen-selftest" ? 165000 : 65000);
+                        if (!process.WaitForExit(timeout))
                         {
                             process.Kill();
                             throw new TimeoutException("单文件启动自检超时。");

@@ -228,6 +228,7 @@ namespace BlockCraftLauncher.Wpf
             Closed += (sender, args) =>
             {
                 CloseQwenSearchPage();
+                DisposeLocalQwen();
                 DisposeQwenMediaPage();
                 DisposeQwenWebPage();
                 SystemParameters.StaticPropertyChanged -= SystemAppearanceChanged;
@@ -3478,7 +3479,7 @@ namespace BlockCraftLauncher.Wpf
         bool UpdateHandoffActive => updateHandoffStarting || updateHandoffPending;
 
         bool UpdateIsBusy => UpdateHandoffActive || updateChecking || updatePreparing || updateCancellation.IsCancellationRequested ||
-            currentOperation != null || changingAccount || loadingVersions || launchStages.Count > 0 ||
+            currentOperation != null || localQwenOperation != null || changingAccount || loadingVersions || launchStages.Count > 0 ||
             downloads.Jobs.Any(job => job.IsRunning) || skinStudio?.HasActiveOperation == true ||
             settings.Profiles.Any(profile => gameProcesses.GetState(profile).Status == GameProcessStatus.Running);
 

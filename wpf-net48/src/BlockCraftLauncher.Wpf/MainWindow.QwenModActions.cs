@@ -84,8 +84,9 @@ namespace BlockCraftLauncher.Wpf
         }
 
         async Task<string> RunQwenModActionAsync(string query, bool install, string version = null,
-            string loader = null, string targetName = null, string sourceName = null)
+            string loader = null, string targetName = null, string sourceName = null, CancellationToken token = default)
         {
+            token.ThrowIfCancellationRequested();
             query = query?.Trim();
             if (string.IsNullOrEmpty(query) || query.Length > 150) return "请填写 1 至 150 字的模组名称。";
             ModSource? requestedSource = null;
@@ -119,7 +120,7 @@ namespace BlockCraftLauncher.Wpf
             var loaderBox = resourceLoader;
             var sortBox = resourceSort;
             var categoryBox = resourceCategory;
-            using (var request = new CancellationTokenSource())
+            using (var request = CancellationTokenSource.CreateLinkedTokenSource(token))
             {
                 qwenModActionCancellation = request;
                 bool Current() => !request.IsCancellationRequested &&

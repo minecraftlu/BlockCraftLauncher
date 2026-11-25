@@ -37,6 +37,7 @@ namespace BlockCraftLauncher.Wpf.Services
                     if (data == null) continue;
                     config.Raw = data;
                     config.Root = S(data, "root", config.Root);
+                    config.LocalQwenDirectory = S(data, "local_qwen_directory");
                     string savedDownloadPath = S(data, "download_directory");
                     if (DownloadPathService.TryValidate(savedDownloadPath,
                         config.Root, out var downloadDirectory, out var downloadError))
@@ -82,6 +83,7 @@ namespace BlockCraftLauncher.Wpf.Services
             var data = new Dictionary<string, object>(c.Raw);
             data["root"] = c.Root; data["java"] = c.JavaPath; data["proxy"] = c.Proxy;
             data["download_directory"] = c.DownloadDirectory;
+            data["local_qwen_directory"] = c.LocalQwenDirectory;
             data["mcim_enabled"] = c.McimEnabled;
             data["auto_check_updates"] = c.AutoCheckUpdates;
             data["auto_download_updates"] = c.AutoDownloadUpdates;

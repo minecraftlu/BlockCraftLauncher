@@ -32,7 +32,7 @@ namespace BlockCraftLauncher.Wpf.Services
             client = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
         }
 
-        static IReadOnlyList<object> RequestMessages(IReadOnlyList<QwenChatTurn> turns)
+        internal static IReadOnlyList<object> RequestMessages(IReadOnlyList<QwenChatTurn> turns)
         {
             if (turns == null || turns.Count == 0 || turns.Count % 2 == 0)
                 throw new QwenSearchException("对话记录不完整，请新建对话。");

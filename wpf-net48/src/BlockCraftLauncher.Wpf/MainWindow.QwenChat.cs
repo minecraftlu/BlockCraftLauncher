@@ -23,12 +23,12 @@ namespace BlockCraftLauncher.Wpf
         ComboBox qwenSessions;
         CheckBox qwenRetainHistory, qwenWebSearch;
         Button qwenNewChat, qwenDeleteChat, qwenClearChats, qwenConfirmDelete, qwenRegenerate;
-        enum QwenAssistantTab { Web, Chat, Media }
+        enum QwenAssistantTab { Web, Chat, Media, Local }
         QwenAssistantTab qwenSelectedTab = QwenAssistantTab.Web;
-        Button qwenWebTab, qwenChatTab, qwenMediaTab;
+        Button qwenWebTab, qwenChatTab, qwenMediaTab, qwenLocalTab;
         Grid qwenWebBody;
         Func<UIElement> qwenWebPageFactory;
-        StackPanel qwenChatBody, qwenTranscript, qwenMediaBody;
+        StackPanel qwenChatBody, qwenTranscript, qwenMediaBody, qwenLocalBody;
         ScrollViewer qwenChatScroll;
         FrameworkElement qwenDeletePrompt, qwenAnswerActions;
         TextBlock qwenDeleteLabel, qwenChatIntro;
@@ -43,22 +43,22 @@ namespace BlockCraftLauncher.Wpf
                 qwenWebTab = Btn("千问官网", () => SwitchQwenTab(QwenAssistantTab.Web));
                 qwenChatTab = Btn("聊天与指令", () => SwitchQwenTab(QwenAssistantTab.Chat));
                 qwenMediaTab = Btn("百炼创作", SelectQwenMediaTab);
+                qwenLocalTab = Btn("本地 AI", () => SwitchQwenTab(QwenAssistantTab.Local));
                 qwenChatTab.ToolTip = "运行游戏和模组下载指令，或通过百炼 API 对话";
                 qwenMediaTab.ToolTip = "通过百炼 API 生成和编辑图片、生成视频";
-                var tabs = Row(qwenWebTab, qwenChatTab, qwenMediaTab);
-                DockPanel.SetDock(tabs, Dock.Right);
-                var header = new DockPanel();
-                header.Children.Add(tabs);
-                header.Children.Add(PageHeading("千问 AI 助手", null));
+                var heading = (FrameworkElement)PageHeading("千问 AI 助手", null);
+                heading.Margin = new Thickness(0, 0, 12, 0);
+                var header = Row(heading, qwenWebTab, qwenChatTab, qwenMediaTab, qwenLocalTab);
 
                 qwenWebBody = new Grid();
                 qwenChatBody = new StackPanel { Visibility = Visibility.Collapsed };
                 qwenMediaBody = new StackPanel { Visibility = Visibility.Collapsed };
+                qwenLocalBody = new StackPanel { Visibility = Visibility.Collapsed };
                 qwenPage = new Grid();
                 qwenPage.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
                 qwenPage.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
                 qwenPage.Children.Add(header);
-                foreach (var body in new FrameworkElement[] { qwenWebBody, qwenChatBody, qwenMediaBody })
+                foreach (var body in new FrameworkElement[] { qwenWebBody, qwenChatBody, qwenMediaBody, qwenLocalBody })
                 {
                     Grid.SetRow(body, 1);
                     qwenPage.Children.Add(body);
@@ -153,6 +153,8 @@ namespace BlockCraftLauncher.Wpf
         {
             if (qwenChatScroll != null && height > 0)
                 qwenChatScroll.MaxHeight = Math.Max(150, Math.Min(600, height - 275));
+            if (localQwenScroll != null && height > 0)
+                localQwenScroll.MaxHeight = Math.Max(115, Math.Min(450, height - 340));
         }
 
         static TextBlock QwenSectionCaption(string text)
@@ -197,11 +199,14 @@ namespace BlockCraftLauncher.Wpf
         void SwitchQwenTab(QwenAssistantTab tab)
         {
             bool web = tab == QwenAssistantTab.Web, media = tab == QwenAssistantTab.Media;
-            if (!web && qwenChatBody.Children.Count == 0) BuildQwenChatBody();
+            bool local = tab == QwenAssistantTab.Local;
+            if (!web && !local && qwenChatBody.Children.Count == 0) BuildQwenChatBody();
             if (web && qwenWebBody.Children.Count == 0)
                 qwenWebBody.Children.Add(qwenWebPageFactory?.Invoke() ?? BuildQwenWebPage());
             if (media && qwenMediaBody.Children.Count == 0)
                 qwenMediaBody.Children.Add(BuildQwenMediaPage());
+            if (local && qwenLocalBody.Children.Count == 0)
+                qwenLocalBody.Children.Add(BuildLocalQwenPage());
             if (tab != QwenAssistantTab.Chat) CancelQwenSearch();
             if (!media && qwenMediaBody.Visibility == Visibility.Visible) CloseQwenMediaPage();
             qwenSelectedTab = tab;
@@ -209,9 +214,11 @@ namespace BlockCraftLauncher.Wpf
             qwenWebBody.Visibility = web ? Visibility.Visible : Visibility.Collapsed;
             qwenChatBody.Visibility = tab == QwenAssistantTab.Chat ? Visibility.Visible : Visibility.Collapsed;
             qwenMediaBody.Visibility = media ? Visibility.Visible : Visibility.Collapsed;
+            qwenLocalBody.Visibility = local ? Visibility.Visible : Visibility.Collapsed;
             qwenWebTab.SetResourceReference(StyleProperty, web ? (object)"AccentButton" : typeof(Button));
             qwenChatTab.SetResourceReference(StyleProperty, tab == QwenAssistantTab.Chat ? (object)"AccentButton" : typeof(Button));
             qwenMediaTab.SetResourceReference(StyleProperty, media ? (object)"AccentButton" : typeof(Button));
+            qwenLocalTab.SetResourceReference(StyleProperty, local ? (object)"AccentButton" : typeof(Button));
             PageScroll.ScrollToTop();
         }
 

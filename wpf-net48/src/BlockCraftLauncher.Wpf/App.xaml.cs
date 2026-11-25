@@ -88,8 +88,10 @@ namespace BlockCraftLauncher.Wpf
                 string.Equals(arg, "--qwen-web-selftest", StringComparison.OrdinalIgnoreCase));
             bool qwenWebLive = e.Args.Any(arg =>
                 string.Equals(arg, "--qwen-web-live-check", StringComparison.OrdinalIgnoreCase));
+            bool localQwenSelfTest = e.Args.Contains("--local-qwen-selftest", StringComparer.OrdinalIgnoreCase);
+            bool localQwenLive = e.Args.Contains("--local-qwen-live-check", StringComparer.OrdinalIgnoreCase);
             bool qwenUiCheck = qwenSearchSelfTest || qwenDownloadSelfTest || qwenChatSelfTest || qwenMediaSelfTest ||
-                qwenWebSelfTest || qwenWebLive;
+                qwenWebSelfTest || qwenWebLive || localQwenSelfTest || localQwenLive;
             bool qwenLiveDownload = e.Args.Any(arg =>
                 string.Equals(arg, "--qwen-download-live-check", StringComparison.OrdinalIgnoreCase));
             bool qwenLiveGame = e.Args.Any(arg =>
@@ -308,7 +310,7 @@ namespace BlockCraftLauncher.Wpf
                 try
                 {
                     if (ordinaryStartup && !VerifyStartupComponents()) return;
-                    bool publicQwenCheck = qwenLiveDownload || qwenLiveGame;
+                    bool publicQwenCheck = qwenLiveDownload || qwenLiveGame || localQwenLive;
                     var window = publicQwenCheck ? BlockCraftLauncher.Wpf.MainWindow.CreateQwenLiveDownloadWindow() : new MainWindow();
                     window.SuppressAutomaticUpdateCheck = qwenUiCheck || publicQwenCheck || relaunchWindowSelfTest ||
                         directPreview || updateHandoff || rollback;
@@ -322,7 +324,21 @@ namespace BlockCraftLauncher.Wpf
                             window.ShowActivated = false;
                             window.ShowInTaskbar = false;
                             string result, reportName;
-                            if (qwenWebSelfTest || qwenWebLive)
+                            if (localQwenSelfTest)
+                            {
+                                await LocalModelRuntimeChecks.RunAsync();
+                                await LocalQwenImageInstallChecks.RunAsync();
+                                await LocalQwenChatChecks.RunAsync();
+                                await LocalQwenImageChecks.RunAsync();
+                                result = await window.VerifyLocalQwenAsync();
+                                reportName = "local-qwen-check.txt";
+                            }
+                            else if (localQwenLive)
+                            {
+                                result = await window.VerifyLiveLocalQwenAsync();
+                                reportName = "local-qwen-live-check.txt";
+                            }
+                            else if (qwenWebSelfTest || qwenWebLive)
                             {
                                 result = qwenWebLive ? await window.VerifyQwenWebLiveAsync() : await window.VerifyQwenWebAsync();
                                 reportName = qwenWebLive ? "qwen-web-live-check.txt" : "qwen-web-check.txt";

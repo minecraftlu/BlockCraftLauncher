@@ -1,5 +1,5 @@
 param([Parameter(Mandatory)][string]$CaptureDirectory, [Parameter(Mandatory)][string]$OutputFile,
-    [switch]$QwenDownloadPreview, [switch]$QwenStudioPreview, [switch]$QwenWebPreview)
+    [switch]$QwenDownloadPreview, [switch]$QwenStudioPreview, [switch]$QwenWebPreview, [switch]$LocalQwenPreview)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 $panels = @(
@@ -23,6 +23,12 @@ if ($QwenWebPreview) {
     if (Test-Path -LiteralPath (Join-Path $CaptureDirectory 'qwen-web-live.png')) {
         $panels[0] = @('qwen-web-live.png', '千问官网 · 启动器内未登录界面')
     }
+}
+if ($LocalQwenPreview) {
+    $panels = @(
+        @('local-qwen.png', '本地千问 · 模型管理与对话'), @('qwen-download-action.png', '启动器内搜索和下载模组'),
+        @('qwen-web.png', '千问官网 · 内嵌浏览器测试页面'), @('qwen-media.png', '云端创作 · 离线测试界面')
+    )
 }
 $tileWidth = 525
 $tileHeight = 315
