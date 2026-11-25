@@ -262,6 +262,7 @@ namespace BlockCraftLauncher.Wpf
                     File.Exists(Path.Combine(second.Directory, "mods", "dependency.jar")),
                     "描述需求后未将选定的项目及其前置安装到新实例。" + recommended.Error);
                 await VerifyQwenPackCommandsAsync();
+                await VerifyQwenResourceTargetAsync();
                 return "Passed native game search/queue/cancel/deduplication, ambiguous and compatible mod commands, " +
                     "CurseForge dependency installation, stale result suppression, search-only AI recommendations, " +
                     "explicit semantic installs with active task deduplication, and native modpack commands.";

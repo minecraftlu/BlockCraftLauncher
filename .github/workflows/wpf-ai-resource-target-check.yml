@@ -1,0 +1,34 @@
+name: Verify AI manual resource selection on Windows
+on:
+  push:
+    branches: [qa/v0963-resource-target-check]
+permissions:
+  contents: read
+jobs:
+  named-instance:
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: microsoft/setup-msbuild@v2
+      - name: Build launcher with isolated two-instance regression
+        shell: cmd
+        working-directory: wpf-net48
+        run: call build\build-windows.bat
+      - name: Invoke native resource chooser and verify both instances
+        shell: pwsh
+        working-directory: wpf-net48
+        run: |
+          $env:BLOCKCRAFT_UI_CAPTURE_DIR = Join-Path $env:RUNNER_TEMP 'ai-named-instance'
+          $null = New-Item -ItemType Directory -Force -Path $env:BLOCKCRAFT_UI_CAPTURE_DIR
+          $exe = (Resolve-Path 'src/BlockCraftLauncher.Wpf/bin/Release/net48/BlockCraftLauncher.Wpf.exe').Path
+          $p = Start-Process -FilePath $exe -ArgumentList '--qwen-download-selftest' -WindowStyle Hidden -PassThru
+          if (!$p.WaitForExit(180000)) { $p.Kill(); throw 'UI test timed out' }
+          $p.Refresh()
+          if ($p.ExitCode -ne 0) {
+            Get-Content -ErrorAction SilentlyContinue -Tail 30 -LiteralPath (Join-Path $env:LOCALAPPDATA 'BlockCraftLauncher/wpf-preview-logs/startup-error.log')
+            throw "UI regression failed ($($p.ExitCode))"
+          }
+          Get-Content -ErrorAction Stop -Encoding utf8 -LiteralPath (Join-Path $env:BLOCKCRAFT_UI_CAPTURE_DIR 'qwen-download-check.txt')
