@@ -111,7 +111,8 @@ namespace BlockCraftLauncher.Wpf
             using var client = new QwenChatService(fake);
             var window = new MainWindow(null, null, new SettingsStore(Path.Combine(folder, "settings.json"))) {
                 qwenSettingsPath = Path.Combine(folder, "qwen.json"), qwenHistoryPath = Path.Combine(folder, "history.json"),
-                SuppressAutomaticUpdateCheck = true, ShowInTaskbar = false, ShowActivated = false, qwenRunChat = client.ChatAsync
+                SuppressAutomaticUpdateCheck = true, ShowInTaskbar = false, ShowActivated = false, qwenRunChat = client.ChatAsync,
+                qwenWebPageFactory = OfflineQwenWebPage
             };
             var opened = new List<Uri>();
             window.qwenOpenUri = opened.Add;
@@ -140,6 +141,7 @@ namespace BlockCraftLauncher.Wpf
                 window.Show();
                 window.Navigate(QwenSearchPage);
                 await Ui();
+                window.SelectQwenFixtureChat();
                 window.qwenEndpoint.Text = QwenFixtureEndpoint;
                 window.qwenModel.Text = QwenSearchService.DefaultModel;
                 window.qwenApiKey.Password = QwenFixtureKey;

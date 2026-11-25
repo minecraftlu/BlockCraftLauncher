@@ -229,6 +229,7 @@ namespace BlockCraftLauncher.Wpf
             {
                 CloseQwenSearchPage();
                 DisposeQwenMediaPage();
+                DisposeQwenWebPage();
                 SystemParameters.StaticPropertyChanged -= SystemAppearanceChanged;
                 downloads.JobsChanged -= OnDownloadJobsChanged;
                 gameProcessTimer.Stop();

@@ -39,6 +39,7 @@ namespace BlockCraftLauncher.Wpf
                 isolated.Save(config);
                 return new MainWindow(null, null, isolated) {
                     qwenLiveFolder = folder,
+                    qwenWebPageFactory = OfflineQwenWebPage,
                     qwenSettingsPath = Path.Combine(folder, "qwen.json"),
                     qwenGameManifestCachePath = Path.Combine(folder, "mojang-versions.json"),
                     ShowActivated = false, ShowInTaskbar = false, Opacity = 0, SuppressAutomaticUpdateCheck = true
@@ -56,6 +57,7 @@ namespace BlockCraftLauncher.Wpf
             async Task Submit(string words)
             {
                 Navigate(QwenSearchPage);
+                SelectQwenFixtureChat();
                 qwenQuery.Text = words;
                 var command = OpenQwenPageAsync();
                 if (await Task.WhenAny(command, Task.Delay(Timeout.Infinite, token)) != command)

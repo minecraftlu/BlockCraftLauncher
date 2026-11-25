@@ -128,6 +128,7 @@ namespace BlockCraftLauncher.Wpf
             qwenCompanionPath = Path.Combine(folder, "companion.json");
             qwenHistoryPath = Path.Combine(folder, "history.json");
             qwenMediaTaskPath = Path.Combine(folder, "media-task.json");
+            qwenWebPageFactory = OfflineQwenWebPage;
             var fixture = new MediaFixture { Png = MediaFixturePng() };
             qwenMediaClientFactory = () => new QwenMediaService(new MediaFixtureHandler(fixture), TimeSpan.FromMilliseconds(10));
             string asset = Path.Combine(folder, "方块山谷.png");
@@ -147,9 +148,9 @@ namespace BlockCraftLauncher.Wpf
                 if (!IsVisible) Show();
                 Navigate(QwenSearchPage);
                 ArrangeLayoutProbe(960, 600);
+                ClickFixtureAction(qwenMediaTab);
                 qwenEndpoint.Text = QwenFixtureEndpoint;
                 qwenApiKey.Password = QwenFixtureKey;
-                ClickFixtureAction(qwenMediaTab);
                 CheckQwen(qwenMediaBody.Visibility == Visibility.Visible && mediaMode.Items.Count == 4, "创作导航或类型缺失");
                 await Submit();
                 CheckQwen(fixture.Images + fixture.Videos == 0, "空描述发起了付费调用");

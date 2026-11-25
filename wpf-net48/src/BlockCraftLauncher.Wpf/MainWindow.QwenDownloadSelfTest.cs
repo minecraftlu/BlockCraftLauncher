@@ -88,6 +88,7 @@ namespace BlockCraftLauncher.Wpf
                 {
                     SuppressAutomaticUpdateCheck = true, ShowActivated = false, ShowInTaskbar = false,
                     qwenSettingsPath = Path.Combine(folder, "qwen.json"), qwenHistoryPath = Path.Combine(folder, "history.json"),
+                    qwenWebPageFactory = OfflineQwenWebPage,
                     preferredModSource = ModSource.CurseForge
                 };
                 window.settings.Root = folder;
@@ -137,6 +138,7 @@ namespace BlockCraftLauncher.Wpf
                         await Layout();
                         ClickFixtureAction(FixtureButton(window.PageHost, NavLabel(QwenSearchPage)));
                         await Layout();
+                        window.SelectQwenFixtureChat();
                     }
                     window.qwenQuery.Text = text;
                     ClickFixtureAction(window.qwenSubmit);

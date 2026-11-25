@@ -83,6 +83,7 @@ namespace BlockCraftLauncher.Wpf
             SuppressAutomaticUpdateCheck = true;
             qwenSettingsPath = Path.Combine(profile.Directory, "qwen-settings.json");
             qwenHistoryPath = Path.Combine(profile.Directory, "qwen-history.json");
+            qwenWebPageFactory = OfflineQwenWebPage;
             bool dialogs = Environment.GetEnvironmentVariable("BLOCKCRAFT_UI_DIALOG_PROBE") == "1";
             settings.Profiles.Add(profile);
             activeProfile = profile;
@@ -124,7 +125,16 @@ namespace BlockCraftLauncher.Wpf
 
                     Navigate("首页");
                     Visit("首页", "home");
-                    Visit("千问 AI 搜索", "qwen-search", FixtureButton(PageHost, NavLabel(QwenSearchPage)));
+                    ClickFixtureAction(FixtureButton(PageHost, NavLabel(QwenSearchPage)));
+                    Arrange();
+                    var webOrigin = qwenWebBody.TranslatePoint(new Point(), PageScroll);
+                    if (PageScroll.VerticalScrollBarVisibility != ScrollBarVisibility.Disabled ||
+                        qwenWebBody.ActualHeight < PageScroll.ViewportHeight - 90 ||
+                        qwenWebBody.ActualWidth < PageScroll.ViewportWidth - 4 ||
+                        webOrigin.Y + qwenWebBody.ActualHeight > PageScroll.ActualHeight + 1)
+                        throw new InvalidOperationException("千问官网未填满窗口内容区或底部被裁切。");
+                    SelectQwenFixtureChat();
+                    Visit("千问 AI 搜索", "qwen-search");
                     VerifyFixtureSidebar("千问 AI 搜索");
                     Visit("首页", "home", TopLaunchButton);
                     ClickFixtureAction(FixtureButton(PageHost, "CurseForge 官方"));
@@ -288,7 +298,9 @@ namespace BlockCraftLauncher.Wpf
                         throw new InvalidOperationException("切换设置分类后丢失更新偏好或更新状态。");
                     settingsAutoDownload.IsChecked = oldAutoDownload;
                     Visit("关于", "about", TopMoreButton);
-                    Side("千问 AI 搜索", "qwen-search");
+                    ClickFixtureAction(sidebarButtons[QwenSearchPage]);
+                    SelectQwenFixtureChat();
+                    Visit("千问 AI 搜索", "qwen-search");
                     VerifyFixtureSidebar("千问 AI 搜索");
                     Side("运行日志", "logs");
                     Side("皮肤 DIY", "skin-editor");

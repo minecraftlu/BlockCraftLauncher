@@ -24,6 +24,17 @@ namespace BlockCraftLauncher.Wpf
         const string QwenFixtureAnswer = "退出游戏后打开实例的 saves 文件夹，将对应世界文件夹复制到备份目录。[1]";
         const string QwenFixtureSource = "https://www.minecraft.net/en-us";
 
+        static UIElement OfflineQwenWebPage() => new Border();
+
+        void SelectQwenFixtureChat()
+        {
+            CheckQwen(qwenWebBody.Visibility == Visibility.Visible && qwenChatBody.Visibility == Visibility.Collapsed,
+                "从启动器进入千问时未显示官网。");
+            ClickFixtureAction(qwenChatTab);
+            CheckQwen(qwenChatBody.Visibility == Visibility.Visible && qwenWebBody.Visibility == Visibility.Collapsed &&
+                PageScroll.VerticalScrollBarVisibility == ScrollBarVisibility.Auto, "无法打开启动器聊天与指令。");
+        }
+
         static void CheckQwen(bool condition, string message)
         {
             if (!condition) throw new InvalidOperationException("千问自检：" + message);
@@ -97,6 +108,7 @@ namespace BlockCraftLauncher.Wpf
             qwenSettingsPath = Path.Combine(folder, "launcher.json");
             qwenCompanionPath = Path.Combine(folder, "companion.json");
             qwenHistoryPath = Path.Combine(folder, "history.json");
+            qwenWebPageFactory = OfflineQwenWebPage;
             const string environmentKey = "DASHSCOPE_API_KEY";
             string previousKey = Environment.GetEnvironmentVariable(environmentKey);
             var fixture = new QwenFixtureHandler();
@@ -127,6 +139,7 @@ namespace BlockCraftLauncher.Wpf
                 Navigate("首页");
                 await Layout();
                 ClickFixtureAction(FixtureButton(PageHost, NavLabel(QwenSearchPage)));
+                SelectQwenFixtureChat();
                 await Layout();
                 VerifyFixtureSidebar(QwenSearchPage);
                 qwenWebSearch.IsChecked = true;
@@ -236,6 +249,7 @@ namespace BlockCraftLauncher.Wpf
             await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
             ArrangeLayoutProbe(960, 600);
             ClickFixtureAction(FixtureButton(PageHost, NavLabel(QwenSearchPage)));
+            SelectQwenFixtureChat();
             await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
             CheckQwen(qwenSubmit.IsEnabled && !qwenCancel.IsEnabled && qwenAnswer.Text != "stale navigation",
                 "离开后完成的请求覆盖了重新打开的搜索页。");

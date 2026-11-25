@@ -23,7 +23,11 @@ namespace BlockCraftLauncher.Wpf
         ComboBox qwenSessions;
         CheckBox qwenRetainHistory, qwenWebSearch;
         Button qwenNewChat, qwenDeleteChat, qwenClearChats, qwenConfirmDelete, qwenRegenerate;
-        Button qwenChatTab, qwenMediaTab;
+        enum QwenAssistantTab { Web, Chat, Media }
+        QwenAssistantTab qwenSelectedTab = QwenAssistantTab.Web;
+        Button qwenWebTab, qwenChatTab, qwenMediaTab;
+        Grid qwenWebBody;
+        Func<UIElement> qwenWebPageFactory;
         StackPanel qwenChatBody, qwenTranscript, qwenMediaBody;
         ScrollViewer qwenChatScroll;
         FrameworkElement qwenDeletePrompt, qwenAnswerActions;
@@ -32,14 +36,46 @@ namespace BlockCraftLauncher.Wpf
         Func<IReadOnlyList<QwenChatTurn>, string, string, string, bool, Action<string>,
             CancellationToken, Task<QwenSearchResult>> qwenRunChat;
 
-        StackPanel BuildQwenAssistant()
+        UIElement BuildQwenSearchPage()
         {
+            if (qwenPage == null)
+            {
+                qwenWebTab = Btn("千问官网", () => SwitchQwenTab(QwenAssistantTab.Web));
+                qwenChatTab = Btn("聊天与指令", () => SwitchQwenTab(QwenAssistantTab.Chat));
+                qwenMediaTab = Btn("百炼创作", SelectQwenMediaTab);
+                qwenChatTab.ToolTip = "运行游戏和模组下载指令，或通过百炼 API 对话";
+                qwenMediaTab.ToolTip = "通过百炼 API 生成和编辑图片、生成视频";
+                var tabs = Row(qwenWebTab, qwenChatTab, qwenMediaTab);
+                DockPanel.SetDock(tabs, Dock.Right);
+                var header = new DockPanel();
+                header.Children.Add(tabs);
+                header.Children.Add(PageHeading("千问 AI 助手", null));
+
+                qwenWebBody = new Grid();
+                qwenChatBody = new StackPanel { Visibility = Visibility.Collapsed };
+                qwenMediaBody = new StackPanel { Visibility = Visibility.Collapsed };
+                qwenPage = new Grid();
+                qwenPage.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                qwenPage.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                qwenPage.Children.Add(header);
+                foreach (var body in new FrameworkElement[] { qwenWebBody, qwenChatBody, qwenMediaBody })
+                {
+                    Grid.SetRow(body, 1);
+                    qwenPage.Children.Add(body);
+                }
+                PageScroll.SizeChanged += (sender, args) => AdjustQwenTranscriptHeight(args.NewSize.Height);
+            }
+            SwitchQwenTab(qwenSelectedTab);
+            return qwenPage;
+        }
+
+        void BuildQwenChatBody()
+        {
+            BuildQwenComposer();
             string path = qwenHistoryPath;
             if (path == null && !string.IsNullOrWhiteSpace(qwenSettingsPath))
                 path = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(qwenSettingsPath)), "chat-history.json");
             qwenConversations = new QwenConversationStore(path);
-            qwenChatTab = Btn("聊天", () => SwitchQwenTab(false), true);
-            qwenMediaTab = Btn("创作", SelectQwenMediaTab);
             qwenSessions = new ComboBox { DisplayMemberPath = "Title", MinWidth = 125, MaxWidth = 210 };
             ApplySearchInputStyle(qwenSessions, "选择对话");
             AutomationProperties.SetName(qwenSessions, "选择对话");
@@ -104,26 +140,19 @@ namespace BlockCraftLauncher.Wpf
             shortcuts.VerticalAlignment = VerticalAlignment.Center;
             qwenChatIntro = Txt("输入问题，或直接说「下载 Minecraft 1.21.1」「给当前实例装钠」。", 14, false, true);
             qwenChatIntro.Margin = new Thickness(2, 12, 0, 10);
-            qwenChatBody = Col(Row(qwenSessions, qwenNewChat, qwenDeleteChat), qwenDeletePrompt, qwenChatIntro, qwenChatScroll,
+            qwenChatBody.Children.Add(Col(Row(qwenSessions, qwenNewChat, qwenDeleteChat), qwenDeletePrompt, qwenChatIntro, qwenChatScroll,
                 Card(Col(qwenQuery, Row(qwenSubmit, qwenCancel, qwenWebSearch, shortcuts), qwenSearchStatus)),
-                historyOptions, qwenConnection);
-            qwenMediaBody = new StackPanel { Visibility = Visibility.Collapsed };
-            var tabs = Row(qwenChatTab, qwenMediaTab);
-            DockPanel.SetDock(tabs, Dock.Right);
-            var header = new DockPanel();
-            header.Children.Add(tabs);
-            header.Children.Add(PageHeading("千问 AI 助手", null));
-            PageScroll.SizeChanged += (sender, args) => AdjustQwenTranscriptHeight(args.NewSize.Height);
+                historyOptions, qwenConnection));
             AdjustQwenTranscriptHeight(PageScroll.ActualHeight);
             RefreshQwenSessions();
             RenderQwenConversation();
             SetQwenSearchStatus(qwenConversations.PersistenceError);
-            return Col(header, qwenChatBody, qwenMediaBody);
         }
 
         void AdjustQwenTranscriptHeight(double height)
         {
-            if (height > 0) qwenChatScroll.MaxHeight = Math.Max(150, Math.Min(600, height - 275));
+            if (qwenChatScroll != null && height > 0)
+                qwenChatScroll.MaxHeight = Math.Max(150, Math.Min(600, height - 275));
         }
 
         static TextBlock QwenSectionCaption(string text)
@@ -134,7 +163,7 @@ namespace BlockCraftLauncher.Wpf
             return heading;
         }
 
-        void SelectQwenMediaTab() => SwitchQwenTab(true);
+        void SelectQwenMediaTab() => SwitchQwenTab(QwenAssistantTab.Media);
 
         bool TryOpenQwenCreativeDraft(string question)
         {
@@ -157,21 +186,38 @@ namespace BlockCraftLauncher.Wpf
             return true;
         }
 
-        void SwitchQwenTab(bool media)
+        void SetQwenWebLayout(bool web)
         {
+            // The embedded browser scrolls its own document. Give it the finite
+            // viewport, while ordinary launcher pages retain the outer scrollbar.
+            PageScroll.VerticalScrollBarVisibility = web ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto;
+            PageHost.VerticalContentAlignment = web ? VerticalAlignment.Stretch : VerticalAlignment.Top;
+        }
+
+        void SwitchQwenTab(QwenAssistantTab tab)
+        {
+            bool web = tab == QwenAssistantTab.Web, media = tab == QwenAssistantTab.Media;
+            if (!web && qwenChatBody.Children.Count == 0) BuildQwenChatBody();
+            if (web && qwenWebBody.Children.Count == 0)
+                qwenWebBody.Children.Add(qwenWebPageFactory?.Invoke() ?? BuildQwenWebPage());
             if (media && qwenMediaBody.Children.Count == 0)
                 qwenMediaBody.Children.Add(BuildQwenMediaPage());
-            if (media) CancelQwenSearch();
-            else if (qwenMediaBody.Visibility == Visibility.Visible) CloseQwenMediaPage();
-            qwenChatBody.Visibility = media ? Visibility.Collapsed : Visibility.Visible;
+            if (tab != QwenAssistantTab.Chat) CancelQwenSearch();
+            if (!media && qwenMediaBody.Visibility == Visibility.Visible) CloseQwenMediaPage();
+            qwenSelectedTab = tab;
+            SetQwenWebLayout(web);
+            qwenWebBody.Visibility = web ? Visibility.Visible : Visibility.Collapsed;
+            qwenChatBody.Visibility = tab == QwenAssistantTab.Chat ? Visibility.Visible : Visibility.Collapsed;
             qwenMediaBody.Visibility = media ? Visibility.Visible : Visibility.Collapsed;
-            qwenChatTab.SetResourceReference(StyleProperty, media ? (object)typeof(Button) : "AccentButton");
+            qwenWebTab.SetResourceReference(StyleProperty, web ? (object)"AccentButton" : typeof(Button));
+            qwenChatTab.SetResourceReference(StyleProperty, tab == QwenAssistantTab.Chat ? (object)"AccentButton" : typeof(Button));
             qwenMediaTab.SetResourceReference(StyleProperty, media ? (object)"AccentButton" : typeof(Button));
+            PageScroll.ScrollToTop();
         }
 
         void OpenQwenConnectionSettings()
         {
-            SwitchQwenTab(false);
+            SwitchQwenTab(QwenAssistantTab.Chat);
             qwenConnection.IsExpanded = true;
             qwenConnection.BringIntoView();
         }

@@ -84,7 +84,12 @@ namespace BlockCraftLauncher.Wpf
                 string.Equals(arg, "--qwen-chat-selftest", StringComparison.OrdinalIgnoreCase));
             bool qwenMediaSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--qwen-media-selftest", StringComparison.OrdinalIgnoreCase));
-            bool qwenUiCheck = qwenSearchSelfTest || qwenDownloadSelfTest || qwenChatSelfTest || qwenMediaSelfTest;
+            bool qwenWebSelfTest = e.Args.Any(arg =>
+                string.Equals(arg, "--qwen-web-selftest", StringComparison.OrdinalIgnoreCase));
+            bool qwenWebLive = e.Args.Any(arg =>
+                string.Equals(arg, "--qwen-web-live-check", StringComparison.OrdinalIgnoreCase));
+            bool qwenUiCheck = qwenSearchSelfTest || qwenDownloadSelfTest || qwenChatSelfTest || qwenMediaSelfTest ||
+                qwenWebSelfTest || qwenWebLive;
             bool qwenLiveDownload = e.Args.Any(arg =>
                 string.Equals(arg, "--qwen-download-live-check", StringComparison.OrdinalIgnoreCase));
             bool qwenLiveGame = e.Args.Any(arg =>
@@ -317,7 +322,12 @@ namespace BlockCraftLauncher.Wpf
                             window.ShowActivated = false;
                             window.ShowInTaskbar = false;
                             string result, reportName;
-                            if (qwenLiveGame)
+                            if (qwenWebSelfTest || qwenWebLive)
+                            {
+                                result = qwenWebLive ? await window.VerifyQwenWebLiveAsync() : await window.VerifyQwenWebAsync();
+                                reportName = qwenWebLive ? "qwen-web-live-check.txt" : "qwen-web-check.txt";
+                            }
+                            else if (qwenLiveGame)
                             {
                                 result = await window.VerifyLiveQwenGameAsync();
                                 reportName = "qwen-live-game-check.txt";

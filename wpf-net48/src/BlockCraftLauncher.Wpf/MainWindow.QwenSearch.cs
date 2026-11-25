@@ -14,7 +14,8 @@ namespace BlockCraftLauncher.Wpf
     public partial class MainWindow
     {
         const string QwenSearchPage = "千问 AI 搜索";
-        StackPanel qwenPage, qwenSources;
+        Grid qwenPage;
+        StackPanel qwenSources;
         Border qwenResult;
         TextBox qwenQuery, qwenEndpoint, qwenModel, qwenAnswer;
         TextBlock qwenSearchStatus;
@@ -27,9 +28,8 @@ namespace BlockCraftLauncher.Wpf
         Func<string, string, string, string, CancellationToken, Task<QwenSearchResult>> qwenRunSearch;
         Action<Uri> qwenOpenUri;
 
-        UIElement BuildQwenSearchPage()
+        void BuildQwenComposer()
         {
-            if (qwenPage != null) return qwenPage;
             qwenSearchStatus = Txt("", 12, false, true);
             AutomationProperties.SetLiveSetting(qwenSearchStatus, AutomationLiveSetting.Polite);
             qwenSearchStatus.Visibility = Visibility.Collapsed;
@@ -52,8 +52,6 @@ namespace BlockCraftLauncher.Wpf
             qwenCancel.IsEnabled = false;
             qwenCancel.Visibility = Visibility.Collapsed;
             qwenConnection = BuildQwenConnection();
-            qwenPage = BuildQwenAssistant();
-            return qwenPage;
         }
 
         Expander BuildQwenConnection()
@@ -129,7 +127,7 @@ namespace BlockCraftLauncher.Wpf
 
         async Task SubmitQwenAsync(string question, bool regenerate)
         {
-            if (qwenPage == null || currentPage != QwenSearchPage || qwenRequest != null) return;
+            if (currentPage != QwenSearchPage || qwenSelectedTab != QwenAssistantTab.Chat || qwenRequest != null) return;
             if (question.Length == 0 || question.Length > QwenChatInputLimit)
             {
                 SetQwenSearchStatus("请输入 1 至 " + QwenChatInputLimit + " 字的问题。");
@@ -296,6 +294,11 @@ namespace BlockCraftLauncher.Wpf
         {
             CancelQwenSearch();
             CloseQwenMediaPage();
+            if (qwenPage != null)
+            {
+                qwenSelectedTab = QwenAssistantTab.Web;
+                SetQwenWebLayout(false);
+            }
         }
 
         void ResetQwenSearch()

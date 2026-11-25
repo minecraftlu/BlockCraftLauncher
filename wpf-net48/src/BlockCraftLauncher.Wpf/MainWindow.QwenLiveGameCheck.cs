@@ -31,6 +31,7 @@ namespace BlockCraftLauncher.Wpf
                     throw new InvalidOperationException("Unexpected Qwen model request.");
                 };
                 Navigate(QwenSearchPage);
+                SelectQwenFixtureChat();
                 qwenQuery.Text = "下载 Minecraft " + version;
                 var submit = OpenQwenPageAsync();
                 if (await Task.WhenAny(submit, Task.Delay(Timeout.Infinite, token)) != submit)
