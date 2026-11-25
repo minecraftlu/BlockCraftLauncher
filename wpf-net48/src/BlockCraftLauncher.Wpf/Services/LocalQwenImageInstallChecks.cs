@@ -22,6 +22,24 @@ namespace BlockCraftLauncher.Wpf.Services
                 Check(LocalQwenImageInstaller.DownloadBytes(root, false) == 32046180084L, "fresh generation size");
                 Check(LocalQwenImageInstaller.DownloadBytes(root, true) == 32149263757L, "fresh edit size");
                 Check(!LocalQwenImageInstaller.IsInstalled(root, true), "empty installation");
+                const string stats = "{\"system\":{\"comfyui_version\":\"0.46.0\"},\"devices\":[{\"type\":\"cpu\"}]}";
+                Check(LocalQwenImageInstaller.CheckDevices(stats, true), "CPU CI backend");
+                Check(LocalQwenImageInstaller.CheckDevices(stats.Replace("cpu", "cuda"), false), "CUDA backend");
+                Check(!LocalQwenImageInstaller.CheckDevices("{}", false), "unrelated loopback service");
+                bool rejectedCpu = false;
+                try { LocalQwenImageInstaller.CheckDevices(stats, false); } catch (InvalidOperationException) { rejectedCpu = true; }
+                Check(rejectedCpu, "GPU preflight before downloads");
+                string target = Path.Combine(root, "runtime");
+                string stage = Path.Combine(root, "staged");
+                Directory.CreateDirectory(target);
+                File.WriteAllText(Path.Combine(target, "original"), "user data");
+                Directory.CreateDirectory(stage);
+                File.WriteAllText(Path.Combine(stage, "replacement"), "verified runtime");
+                LocalQwenImageInstaller.PublishRuntime(stage, target, null);
+                Check(File.Exists(Path.Combine(target, "replacement")) &&
+                    File.Exists(Path.Combine(Directory.GetDirectories(root, "runtime.previous-*").Single(), "original")), "repair retains old runtime");
+                try { LocalQwenImageInstaller.PublishRuntime(stage, target, null); } catch (DirectoryNotFoundException) { }
+                Check(File.Exists(Path.Combine(target, "replacement")), "failed repair restores active runtime");
                 var origin = new Uri("https://model.example/model");
                 byte[] bytes = Encoding.UTF8.GetBytes("a locally verified model payload");
                 string expected;

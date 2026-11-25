@@ -113,7 +113,9 @@ namespace BlockCraftLauncher.Wpf.Services
                     uploaded = part.Headers.ContentDisposition.FileName.Trim('"');
                     Require(uploaded.StartsWith("blockcraft_", StringComparison.Ordinal) && (await part.ReadAsByteArrayAsync()).SequenceEqual(Png), "upload image");
                     UploadCount++;
-                    return Json(new { name = uploaded, subfolder = "", type = "input" });
+                    var type = parts.Single(p => p.Headers.ContentDisposition.Name.Trim('"') == "type");
+                    Require(await type.ReadAsStringAsync() == "temp", "original image upload is temporary");
+                    return Json(new { name = uploaded, subfolder = "", type = "temp" });
                 }
                 if (path == "/prompt")
                 {
@@ -127,34 +129,33 @@ namespace BlockCraftLauncher.Wpf.Services
                     Require((string)Field(Field(graph, "10"), "class_type") == "PreviewImage", "temporary result");
                     if (edit)
                     {
-                        Require(uploaded != null && (string)Field(Field(Field(graph, "11"), "inputs"), "image") == uploaded, "own uploaded input");
+                        Require(uploaded != null && (string)Field(Field(Field(graph, "11"), "inputs"), "image") == uploaded + " [temp]", "own uploaded input");
                         Require((string)Field(Field(graph, "14"), "class_type") == "TextEncodeQwenImageEditPlus", "edit conditioning");
                         Require((string)Field(Field(Field(graph, "14"), "inputs"), "prompt") == Prompt, "edit prompt");
                     }
                     else Require((string)Field(Field(Field(graph, "5"), "inputs"), "text") == Prompt, "generation prompt");
-                    CurrentId = Guid.NewGuid().ToString();
+                    CurrentId = (string)Field(payload, "prompt_id");
+                    Require(Guid.TryParseExact(CurrentId, "D", out _), "specific job ID");
                     return Json(new { prompt_id = CurrentId });
                 }
-                if (path == "/history/" + CurrentId)
+                if (path == "/api/jobs/" + CurrentId)
                 {
                     Polls++;
                     if (CancelOnPoll != null) { CancelOnPoll.Cancel(); ct.ThrowIfCancellationRequested(); }
-                    // Different job completed, ours still queued.
-                    if (Polls % 2 != 0) return Json(new Dictionary<string, object> { [Guid.NewGuid().ToString()] = new { } });
+                    if (Polls % 2 != 0) return Json(new { id = CurrentId, status = "in_progress" });
                     var image = new { filename = "ComfyUI_temp_test.png", subfolder = "", type = "temp" };
                     var outputs = new Dictionary<string, object> { ["10"] = new { images = new[] { image } } };
-                    return Json(new Dictionary<string, object> { [CurrentId] = new { status = new { completed = true, status_str = "success" }, outputs } });
+                    return Json(new { id = CurrentId, status = "completed", outputs });
                 }
                 if (path == "/view")
                 {
                     Require(request.RequestUri.Query.Contains("type=temp") && request.RequestUri.Query.Contains("filename=ComfyUI_temp_test.png"), "result address");
                     return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(InvalidResult ? Png.Take(16).ToArray() : Png) };
                 }
-                if (path == "/queue")
+                if (path == "/api/jobs/" + CurrentId + "/cancel" && request.Method == HttpMethod.Post)
                 {
-                    var body = json.DeserializeObject(await request.Content.ReadAsStringAsync());
-                    DeletedJob = (string)Items(body, "delete").Single();
-                    return Json(new { });
+                    DeletedJob = CurrentId;
+                    return Json(new { cancelled = true });
                 }
                 throw new InvalidOperationException("Unexpected image request " + path);
             }

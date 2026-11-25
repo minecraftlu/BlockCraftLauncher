@@ -15,7 +15,9 @@ $utf8 = New-Object Text.UTF8Encoding($false)
 function Read-Upstream([uri]$Uri, [hashtable]$Headers) {
     foreach ($attempt in 1..3) {
         try {
-            return (Invoke-WebRequest -Uri $Uri -UseBasicParsing -Headers $Headers -TimeoutSec 40).Content
+            $body = (Invoke-WebRequest -Uri $Uri -UseBasicParsing -Headers $Headers -TimeoutSec 40).Content
+            if ($body -is [byte[]]) { return [Text.Encoding]::UTF8.GetString($body) }
+            return $body
         } catch {
             if ($attempt -eq 3) { throw }
             Start-Sleep -Seconds (2 * $attempt)

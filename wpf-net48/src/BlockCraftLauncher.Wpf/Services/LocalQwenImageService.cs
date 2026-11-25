@@ -15,10 +15,10 @@ namespace BlockCraftLauncher.Wpf.Services
 {
     internal sealed class LocalQwenImageService : IDisposable
     {
-        internal const string GeneratorWeights = "qwen_image_2512_fp8_e4m3fn.safetensors";
-        internal const string EditorWeights = "qwen_image_edit_2511_fp8mixed.safetensors";
-        internal const string EncoderWeights = "qwen_2.5_vl_7b_fp8_scaled.safetensors";
-        internal const string VaeWeights = "qwen_image_vae.safetensors";
+        internal static string GeneratorWeights => Path.GetFileName(LocalQwenImageAsset.Generator.PathName);
+        internal static string EditorWeights => Path.GetFileName(LocalQwenImageAsset.Editor.PathName);
+        internal static string EncoderWeights => Path.GetFileName(LocalQwenImageAsset.Encoder.PathName);
+        internal static string VaeWeights => Path.GetFileName(LocalQwenImageAsset.Vae.PathName);
         const int MaxImageBytes = 32 * 1024 * 1024;
         const int MaxJsonBytes = 2 * 1024 * 1024;
         const string OutputNode = "10";
@@ -61,14 +61,11 @@ namespace BlockCraftLauncher.Wpf.Services
                 progress?.Report("正在提交本机图像任务…");
                 string clientId = Guid.NewGuid().ToString();
                 long seed = BitConverter.ToInt64(Guid.NewGuid().ToByteArray(), 0) & 0x001fffffffffffffL;
-                var payload = new { client_id = clientId, prompt = CreateGraph(prompt, uploadName, seed) };
+                jobId = Guid.NewGuid().ToString();
+                var payload = new { prompt_id = jobId, client_id = clientId, prompt = CreateGraph(prompt, uploadName, seed) };
                 object accepted = await JsonAsync(HttpMethod.Post, "prompt", JsonContent(payload), ct).ConfigureAwait(false);
-                string id = Field(accepted, "prompt_id") as string;
-                Guid parsed;
-                if (!Guid.TryParseExact(id, "D", out parsed)) throw new QwenSearchException("本机图像引擎没有返回有效的任务编号。");
-                jobId = id;
-                progress?.Report("已提交，正在等待本机 GPU 完成推理…");
-                string filename = await WaitForImageAsync(jobId, ct).ConfigureAwait(false);
+                if (Field(accepted, "prompt_id") as string != jobId) throw new QwenSearchException("本机图像引擎返回的任务编号不匹配。");
+                string filename = await WaitForImageAsync(jobId, progress, ct).ConfigureAwait(false);
                 progress?.Report("正在校验并保存 PNG…");
                 var path = "view?type=temp&subfolder=&filename=" + Uri.EscapeDataString(filename);
                 byte[] image = await ReadResponseAsync(HttpMethod.Get, path, null, MaxImageBytes, ct).ConfigureAwait(false);
@@ -76,7 +73,7 @@ namespace BlockCraftLauncher.Wpf.Services
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
-                if (jobId != null) await DeleteQueuedJobAsync(jobId).ConfigureAwait(false);
+                if (jobId != null) await CancelJobAsync(jobId).ConfigureAwait(false);
                 throw;
             }
             catch (HttpRequestException)
@@ -100,7 +97,7 @@ namespace BlockCraftLauncher.Wpf.Services
             };
             if (edit)
             {
-                graph["11"] = Node("LoadImage", new { image = inputName });
+                graph["11"] = Node("LoadImage", new { image = inputName + " [temp]" });
                 graph["12"] = Node("FluxKontextImageScale", new { image = Link("11") });
                 graph["13"] = Node("CFGNorm", new { model = Link("4"), strength = 1.0 });
                 graph["14"] = Node("TextEncodeQwenImageEditPlus", new { clip = Link("2"), vae = Link("3"), image1 = Link("12"), prompt });
@@ -136,54 +133,65 @@ namespace BlockCraftLauncher.Wpf.Services
                 if (file.Length < 24 || file.Length > MaxImageBytes) throw new QwenSearchException("原图需为 32 MB 以内的 PNG 或 JPEG。");
                 bytes = await ReadLimitedAsync(file, MaxImageBytes, ct).ConfigureAwait(false);
             }
-            bool jpeg = await Task.Run(() => ValidateImage(bytes, false), ct).ConfigureAwait(false);
+            bool jpeg = await Task.Run(() => ValidateImage(bytes, false, ct), ct).ConfigureAwait(false);
             string name = "blockcraft_" + Guid.NewGuid().ToString("N") + (jpeg ? ".jpg" : ".png");
             using (var form = new MultipartFormDataContent())
             {
                 var file = new ByteArrayContent(bytes);
                 file.Headers.ContentType = new MediaTypeHeaderValue(jpeg ? "image/jpeg" : "image/png");
                 form.Add(file, "image", name);
-                form.Add(new StringContent("input"), "type");
+                form.Add(new StringContent("temp"), "type");
                 object uploaded = await JsonAsync(HttpMethod.Post, "upload/image", form, ct).ConfigureAwait(false);
-                if (Field(uploaded, "name") as string != name || Field(uploaded, "type") as string != "input" ||
+                if (Field(uploaded, "name") as string != name || Field(uploaded, "type") as string != "temp" ||
                     Field(uploaded, "subfolder") as string != "") throw new QwenSearchException("本机图像引擎未确认收到这张原图。");
             }
             return name;
         }
 
-        async Task<string> WaitForImageAsync(string jobId, CancellationToken ct)
+        async Task<string> WaitForImageAsync(string jobId, IProgress<string> progress, CancellationToken ct)
         {
+            string lastStatus = null;
             for (;;)
             {
-                object history = await JsonAsync(HttpMethod.Get, "history/" + jobId, null, ct).ConfigureAwait(false);
-                var entry = Field(history, jobId);
-                if (entry != null)
+                object job = await JsonAsync(HttpMethod.Get, "api/jobs/" + jobId, null, ct).ConfigureAwait(false);
+                if (Field(job, "id") as string != jobId) throw new QwenSearchException("图像引擎没有找到本次任务。");
+                string status = Field(job, "status") as string;
+                switch (status)
                 {
-                    object status = Field(entry, "status");
-                    if (Field(status, "status_str") as string == "error")
-                        throw new QwenSearchException("本机图像推理失败，请检查可用显存及模型文件。");
-                    if (object.Equals(Field(status, "completed"), true))
-                    {
-                        var output = Field(Field(entry, "outputs"), OutputNode);
-                        var image = Items(output, "images").FirstOrDefault();
-                        var filename = Field(image, "filename") as string;
-                        if (string.IsNullOrEmpty(filename) || filename.Length > 240 || filename != Path.GetFileName(filename) ||
-                            filename.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || !filename.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
-                            Field(image, "type") as string != "temp" || Field(image, "subfolder") as string != "")
-                            throw new QwenSearchException("本机图像任务没有返回有效的 PNG 结果。");
-                        return filename;
-                    }
+                    case "pending":
+                        if (status != lastStatus) progress?.Report("已排队，等待本机 GPU…");
+                        break;
+                    case "in_progress":
+                        if (status != lastStatus) progress?.Report("正在本机推理，首次载入模型可能需要几分钟…");
+                        break;
+                    case "completed": return ResultFilename(job);
+                    case "cancelled": throw new QwenSearchException("本机图像任务已取消。");
+                    case "failed": throw new QwenSearchException("本机图像推理失败，请检查可用显存及模型文件。");
+                    default: throw new QwenSearchException("本机图像引擎返回了未知的任务状态。");
                 }
+                lastStatus = status;
                 await Task.Delay(pollInterval, ct).ConfigureAwait(false);
             }
         }
 
-        async Task DeleteQueuedJobAsync(string jobId)
+        static string ResultFilename(object job)
         {
-            // Older installations implement /interrupt globally. Removing this ID affects only our queued job.
+            var output = Field(Field(job, "outputs"), OutputNode);
+            var image = Items(output, "images").FirstOrDefault();
+            var filename = Field(image, "filename") as string;
+            if (string.IsNullOrEmpty(filename) || filename.Length > 240 || filename.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
+                filename != Path.GetFileName(filename) || !filename.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+                Field(image, "type") as string != "temp" || Field(image, "subfolder") as string != "")
+                throw new QwenSearchException("本机图像任务没有返回有效的 PNG 结果。");
+            return filename;
+        }
+
+        async Task CancelJobAsync(string jobId)
+        {
+            // The pinned runtime atomically cancels only this ID whether it is running or queued.
             using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2)))
             {
-                try { await ReadResponseAsync(HttpMethod.Post, "queue", JsonContent(new { delete = new[] { jobId } }), MaxJsonBytes, timeout.Token).ConfigureAwait(false); }
+                try { await ReadResponseAsync(HttpMethod.Post, "api/jobs/" + jobId + "/cancel", null, MaxJsonBytes, timeout.Token).ConfigureAwait(false); }
                 catch (Exception ex) when (ex is HttpRequestException || ex is IOException || ex is OperationCanceledException || ex is QwenSearchException) { }
             }
         }
@@ -243,7 +251,7 @@ namespace BlockCraftLauncher.Wpf.Services
             }
         }
 
-        static bool ValidateImage(byte[] bytes, bool pngOnly)
+        static bool ValidateImage(byte[] bytes, bool pngOnly, CancellationToken ct)
         {
             try
             {
@@ -257,9 +265,13 @@ namespace BlockCraftLauncher.Wpf.Services
                         (long)frame.PixelWidth * frame.PixelHeight > 16L * 1024 * 1024) throw new QwenSearchException("图片分辨率过高。");
                     // Force decoding so a partial or corrupt stream cannot replace an existing result.
                     int stride = (frame.PixelWidth * frame.Format.BitsPerPixel + 7) / 8;
-                    var row = new byte[stride];
-                    for (int y = 0; y < frame.PixelHeight; y++)
-                        frame.CopyPixels(new System.Windows.Int32Rect(0, y, frame.PixelWidth, 1), row, stride, 0);
+                    const int rows = 64;
+                    var strip = new byte[stride * Math.Min(rows, frame.PixelHeight)];
+                    for (int y = 0; y < frame.PixelHeight; y += rows)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        frame.CopyPixels(new System.Windows.Int32Rect(0, y, frame.PixelWidth, Math.Min(rows, frame.PixelHeight - y)), strip, stride, 0);
+                    }
                     return jpeg;
                 }
             }
@@ -270,7 +282,7 @@ namespace BlockCraftLauncher.Wpf.Services
 
         static void SavePng(byte[] bytes, string destination, CancellationToken ct)
         {
-            ValidateImage(bytes, true);
+            ValidateImage(bytes, true, ct);
             ct.ThrowIfCancellationRequested();
             string full = Path.GetFullPath(destination);
             string temp = Path.Combine(Path.GetDirectoryName(full), "." + Guid.NewGuid().ToString("N") + ".tmp");

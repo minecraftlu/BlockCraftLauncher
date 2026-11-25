@@ -37,6 +37,11 @@ namespace BlockCraftLauncher.Wpf.Services
                 WorkingDirectory = Path.GetDirectoryName(executable), UseShellExecute = false, CreateNoWindow = true
             };
             var variables = start.EnvironmentVariables;
+            // Ollama reads its registry identity from the Windows user profile even in local mode.
+            // Give this managed server its own identity, apart from an existing Ollama installation.
+            foreach (string file in new[] { "id_ed25519", "id_ed25519.pub" })
+                VerifiedModelDownload.RejectReparsePoints(Path.Combine(root, ".ollama", file));
+            variables["USERPROFILE"] = root;
             variables["OLLAMA_HOST"] = host;
             variables["OLLAMA_MODELS"] = Path.Combine(root, "models");
             variables["OLLAMA_NO_CLOUD"] = "1";

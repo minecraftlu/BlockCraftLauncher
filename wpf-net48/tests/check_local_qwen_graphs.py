@@ -42,7 +42,10 @@ async def validate(checkout, graphs, scratch):
     inputs = scratch / "input"
     inputs.mkdir(exist_ok=True)
     folder_paths.set_input_directory(str(inputs))
-    Image.new("RGB", (16, 16)).save(inputs / "blockcraft_fixture.png")
+    temp_images = scratch / "temp"
+    temp_images.mkdir(exist_ok=True)
+    folder_paths.set_temp_directory(str(temp_images))
+    Image.new("RGB", (16, 16)).save(temp_images / "blockcraft_fixture.png")
     await nodes.init_extra_nodes(init_custom_nodes=False, init_api_nodes=False)
 
     for name in ("generate", "edit"):

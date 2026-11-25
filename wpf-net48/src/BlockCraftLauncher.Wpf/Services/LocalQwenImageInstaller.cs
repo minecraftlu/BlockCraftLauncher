@@ -8,6 +8,7 @@ using System.Net.Http;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Web.Script.Serialization;
 using BlockCraftLauncher.Wpf.Models;
 
 namespace BlockCraftLauncher.Wpf.Services
@@ -24,6 +25,7 @@ namespace BlockCraftLauncher.Wpf.Services
         readonly object processLock = new object();
         Process server;
         Uri endpoint;
+        bool cpuServer;
         bool disposed;
 
         internal LocalQwenImageInstaller(string root, LauncherConfig settings)
@@ -54,14 +56,17 @@ namespace BlockCraftLauncher.Wpf.Services
             LocalQwenImageAsset.Portable.Sha256 + "/" + FileStamp(python) + "/" + FileStamp(main);
 
         static bool RuntimeInstalled(string dir) =>
-            File.Exists(Python(dir)) && File.Exists(Main(dir)) && File.Exists(RuntimeReceipt(dir)) &&
-            File.ReadAllText(RuntimeReceipt(dir)) == RuntimeStamp(Python(dir), Main(dir));
+            File.Exists(Python(dir)) && File.Exists(Main(dir)) &&
+            HasStamp(RuntimeReceipt(dir), RuntimeStamp(Python(dir), Main(dir)));
+
+        static bool HasStamp(string path, string expected) => File.Exists(path) &&
+            new FileInfo(path).Length <= 256 && File.ReadAllText(path) == expected;
 
         static bool WeightInstalled(string dir, LocalQwenImageAsset asset)
         {
             string path = asset.FilePath(dir);
             return File.Exists(path) && new FileInfo(path).Length == asset.Bytes &&
-                File.Exists(path + ".verified") && File.ReadAllText(path + ".verified") == asset.Sha256 + "/" + FileStamp(path);
+                HasStamp(path + ".verified", asset.Sha256 + "/" + FileStamp(path));
         }
 
         internal static bool IsInstalled(string root, bool edit)
@@ -105,9 +110,11 @@ namespace BlockCraftLauncher.Wpf.Services
             {
                 var ct = linked.Token;
                 await gate.WaitAsync(ct).ConfigureAwait(false);
+                Process prior;
+                lock (processLock) prior = server;
                 try
                 {
-                    await Task.Run(async () =>
+                    return await Task.Run(async () =>
                     {
                         string architecture = Environment.GetEnvironmentVariable("PROCESSOR_ARCHITEW6432") ??
                             Environment.GetEnvironmentVariable("PROCESSOR_ARCHITECTURE") ?? "";
@@ -128,7 +135,9 @@ namespace BlockCraftLauncher.Wpf.Services
                             if (drive.AvailableFreeSpace < remaining)
                                 throw new IOException(string.Format("所选磁盘空间不足，本次安装预计还需 {0:F1} GB（含解压空间）。", remaining / 1e9));
                             if (!runtimeReady) await InstallRuntimeAsync(progress, ct).ConfigureAwait(false);
-                            if (runtimeOnly) return;
+                            // Probe the real portable backend before requesting tens of gigabytes of weights.
+                            Uri ready = await StartAsync(progress, runtimeOnly, ct).ConfigureAwait(false);
+                            if (runtimeOnly) return ready;
                             foreach (var asset in LocalQwenImageAsset.Weights(edit))
                             {
                                 ct.ThrowIfCancellationRequested();
@@ -139,9 +148,15 @@ namespace BlockCraftLauncher.Wpf.Services
                                 await DownloadAsync(asset, progress, ct).ConfigureAwait(false);
                                 File.WriteAllText(path + ".verified", asset.Sha256 + "/" + FileStamp(path));
                             }
+                            return ready;
                         }
                     }, ct).ConfigureAwait(false);
-                    return await StartAsync(progress, runtimeOnly, ct).ConfigureAwait(false);
+                }
+                catch
+                {
+                    lock (processLock)
+                        if (server != null && !ReferenceEquals(server, prior)) ReleaseServer();
+                    throw;
                 }
                 finally { gate.Release(); }
             }
@@ -152,12 +167,8 @@ namespace BlockCraftLauncher.Wpf.Services
 
         async Task InstallRuntimeAsync(IProgress<string> progress, CancellationToken ct)
         {
-            // A published runtime folder appears only via the final atomic rename below.
-            // Keep any existing damaged files intact for the player's inspection/recovery.
             string target = Path.Combine(directory, RuntimeName);
             VerifiedModelDownload.RejectReparsePoints(target);
-            if (Directory.Exists(target))
-                throw new IOException("图像运行环境安装不完整，请将 " + target + " 重命名后重试；已下载模型可以继续使用。");
             await DownloadAsync(LocalQwenImageAsset.Portable, progress, ct).ConfigureAwait(false);
             await DownloadAsync(LocalQwenImageAsset.Extractor, progress, ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
@@ -185,7 +196,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 var main = Path.Combine(package, "ComfyUI", "main.py");
                 File.WriteAllText(Path.Combine(stage, ".blockcraft-package"), RuntimeStamp(python, main));
                 ct.ThrowIfCancellationRequested();
-                Directory.Move(stage, target);
+                PublishRuntime(stage, target, progress);
                 // The extracted version is already committed. The temporary, verified archive is no longer needed.
                 try { File.Delete(LocalQwenImageAsset.Portable.FilePath(directory)); } catch (IOException) { }
             }
@@ -193,6 +204,20 @@ namespace BlockCraftLauncher.Wpf.Services
             {
                 if (Directory.Exists(stage)) Directory.Delete(stage, true);
             }
+        }
+
+        internal static void PublishRuntime(string stage, string target, IProgress<string> progress)
+        {
+            if (!Directory.Exists(target)) { Directory.Move(stage, target); return; }
+            string backup = target + ".previous-" + Guid.NewGuid().ToString("N");
+            Directory.Move(target, backup);
+            try { Directory.Move(stage, target); }
+            catch
+            {
+                if (!Directory.Exists(target)) Directory.Move(backup, target);
+                throw;
+            }
+            progress?.Report("图像运行环境已修复，旧文件已保留在 " + backup);
         }
 
         async Task<Uri> StartAsync(IProgress<string> progress, bool cpuOnly, CancellationToken ct)
@@ -203,9 +228,8 @@ namespace BlockCraftLauncher.Wpf.Services
             {
                 ct.ThrowIfCancellationRequested();
                 if (disposed) throw new ObjectDisposedException(nameof(LocalQwenImageInstaller));
-                if (server != null && !server.HasExited) return endpoint;
-                server?.Dispose();
-                server = null;
+                if (server != null && !server.HasExited && cpuServer == cpuOnly) return endpoint;
+                ReleaseServer();
                 var listener = new TcpListener(IPAddress.Loopback, 0);
                 int port;
                 try { listener.Start(); port = ((IPEndPoint)listener.LocalEndpoint).Port; }
@@ -224,6 +248,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 };
                 instance = server = Process.Start(start);
                 endpoint = local;
+                cpuServer = cpuOnly;
             }
             try
             {
@@ -240,10 +265,13 @@ namespace BlockCraftLauncher.Wpf.Services
                         try
                         {
                             using (var response = await http.GetAsync(new Uri(local, "system_stats"), ct).ConfigureAwait(false))
-                                if (response.IsSuccessStatusCode &&
-                                    (await response.Content.ReadAsStringAsync().ConfigureAwait(false)).Contains("\"comfyui_version\"") &&
-                                    !instance.HasExited)
-                                    return local;
+                            {
+                                if (response.IsSuccessStatusCode && !instance.HasExited)
+                                {
+                                    var stats = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                                    if (CheckDevices(stats, cpuOnly)) return local;
+                                }
+                            }
                         }
                         catch (HttpRequestException) { }
                         catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
@@ -256,11 +284,27 @@ namespace BlockCraftLauncher.Wpf.Services
             {
                 lock (processLock)
                 {
-                    if (ReferenceEquals(server, instance)) { Stop(server); server.Dispose(); server = null; }
+                    if (ReferenceEquals(server, instance)) ReleaseServer();
                 }
                 throw;
             }
         }
+
+        internal static bool CheckDevices(string json, bool cpuOnly)
+        {
+            ComfyStats stats;
+            try { stats = new JavaScriptSerializer().Deserialize<ComfyStats>(json); }
+            catch (ArgumentException) { return false; }
+            catch (InvalidOperationException) { return false; }
+            if (string.IsNullOrWhiteSpace(stats?.system?.comfyui_version)) return false;
+            if (!cpuOnly && (stats.devices == null || !stats.devices.Any(d => d?.type == "cuda")))
+                throw new InvalidOperationException("图像服务没有检测到可用的 CUDA 显卡。请检查 NVIDIA 显卡和驱动，然后重试；模型权重尚未下载。");
+            return true;
+        }
+
+        sealed class ComfyStats { public ComfySystem system { get; set; } public ComfyDevice[] devices { get; set; } }
+        sealed class ComfySystem { public string comfyui_version { get; set; } }
+        sealed class ComfyDevice { public string type { get; set; } }
 
         static string Quote(string path) => "\"" + path + "\"";
         static void Stop(Process p)
@@ -270,6 +314,15 @@ namespace BlockCraftLauncher.Wpf.Services
             catch (System.ComponentModel.Win32Exception) { }
         }
 
+        void ReleaseServer()
+        {
+            if (server == null) return;
+            Stop(server);
+            server.Dispose();
+            server = null;
+            endpoint = null;
+        }
+
         public void Dispose()
         {
             lock (processLock)
@@ -277,7 +330,7 @@ namespace BlockCraftLauncher.Wpf.Services
                 if (disposed) return;
                 disposed = true;
                 lifetime.Cancel();
-                if (server != null) { Stop(server); server.Dispose(); server = null; }
+                ReleaseServer();
             }
         }
     }
