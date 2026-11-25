@@ -1,0 +1,148 @@
+name: Publish BlockCraft Launcher v0.9.63 RC1 unified AI preview
+
+on:
+  push:
+    branches: [release/v0963-wpf-rc1-unified-ai]
+
+concurrency:
+  group: blockcraft-v0963-rc1-unified-ai-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'minecraftlu/BlockCraftLauncher' && github.ref == 'refs/heads/release/v0963-wpf-rc1-unified-ai'
+    runs-on: windows-2022
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: wpf-net48
+    env:
+      TAG: v0.9.63-wpf-rc.1
+      BUILD_SHA: 21d6e842be9db553eb77c3e42812cd50f2db4565
+      BUILD_RUN: '45587548334'
+      EXE_NAME: BlockCraftLauncher-v0.9.63-WPF-OneFile-Windows-x64.exe
+      ZIP_NAME: BlockCraftLauncher-v0.9.63-WPF-net48-Alpha-Windows-x64.zip
+      PREVIOUS: v0.9.62-wpf-rc.1
+      PREVIOUS_ZIP_SHA256: 0764b750a6a63c6a682c4416f87cacbc9bac379a0b9409369f9921b685756de1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Retrieve the exact tested build and verify its two recorded SHA-256 hashes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:BUILD_RUN" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $run.conclusion -cne 'success' -or $run.head_sha -cne $env:BUILD_SHA -or
+              $run.path -cne '.github/workflows/wpf-unified-ai-workspace.yml') { throw 'Unexpected source build' }
+          $archive = Join-Path $env:RUNNER_TEMP 'blockcraft-tested-artifact.zip'
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json' }
+          Invoke-WebRequest -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/artifacts/15010115451/zip" -Headers $headers -OutFile $archive
+          $archiveHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+          if ($archiveHash -ine '28447d290b0f8eb14e868dfa25e7329b29c8aeb1eefd49a2e8ccaf8e291e2b57') {
+            throw 'Archive digest differs from the successful Windows build'
+          }
+          Expand-Archive -LiteralPath $archive -DestinationPath dist
+          $exe = (Resolve-Path -LiteralPath "dist/$env:EXE_NAME").Path
+          $bootstrapHash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
+          if ($bootstrapHash -ine 'b95f6f3e5b8363a8c6888bb6db72eb2f0edfee04456ba003be8e96a81194c62e') { throw 'Standalone EXE differs from the build log' }
+          $assembly = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes($exe))
+          $payload = $assembly.GetManifestResourceStream('BlockCraftLauncher.Payload.zip')
+          if (!$payload) { throw 'Tested launcher payload is missing' }
+          $source = [IO.Compression.ZipArchive]::new($payload, [IO.Compression.ZipArchiveMode]::Read)
+          $prefix = [IO.Path]::GetFileNameWithoutExtension($env:ZIP_NAME)
+          $zipPath = Join-Path (Resolve-Path dist).Path $env:ZIP_NAME
+          $package = [IO.Compression.ZipFile]::Open($zipPath, [IO.Compression.ZipArchiveMode]::Create)
+          try {
+            $wpf = $source.GetEntry('BlockCraftLauncher.Wpf.exe').Open()
+            try { $wpfHash = (Get-FileHash -Algorithm SHA256 -InputStream $wpf).Hash } finally { $wpf.Dispose() }
+            if ($wpfHash -ine '6c47d43788aae4d943778b4b102c7308c57fddf791ac5a71b61ce238ce918238') { throw 'WPF EXE differs from the build log' }
+            foreach ($entry in $source.Entries) {
+              $copy = $package.CreateEntry("$prefix/$($entry.FullName)", [IO.Compression.CompressionLevel]::Optimal)
+              $copy.LastWriteTime = $entry.LastWriteTime
+              $from = $entry.Open()
+              try {
+                $to = $copy.Open()
+                try { $from.CopyTo($to) } finally { $to.Dispose() }
+              } finally { $from.Dispose() }
+            }
+          } finally { $package.Dispose(); $source.Dispose(); $payload.Dispose() }
+          $manifest = foreach ($name in @($env:EXE_NAME, $env:ZIP_NAME)) {
+            $hash = (Get-FileHash -LiteralPath "dist/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $name"
+          }
+          $sidecar = (Get-Content -LiteralPath "dist/$env:EXE_NAME.sha256" -Raw).Trim()
+          if ($sidecar -cne $manifest[0]) { throw 'Single-file checksum sidecar mismatch' }
+          $manifest | Set-Content -LiteralPath dist/RELEASE-SHA256SUMS.txt -Encoding ascii
+
+      - name: Capture the unified conversation from the tested Windows executable
+        run: |
+          $env:BLOCKCRAFT_UI_CAPTURE_DIR = Join-Path $env:RUNNER_TEMP 'unified-ai-preview'
+          $null = New-Item -ItemType Directory -Path $env:BLOCKCRAFT_UI_CAPTURE_DIR -Force
+          $exe = (Resolve-Path -LiteralPath "dist/$env:EXE_NAME").Path
+          $process = Start-Process -FilePath $exe -ArgumentList '--ui-layout-selftest' -PassThru -WindowStyle Hidden
+          try {
+            if (!$process.WaitForExit(180000)) { $process.Kill($true); throw 'Interface preview timed out' }
+            $process.Refresh()
+            if ($process.ExitCode -ne 0) { throw "UI layout self-test failed ($($process.ExitCode))" }
+          } finally { $process.Dispose() }
+          Copy-Item -LiteralPath (Join-Path $env:BLOCKCRAFT_UI_CAPTURE_DIR 'light-qwen-search.png') -Destination 'dist/BlockCraftLauncher-v0.9.63-unified-ai.png'
+
+      - name: Check both distributions with the previous public preview updater
+        run: ./tests/check_v0951_rc1_preview_offer.ps1 -Phase Preflight -Tag $env:TAG -Previous $env:PREVIOUS -PreviousZipSha256 $env:PREVIOUS_ZIP_SHA256
+
+      - name: Attest the exact binaries being promoted
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            wpf-net48/dist/BlockCraftLauncher-v0.9.63-WPF-OneFile-Windows-x64.exe
+            wpf-net48/dist/BlockCraftLauncher-v0.9.63-WPF-net48-Alpha-Windows-x64.zip
+
+      - uses: sigstore/cosign-installer@v4.1.2
+      - name: Sign and verify the release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $identity = "https://github.com/$env:GITHUB_WORKFLOW_REF"
+          $signer = "github.com/$env:GITHUB_REPOSITORY/.github/workflows/wpf-net48-v0963-rc1-unified-ai-publish.yml"
+          foreach ($name in @($env:EXE_NAME, $env:ZIP_NAME)) {
+            $file = "dist/$name"
+            cosign sign-blob --yes --bundle "$file.sigstore.json" $file
+            if ($LASTEXITCODE -ne 0) { throw "Signing failed for $name" }
+            cosign verify-blob $file --bundle "$file.sigstore.json" --certificate-identity $identity --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+            if ($LASTEXITCODE -ne 0) { throw "Signature verification failed for $name" }
+            gh attestation verify $file --repo $env:GITHUB_REPOSITORY --source-ref $env:GITHUB_REF --signer-workflow $signer
+            if ($LASTEXITCODE -ne 0) { throw "Release attestation verification failed for $name" }
+          }
+
+      - name: Publish the packages, checksums, signatures and interface preview as a prerelease at the tested source commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tagRef = git ls-remote --tags origin "refs/tags/$env:TAG"
+          if ($LASTEXITCODE -ne 0 -or $tagRef) { throw 'Tag already exists or could not be checked' }
+          $files = @("dist/$env:EXE_NAME", "dist/$env:EXE_NAME.sha256",
+            "dist/$env:ZIP_NAME", 'dist/RELEASE-SHA256SUMS.txt',
+            "dist/$env:EXE_NAME.sigstore.json", "dist/$env:ZIP_NAME.sigstore.json", "dist/BlockCraftLauncher-v0.9.63-unified-ai.png")
+          gh release create $env:TAG @files --repo $env:GITHUB_REPOSITORY --target $env:BUILD_SHA --title 'BlockCraft Launcher v0.9.63 RC1（统一 AI 对话与指令下载）' --notes-file './docs/release-v0.9.63-rc1.md' --prerelease --latest=false
+          if ($LASTEXITCODE -ne 0) { throw 'Prerelease creation failed' }
+          $published = gh release view $env:TAG --repo $env:GITHUB_REPOSITORY --json tagName,isDraft,isPrerelease,assets | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $published.isDraft -or !$published.isPrerelease -or $published.tagName -cne $env:TAG) {
+            throw 'Published release does not match the requested preview'
+          }
+          foreach ($file in $files) {
+            if ($published.assets.name -cnotcontains (Split-Path $file -Leaf)) { throw "Missing release asset $file" }
+          }
+
+      - name: Test the public downloads and the live preview feed with v0.9.62
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./tests/check_v0951_rc1_preview_offer.ps1 -Phase Live -Tag $env:TAG -Previous $env:PREVIOUS -PreviousZipSha256 $env:PREVIOUS_ZIP_SHA256
