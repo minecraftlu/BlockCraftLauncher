@@ -1,0 +1,45 @@
+name: Reproduce live local mod catalog search
+on:
+  push:
+    branches: [feature/v0962-local-qwen-diagnostics]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  live-local-chat:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: BlockCraftLauncher-v0.9.62-RC1-Windows-x64
+          github-token: ${{ github.token }}
+          run-id: 45564765493
+          path: tested
+      - name: Install the local runtime, pull Qwen3.5-4B, chat and search the real mod catalog
+        shell: pwsh
+        run: |
+          $binary = (Get-Item 'tested/BlockCraftLauncher-v0.9.62-WPF-OneFile-Windows-x64.exe').FullName
+          $expected = (Get-Content "$binary.sha256" -Raw).Split(' ')[0]
+          if ((Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash -ine $expected) { throw 'Unexpected single-file build' }
+          $env:BLOCKCRAFT_UI_CAPTURE_DIR = Join-Path $env:RUNNER_TEMP 'local-inference'
+          $null = New-Item -ItemType Directory -Force -Path $env:BLOCKCRAFT_UI_CAPTURE_DIR
+          $progress = Join-Path $env:BLOCKCRAFT_UI_CAPTURE_DIR 'local-live-progress.txt'
+          $process = Start-Process -FilePath $binary -ArgumentList '--local-qwen-live-check' -WindowStyle Hidden -PassThru
+          try {
+            $timeout = [DateTime]::UtcNow.AddMinutes(39)
+            while (!$process.WaitForExit(30000)) {
+              if ([DateTime]::UtcNow -gt $timeout) { $process.Kill($true); throw 'Local chat test timed out' }
+              if (Test-Path -LiteralPath $progress) { Get-Content -LiteralPath $progress -Encoding utf8 -Tail 1 }
+            }
+            $process.Refresh()
+            if ($process.ExitCode -ne 0) {
+              if (Test-Path -LiteralPath $progress) { Get-Content -LiteralPath $progress -Encoding utf8 -Tail 15 }
+              foreach ($name in @('wpf-preview-logs/startup-error.log','onefile/bootstrap-error.log')) {
+                $log = Join-Path $env:LOCALAPPDATA ('BlockCraftLauncher/' + $name)
+                if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Encoding utf8 -Tail 40 }
+              }
+              throw "Local Qwen installation/inference failed ($($process.ExitCode))"
+            }
+            Get-Content -ErrorAction Stop -LiteralPath (Join-Path $env:BLOCKCRAFT_UI_CAPTURE_DIR 'local-qwen-live-check.txt') -Encoding utf8
+          } finally { $process.Dispose() }
