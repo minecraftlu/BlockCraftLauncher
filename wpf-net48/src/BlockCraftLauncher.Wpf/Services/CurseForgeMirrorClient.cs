@@ -72,11 +72,13 @@ namespace BlockCraftLauncher.Wpf.Services
         {
             RequireEnabled();
             string url = Api + path;
-            string jsonText = await net.GetStringWithFallbackAsync(url, "official", ct);
-            var envelope = Dict(json.DeserializeObject(jsonText));
-            if (envelope == null || !envelope.ContainsKey("data"))
-                throw new InvalidDataException("MCIM 镜像返回了无效数据");
-            return envelope["data"];
+            return await net.GetMetadataWithFallbackAsync(url, "official", body =>
+            {
+                var envelope = Dict(json.DeserializeObject(body));
+                if (envelope == null || !envelope.TryGetValue("data", out var result))
+                    throw new InvalidDataException("MCIM 镜像返回了无效数据");
+                return result;
+            }, ct);
         }
 
         /// <summary>

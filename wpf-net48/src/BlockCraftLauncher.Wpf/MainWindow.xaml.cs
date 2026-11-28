@@ -35,6 +35,7 @@ namespace BlockCraftLauncher.Wpf
         PreparedLauncherUpdate preparedUpdate;
         bool updateChecking;
         bool updatePreparing;
+        bool updateCheckFailed;
         TextBlock updateStatusText, updateNotesText, homeUpdateText;
         Border homeUpdateCard;
         ProgressBar updateProgressBar;
@@ -49,6 +50,7 @@ namespace BlockCraftLauncher.Wpf
         readonly DownloadTaskCenter downloads = new DownloadTaskCenter(3);
         DownloadJob versionInstallJob;
         string versionLoadError;
+        bool usingCachedVersions;
         ComboBox versionCategory, settingsNetworkMode;
         TextBox settingsDownloadThreads, settingsDownloadRetries;
         ListBox downloadList;
@@ -823,7 +825,8 @@ namespace BlockCraftLauncher.Wpf
             FilterVersions();
             RefreshVersionActions();
             return Col(filters,
-                ResultsCard(Col(Txt("可安装版本", 16, true), versionCounter, versionList,
+                ResultsCard(Col(Txt("可安装版本", 16, true), versionCounter,
+                    Txt("版本来源  ·  Mojang / BMCLAPI", 11, false, true), versionList,
                     Row(loaderCaption, versionLoader, versionInstallButton, versionCancelButton))),
                 Card(Col(Txt("本地游戏", 16, true),
                     Row(Btn("导入本地版本", ImportLocalGame),
@@ -845,6 +848,7 @@ namespace BlockCraftLauncher.Wpf
             versionCounter.Text = loadingVersions ? "正在获取 Minecraft 版本列表…" :
                 gameVersions.Count == 0 ? versionLoadError ?? "点击“刷新列表”获取可用版本。" :
                 versionList.Items.Count == 0 ? "没有符合条件的版本。" :
+                (usingCachedVersions ? "本地缓存 · " : "") +
                 "共 " + versionList.Items.Count + " 个版本。选中版本后可选择加载器。";
         }
 
@@ -857,11 +861,15 @@ namespace BlockCraftLauncher.Wpf
             FilterVersions();
             try
             {
-                var versions = await new MinecraftVersionCatalog(settings).LoadAsync(true, CancellationToken.None);
+                var catalog = new MinecraftVersionCatalog(settings);
+                var versions = await catalog.LoadAsync(true, updateCancellation.Token);
+                usingCachedVersions = catalog.UsingCachedManifest;
                 gameVersions.Clear();
                 foreach (var version in versions) gameVersions.Add(version);
-                Status("已获取 " + gameVersions.Count + " 个游戏版本。");
+                Status((usingCachedVersions ? "在线列表暂不可用，已读取缓存。" : "已刷新在线游戏列表。") +
+                    " 共 " + gameVersions.Count + " 个版本。");
             }
+            catch (OperationCanceledException) when (updateCancellation.IsCancellationRequested) { }
             catch (Exception ex)
             {
                 versionLoadError = "无法获取版本列表，请检查网络后刷新。";
@@ -1647,6 +1655,12 @@ namespace BlockCraftLauncher.Wpf
             hit = hit ?? resourceList?.SelectedItem as ResourceHit;
             var profile = activeProfile;
             if (profile == null || hit == null) { MessageBox.Show("请先选择实例和资源。"); return; }
+            if (hit.Kind == "mod" && (string.IsNullOrWhiteSpace(profile.Loader) ||
+                string.Equals(profile.Loader, "vanilla", StringComparison.OrdinalIgnoreCase) || profile.Loader == "原版"))
+            {
+                Status("安装模组前，请选择已安装 Fabric、Forge、NeoForge 或 Quilt 的版本。");
+                return;
+            }
             downloads.Enqueue("Modrinth", hit.Name + " → " + profile.Name, async (token, progress, bytes) =>
             {
                 progress.Report("正在查找兼容的资源版本和依赖文件...");
@@ -2442,6 +2456,7 @@ namespace BlockCraftLauncher.Wpf
                     preparedUpdate != null ? "更新已下载并通过启动校验，准备安装：" +
                         preparedUpdate.Offer.Tag :
                     available ? "发现可用更新：" + offeredUpdate.Tag :
+                        updateCheckFailed ? "暂时无法连接 GitHub。可检测线路后重试。" :
                         "当前通道没有已确认的更高版本。";
 
                 updateNotesText.Text = available ?
@@ -2476,11 +2491,13 @@ namespace BlockCraftLauncher.Wpf
                     return;
             }
             updateChecking = true;
+            updateCheckFailed = false;
+            string channel = settings.UpdateChannel;
             RefreshLauncherUpdatePanel();
             try
             {
                 var candidate = await autoUpdater.CheckAsync(updateCancellation.Token);
-                if (updateCancellation.IsCancellationRequested) return;
+                if (updateCancellation.IsCancellationRequested || settings.UpdateChannel != channel) return;
                 if (offeredUpdate?.Tag != candidate?.Tag ||
                     offeredUpdate?.Mode != candidate?.Mode)
                     preparedUpdate = null;
@@ -2504,6 +2521,7 @@ namespace BlockCraftLauncher.Wpf
             catch (OperationCanceledException) when (updateCancellation.IsCancellationRequested) { }
             catch (Exception ex)
             {
+                updateCheckFailed = true;
                 if (manual) ShowError("检查更新失败", ex);
                 else Log("后台检查更新暂不可用：" + ex.GetType().Name);
             }
@@ -2693,11 +2711,13 @@ namespace BlockCraftLauncher.Wpf
         {
             if (settingsPages != null) return settingsPages[page];
             settingsPages = new Dictionary<string, UIElement>();
-            void AddPage(string key, string title, string description, Grid form, params Button[] links)
+            StackPanel AddPage(string key, string title, string description, Grid form, params Button[] links)
             {
                 var actions = Row(Btn("保存设置", SaveSettings, true));
                 foreach (var link in links) actions.Children.Add(link);
-                settingsPages.Add(key, Col(PageHeading(title, description), Card(Col(form, actions))));
+                var content = Col(PageHeading(title, description), Card(Col(form, actions)));
+                settingsPages.Add(key, content);
+                return content;
             }
 
             var appearance = SettingsForm();
@@ -2747,10 +2767,10 @@ namespace BlockCraftLauncher.Wpf
             var network = SettingsForm();
             var routes = new[]
             {
-                new KeyValuePair<string, string>("auto", "自动选择最快线路"),
-                new KeyValuePair<string, string>("china", "中国大陆优先"),
-                new KeyValuePair<string, string>("official", "仅官方"),
-                new KeyValuePair<string, string>("mirror", "镜像优先")
+                new KeyValuePair<string, string>("auto", "自动选择可用线路"),
+                new KeyValuePair<string, string>("china", "中国大陆优先 · 镜像 → 官方"),
+                new KeyValuePair<string, string>("international", "海外优先 · 官方 → 镜像"),
+                new KeyValuePair<string, string>("official", "仅官方源")
             };
             settingsNetworkMode = new ComboBox {
                 ItemsSource = routes,
@@ -2759,13 +2779,13 @@ namespace BlockCraftLauncher.Wpf
                 MaxWidth = 340 };
             if (settingsNetworkMode.SelectedIndex < 0) settingsNetworkMode.SelectedIndex = 0;
             SettingRow(network, "下载线路", settingsNetworkMode,
-                "镜像线路用于游戏下载，镜像不可用时可回退到官方线路。");
+                "游戏和加载器文件来源为 Mojang、加载器官方站点与 BMCLAPI。");
             settingsDownloadThreads = new TextBox { Text = settings.DownloadThreads.ToString(), MaxWidth = 130 };
             SettingRow(network, "并发连接", settingsDownloadThreads, "2～32 个连接");
             settingsDownloadRetries = new TextBox { Text = settings.DownloadRetries.ToString(), MaxWidth = 130 };
             SettingRow(network, "失败重试", settingsDownloadRetries, "1～6 次");
-            settingsProxy = new TextBox { Text = settings.Proxy, ToolTip = "HTTP/HTTPS 代理地址，可留空" };
-            SettingRow(network, "HTTP 代理", settingsProxy);
+            settingsProxy = new TextBox { Text = settings.Proxy, ToolTip = "例如 http://127.0.0.1:7890" };
+            SettingRow(network, "下载代理", settingsProxy, "留空沿用 Windows 系统代理。");
             settingsMcim = new CheckBox
             {
                 IsChecked = settings.McimEnabled,
@@ -2776,8 +2796,39 @@ namespace BlockCraftLauncher.Wpf
                 }
             };
             SettingRow(network, "社区镜像", settingsMcim,
-                "用于搜索和下载允许分发的 CurseForge 模组。");
-            AddPage("下载设置", "下载设置", "选择网络线路、并发数和资源来源。", network);
+                "用于 CurseForge 搜索与下载，并可作为 Modrinth 的备用来源。");
+            var probeText = Txt("", 12);
+            var probeCard = Card(Col(Txt("线路检测结果", 16, true),
+                Txt("检测公开接口的连接和首包耗时。微软登录使用 Windows 系统网络。", 12, false, true),
+                probeText));
+            probeCard.Visibility = Visibility.Collapsed;
+            Button probe = null;
+            probe = Btn("检测线路", async () =>
+            {
+                probeCard.Visibility = Visibility.Visible;
+                if (!NetworkDownloader.TryNormalizeProxy(settingsProxy.Text, out var address))
+                {
+                    probeText.Text = "请输入有效的下载代理地址。";
+                    return;
+                }
+                var draft = new LauncherConfig
+                {
+                    Proxy = address, McimEnabled = settingsMcim.IsChecked == true,
+                    NetworkMode = (settingsNetworkMode.SelectedItem as KeyValuePair<string, string>?)?.Key ?? "auto"
+                };
+                probe.IsEnabled = false;
+                probeText.Text = "正在检测线路…";
+                try
+                {
+                    var result = await NetworkDiagnostics.RunAsync(draft, updateCancellation.Token);
+                    probeText.Text = string.Join(Environment.NewLine, result);
+                }
+                catch (OperationCanceledException) when (updateCancellation.IsCancellationRequested) { }
+                catch (Exception ex) { probeText.Text = "检测失败：" + ex.Message; }
+                finally { probe.IsEnabled = true; }
+            });
+            var networkPage = AddPage("下载设置", "下载设置", "选择网络线路、并发数和资源来源。", network, probe);
+            networkPage.Children.Add(probeCard);
 
             var updates = SettingsForm();
             var channels = new[]
@@ -2815,8 +2866,16 @@ namespace BlockCraftLauncher.Wpf
         }
         void SaveSettings()
         {
+            if (!NetworkDownloader.TryNormalizeProxy(settingsProxy?.Text ?? settings.Proxy, out var proxy))
+            {
+                Navigate("下载设置");
+                settingsProxy.Focus();
+                Status("下载代理地址无效，例如 http://127.0.0.1:7890。");
+                return;
+            }
             settings.Root = settingsRoot?.Text ?? settings.Root;
-            settings.Proxy = settingsProxy?.Text ?? settings.Proxy;
+            settings.Proxy = proxy;
+            if (settingsProxy != null) settingsProxy.Text = proxy;
             if (settingsNetworkMode?.SelectedItem is KeyValuePair<string, string> selectedRoute)
                 settings.NetworkMode = selectedRoute.Key;
             if (int.TryParse(settingsDownloadThreads?.Text, out var threads))
@@ -2830,6 +2889,7 @@ namespace BlockCraftLauncher.Wpf
                 settings.UpdateChannel != selectedUpdateChannel.Key)
             {
                 settings.UpdateChannel = selectedUpdateChannel.Key;
+                updateCheckFailed = false;
                 offeredUpdate = null;
                 preparedUpdate = null;
                 settings.LastUpdateCheckUtc = DateTime.MinValue;

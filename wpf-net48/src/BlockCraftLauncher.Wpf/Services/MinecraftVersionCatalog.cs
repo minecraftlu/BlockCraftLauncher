@@ -39,10 +39,10 @@ namespace BlockCraftLauncher.Wpf.Services
     /// </summary>
     public sealed class MinecraftVersionCatalog
     {
-        const string Official = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+        internal const string Official = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
         readonly LauncherConfig settings;
-        readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = 12 * 1024 * 1024 };
         readonly string cache;
+        public bool UsingCachedManifest { get; private set; }
 
         public MinecraftVersionCatalog(LauncherConfig settings, string cachePath = null)
         {
@@ -87,34 +87,69 @@ namespace BlockCraftLauncher.Wpf.Services
 
         public async Task<IReadOnlyList<MinecraftVersionEntry>> LoadAsync(bool forceRefresh, CancellationToken ct)
         {
-            if (!forceRefresh && File.Exists(cache) &&
-                DateTime.UtcNow - File.GetLastWriteTimeUtc(cache) < TimeSpan.FromMinutes(30))
+            UsingCachedManifest = false;
+            ct.ThrowIfCancellationRequested();
+            if (!forceRefresh && TryReadCache(out var current, TimeSpan.FromMinutes(30)))
             {
-                try { return Parse(File.ReadAllText(cache, Encoding.UTF8)); }
-                catch (Exception) { /* Retry online instead of trusting a broken cache. */ }
+                UsingCachedManifest = true;
+                return current;
             }
+
             try
             {
                 using (var net = new NetworkDownloader(settings))
                 {
-                    string data = await net.GetStringWithFallbackAsync(Official, settings.NetworkMode, ct);
-                    var parsed = Parse(data);
-                    Directory.CreateDirectory(Path.GetDirectoryName(cache));
-                    string temp = cache + "." + Guid.NewGuid().ToString("N") + ".tmp";
-                    try
-                    {
-                        File.WriteAllText(temp, data, new UTF8Encoding(false));
-                        if (File.Exists(cache)) File.Replace(temp, cache, null);
-                        else File.Move(temp, cache);
-                    }
-                    finally { if (File.Exists(temp)) File.Delete(temp); }
-                    return parsed;
+                    var result = await net.GetMetadataWithFallbackAsync(Official, settings.NetworkMode,
+                        data => (Raw: data, Versions: Parse(data)), ct);
+                    SaveCache(result.Raw);
+                    return result.Versions;
                 }
             }
-            catch (Exception) when (!ct.IsCancellationRequested && File.Exists(cache))
+            catch (IOException) when (!ct.IsCancellationRequested)
             {
-                // Offline fallback is explicit in the UI; no fabricated version dates.
-                return Parse(File.ReadAllText(cache, Encoding.UTF8));
+                if (!TryReadCache(out var cached)) throw;
+                UsingCachedManifest = true;
+                return cached;
+            }
+        }
+
+        bool TryReadCache(out IReadOnlyList<MinecraftVersionEntry> versions, TimeSpan? maxAge = null)
+        {
+            versions = null;
+            try
+            {
+                if (!File.Exists(cache) || (maxAge.HasValue &&
+                    DateTime.UtcNow - File.GetLastWriteTimeUtc(cache) > maxAge.Value))
+                    return false;
+                versions = Parse(File.ReadAllText(cache, Encoding.UTF8));
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException || ex is InvalidDataException ||
+                ex is UnauthorizedAccessException || ex is ArgumentException || ex is InvalidOperationException)
+            {
+                return false;
+            }
+        }
+
+        void SaveCache(string data)
+        {
+            string fullPath = Path.GetFullPath(cache);
+            string temp = fullPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(fullPath));
+                File.WriteAllText(temp, data, new UTF8Encoding(false));
+                if (File.Exists(fullPath)) File.Replace(temp, fullPath, null);
+                else File.Move(temp, fullPath);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                // A read-only cache must not discard an otherwise valid live list.
+            }
+            finally
+            {
+                try { File.Delete(temp); }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { }
             }
         }
     }

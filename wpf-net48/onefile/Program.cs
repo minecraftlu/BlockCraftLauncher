@@ -16,7 +16,7 @@ namespace BlockCraftLauncher.OneFile
     {
         private const string ResourceName = "BlockCraftLauncher.Payload.zip";
         private const string GameExe = "BlockCraftLauncher.Wpf.exe";
-        private const string Release = "v0.9.33";
+        private const string Release = "v0.9.34";
         private const string Ready = ".blockcraft-ready";
 
         [STAThread]
@@ -27,7 +27,7 @@ namespace BlockCraftLauncher.OneFile
             // can look successful because its bootstrap exited immediately.
             bool probe = (args.Length == 1 && new[] {
                 "--smoke-test", "--ui-layout-selftest", "--download-ui-selftest",
-                "--download-selftest", "--modrinth-search-selftest",
+                "--download-selftest", "--modrinth-search-selftest", "--public-network-selftest",
                 "--modrinth-deps-selftest", "--saves-restore-selftest",
                 "--instance-detection-selftest", "--auth-selftest",
                 "--skin-selftest"

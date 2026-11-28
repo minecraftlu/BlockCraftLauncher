@@ -65,7 +65,7 @@ Write-Host 'Verified standalone x64 update helper'
 
 $dist = Join-Path $root 'dist'
 New-Item -Path $dist -ItemType Directory -Force | Out-Null
-$name = 'BlockCraftLauncher-v0.9.33-WPF-net48-Alpha-Windows-x64'
+$name = 'BlockCraftLauncher-v0.9.34-WPF-net48-Alpha-Windows-x64'
 $staging = Join-Path $dist $name
 if (Test-Path $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }
 New-Item -Path $staging -ItemType Directory | Out-Null
@@ -114,7 +114,7 @@ $stagedExe = Join-Path $staging 'BlockCraftLauncher.Wpf.exe'
 $hash = (Get-FileHash -LiteralPath $stagedExe -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  BlockCraftLauncher.Wpf.exe" | Set-Content -LiteralPath "$stagedExe.sha256" -Encoding ASCII
 @'
-BlockCraft Launcher v0.9.33 WPF Alpha - .NET Framework 4.8
+BlockCraft Launcher v0.9.34 WPF Alpha - .NET Framework 4.8
 This is an incomplete migration preview. Do not overwrite the stable v0.9.26 Python/Go launcher.
 Requires Windows 10/11, .NET Framework 4.8 and Microsoft Edge WebView2 Runtime for Microsoft login.
 Some functionality (CurseForge, modpack installation, multiplayer, updater) is not yet migrated.
@@ -127,7 +127,20 @@ No .NET Framework 4.8 redistributable, Minecraft assets, or login tokens are bun
 '@ | Set-Content -LiteralPath (Join-Path $staging 'README-ALPHA.txt') -Encoding UTF8
 $archive = Join-Path $dist "$name.zip"
 if (Test-Path $archive) { Remove-Item -LiteralPath $archive -Force }
-Compress-Archive -Path $staging -DestinationPath $archive -CompressionLevel Optimal
+# ZIP entry names use forward slashes, including on Windows PowerShell.
+# Existing WPF updaters require portable paths when verifying/extracting releases.
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$prefix = $staging.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+$zip = [IO.Compression.ZipFile]::Open($archive, [IO.Compression.ZipArchiveMode]::Create)
+try {
+    Get-ChildItem -LiteralPath $staging -Recurse -File -Force | Sort-Object FullName | ForEach-Object {
+        $relative = $_.FullName.Substring($prefix.Length).Replace('\', '/')
+        [IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+            $zip, $_.FullName, "$name/$relative", [IO.Compression.CompressionLevel]::Optimal) | Out-Null
+    }
+}
+finally { $zip.Dispose() }
 if (-not (Test-Path $archive)) { throw 'ZIP creation failed' }
 Write-Host "Built EXE: $exe"
 Write-Host "SHA-256: $hash"

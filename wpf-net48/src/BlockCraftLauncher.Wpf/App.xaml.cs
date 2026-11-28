@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using BlockCraftLauncher.Wpf.Services;
@@ -41,7 +42,9 @@ namespace BlockCraftLauncher.Wpf
                 string.Equals(arg, "--skin-selftest", StringComparison.OrdinalIgnoreCase));
             bool relaunchWindowSelfTest = e.Args.Any(arg =>
                 string.Equals(arg, "--window-relaunch-selftest", StringComparison.OrdinalIgnoreCase));
-            smokeTest = authSelfTest || downloadSelfTest || dependencySelfTest ||
+            bool publicNetworkSelfTest = e.Args.Any(arg =>
+                string.Equals(arg, "--public-network-selftest", StringComparison.OrdinalIgnoreCase));
+            smokeTest = publicNetworkSelfTest || authSelfTest || downloadSelfTest || dependencySelfTest ||
                 saveRestoreSelfTest || instanceDetectionSelfTest || modrinthSearchSelfTest ||
                 downloadPageSelfTest || layoutSelfTest || skinSelfTest ||
                 relaunchWindowSelfTest ||
@@ -84,6 +87,25 @@ namespace BlockCraftLauncher.Wpf
                 LauncherRelaunchSignal.ReadToken(e.Args);
             bool directPreview = e.Args.Any(arg =>
                 string.Equals(arg, "--direct-open", StringComparison.OrdinalIgnoreCase));
+
+            if (publicNetworkSelfTest)
+            {
+                try
+                {
+                    string report = Environment.GetEnvironmentVariable("BLOCKCRAFT_PUBLIC_NETWORK_REPORT");
+                    if (string.IsNullOrWhiteSpace(report))
+                        throw new ArgumentException("公开网络测试需要指定报告文件。");
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(65));
+                    NetworkDiagnostics.WriteLiveReportAsync(report, timeout.Token).GetAwaiter().GetResult();
+                    Shutdown(0);
+                }
+                catch (Exception ex)
+                {
+                    WriteDiagnostic(ex);
+                    Shutdown(33);
+                }
+                return;
+            }
 
             if (skinSelfTest)
             {

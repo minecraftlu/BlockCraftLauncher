@@ -30,7 +30,9 @@ def check():
     assert 'WebView2RuntimeSupport.OfferOfficialSetup' in main
     assert main.index('WebView2RuntimeSupport.IsAvailable') < main.index('GetMicrosoftService().SignInAsync()')
     modrinth=(SRC/'Services/ModrinthClient.cs').read_text('utf8')
-    assert 'loaderValues.Any' in modrinth and 'sha1.Length != 40' in modrinth
+    dependency=(SRC/'Services/ModrinthDependencyPlanner.cs').read_text('utf8')
+    assert 'DownloadModWithDependenciesAsync(hit, profile' in modrinth
+    assert 'loaders.Any' in dependency and 'sha1.Length != 40' in modrinth
     network=(SRC/'Services/NetworkDownloader.cs').read_text('utf8')
     assert 'File.Replace(part, fullPath, null)' in network and 'RetryAfterMs' in network
     assert 'CmlLib' in (ROOT/'docs/MIGRATION_STATUS.md').read_text('utf8')

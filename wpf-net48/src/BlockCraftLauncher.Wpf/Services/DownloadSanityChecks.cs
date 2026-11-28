@@ -125,6 +125,7 @@ namespace BlockCraftLauncher.Wpf.Services
             ChinaDownloadAndCurseForgeSanityChecks.Run();
             LauncherAutoUpdateSanityChecks.Run();
             MinecraftRouteSanityChecks.RunAsync().GetAwaiter().GetResult();
+            RegionalNetworkSanityChecks.RunAsync().GetAwaiter().GetResult();
         }
     }
 }
